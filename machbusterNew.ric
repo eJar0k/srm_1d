@@ -1,0 +1,53 @@
+data:
+  config:
+    ambPressure: 99977.50000000001
+    burnoutThrustThres: 1.0
+    burnoutWebThres: 2.5400050800101604e-05
+    flowSeparationWarnPercent: 0.05
+    mapDim: 750
+    maxMachNumber: 0.7
+    maxMassFlux: 1406.4697609001405
+    maxPressure: 10342500.000000002
+    minPortThroat: 2.0
+    sepPressureRatio: 0.4
+    timestep: 0.00666
+  grains:
+  - properties:
+      coreDiameter: 0.012700025400050802
+      diameter: 0.047625095250190506
+      inhibitedEnds: Both
+      length: 0.12700025400050802
+    type: BATES
+  - properties:
+      aftCoreDiameter: 0.022860045720091444
+      diameter: 0.047625095250190506
+      forwardCoreDiameter: 0.014478028956057912
+      inhibitedEnds: Both
+      length: 0.6858013716027433
+    type: Conical
+  nozzle:
+    convAngle: 40.0
+    divAngle: 15.0
+    efficiency: 0.98
+    erosionCoeff: 1.8419792659593266e-10
+    exit: 0.047625095250190506
+    slagCoeff: 0.0
+    throat: 0.017018034036068077
+    throatLength: 0.005080010160020321
+  propellant:
+    density: 1699.5457728642882
+    name: 84 Unsuppressed - CHARACTERIZED
+    tabs:
+    - a: 1.5694834407944363e-05
+      k: 1.19
+      m: 24.98
+      maxPressure: 13790000.000000002
+      minPressure: 0.0
+      n: 0.4
+      t: 3105.0
+type: !!python/object/apply:uilib.fileIO.fileTypes
+- 3
+version: !!python/tuple
+- 0
+- 6
+- 1

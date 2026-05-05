@@ -1,0 +1,37 @@
+# Python bytecode + Numba compiled cache
+# (Numba .nbi/.nbc files are persistent JIT artifacts; per DEVNOTES the
+# #1 source of "the fix didn't work" bugs is stale Numba caches —
+# never commit them.)
+__pycache__/
+*.py[cod]
+*$py.class
+*.nbi
+*.nbc
+
+# Test runner cache
+.pytest_cache/
+
+# Generated plots from example/test runs
+*.png
+
+# Generated CSV exports
+output.csv
+
+# Editor / IDE / OS / agent metadata
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Virtual envs (just in case)
+.venv/
+venv/
+env/
+
+# Compiled extensions (e.g., if openMotor's mathlib gets built locally)
+*.pyd
+*.so
+*.dylib
