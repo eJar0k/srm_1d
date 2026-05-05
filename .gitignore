@@ -21,6 +21,7 @@ output.csv
 .vscode/
 .idea/
 .claude/
+*.code-workspace
 *.swp
 *.swo
 .DS_Store
