@@ -170,39 +170,67 @@ def _install_fake_find_perimeter_cy():
     sys.modules[mod_name] = fake
 
 
+def _find_openmotor_root():
+    """
+    Walk upward from this file looking for an `openMotor/openMotor/motorlib/`
+    directory. Returns the inner `openMotor/openMotor/` path (which contains
+    `motorlib/` and `mathlib/`), or None if not found.
+
+    Resolution order:
+        1. `SRM1D_OPENMOTOR_PATH` environment variable (if set, must point
+           directly at the inner openMotor/openMotor/ directory)
+        2. Walk upward from this file, checking each ancestor for a sibling
+           or descendant named `openMotor/openMotor/motorlib/`. Robust to
+           any folder depth — works whether srm_1d sits at
+           `Erosive Burning Solver/srm_1d/` or `.../Claude Testing/srm_1d/`
+           or anywhere else, as long as openMotor is somewhere up the tree.
+
+    Returning None lets the caller raise a clear error message including
+    the directories that were checked.
+    """
+    import os
+
+    env_path = os.environ.get('SRM1D_OPENMOTOR_PATH')
+    if env_path:
+        candidate = Path(env_path).resolve()
+        if (candidate / 'motorlib').is_dir():
+            return candidate
+        # Fall through to upward search if env path is wrong, with a hint
+        # in the eventual error message.
+
+    here = Path(__file__).resolve().parent
+    for ancestor in [here, *here.parents]:
+        candidate = ancestor / 'openMotor' / 'openMotor'
+        if (candidate / 'motorlib').is_dir():
+            return candidate
+    return None
+
+
 def _setup_openmotor_path():
     """
     Add the local openMotor checkout to sys.path so `motorlib` and
     `mathlib` are importable. Inject the find_perimeter shim before
     `mathlib` imports its missing Cython dependency. Idempotent.
 
-    Expected layout (per reference_openmotor_source memory):
-        Erosive Burning Solver/
-            openMotor/
-                openMotor/      ← inner package dir, contains motorlib/
-                    motorlib/
-                    mathlib/
-            Claude Testing/
-                v0.4 Adapter Layer/
-                    srm_1d/
-                        fmm_grain.py    ← __file__
+    Locates openMotor by walking upward from this file (see
+    `_find_openmotor_root`). Set `SRM1D_OPENMOTOR_PATH` env var to
+    override.
     """
     global _OPENMOTOR_PATH_CONFIGURED
     if _OPENMOTOR_PATH_CONFIGURED:
         return
 
-    here = Path(__file__).resolve().parent             # srm_1d/
-    # ../../ → "v0.4 Adapter Layer/"
-    # ../../../ → "Claude Testing/"
-    # ../../../../ → "Erosive Burning Solver/"
-    om_root = here.parent.parent.parent / "openMotor" / "openMotor"
-
-    if not om_root.is_dir():
+    om_root = _find_openmotor_root()
+    if om_root is None:
+        here = Path(__file__).resolve().parent
+        searched = [str(here)] + [str(p) for p in here.parents]
         raise ImportError(
-            f"openMotor checkout not found at expected path:\n  {om_root}\n"
-            "Clone it next to this project:\n"
-            "    cd 'Erosive Burning Solver'\n"
-            "    git clone https://github.com/reilleya/openMotor"
+            "openMotor checkout not found. Searched for "
+            "`openMotor/openMotor/motorlib/` under each of:\n  "
+            + "\n  ".join(searched)
+            + "\nClone it adjacent to this project:\n"
+            "    git clone https://github.com/reilleya/openMotor\n"
+            "Or set SRM1D_OPENMOTOR_PATH to the inner openMotor/openMotor/ dir."
         )
 
     om_str = str(om_root)
