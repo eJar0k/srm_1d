@@ -153,13 +153,25 @@ class TestGeometryConversion:
         assert geo.segments[0].inhibit_aft is True
 
     def test_unsupported_grain_raises(self):
-        # EndBurningGrain isn't BATES and isn't an FMM type — should
-        # raise from the adapter dispatch.
+        # EndBurningGrain isn't BATES, isn't Conical, and isn't an FMM
+        # type — should raise from the adapter dispatch.
         grains = [{'type': 'EndBurningGrain', 'properties': {
             'diameter': 0.080, 'length': 0.100,
             'inhibitedEnds': 'Neither'}}]
         with pytest.raises(ValueError):
             convert_geometry(grains)
+
+    def test_conical_bore_diameters(self):
+        grains = [{'type': 'Conical', 'properties': {
+            'forwardCoreDiameter': 0.030, 'aftCoreDiameter': 0.050,
+            'diameter': 0.080, 'inhibitedEnds': 'Both', 'length': 0.500}}]
+        geo = convert_geometry(grains)
+        assert geo.segments[0].D_bore_fwd == pytest.approx(0.030)
+        assert geo.segments[0].D_bore_aft == pytest.approx(0.050)
+        assert geo.D_outer == pytest.approx(0.080)
+        assert geo.segments[0].inhibit_fwd is True
+        assert geo.segments[0].inhibit_aft is True
+        assert geo.segments[0].fmm_table is None
 
     def test_default_spacing(self):
         """Default gap should be ~5% of D_outer."""

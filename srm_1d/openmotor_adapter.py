@@ -203,10 +203,10 @@ def convert_geometry(ric_grains, N_cells=None, spacing=None,
     Convert openMotor grain list to srm_1d MotorGeometry.
     The throat lives on a separate Nozzle object — see convert_nozzle().
 
-    Supports BATES (analytic) and all 7 of openMotor's FMM grain types
-    (Finocyl, Star, Moonburner, X, C, D, Custom). FMM grains have their
-    regression maps built via openMotor (see srm_1d.fmm_grain) and
-    attached as `GrainSegment.fmm_table`.
+    Supports BATES + Conical (analytic) and all 7 of openMotor's FMM
+    grain types (Finocyl, Star, Moonburner, X, C, D, Custom). FMM grains
+    have their regression maps built via openMotor (see srm_1d.fmm_grain)
+    and attached as `GrainSegment.fmm_table`.
 
     Parameters
     ----------
@@ -227,7 +227,7 @@ def convert_geometry(ric_grains, N_cells=None, spacing=None,
     -------
     MotorGeometry
     """
-    # BATES is the only analytic grain we handle directly. All FMM types
+    # BATES and Conical are analytic — handled directly. All FMM types
     # are dispatched to srm_1d.fmm_grain.from_ric_grain.
     segments_data = []
 
@@ -245,7 +245,19 @@ def convert_geometry(ric_grains, N_cells=None, spacing=None,
         if gtype == 'BATES':
             segments_data.append({
                 'kind': 'analytic',
-                'D_bore': props['coreDiameter'],
+                'D_bore_fwd': props['coreDiameter'],
+                'D_bore_aft': props['coreDiameter'],
+                'D_outer': props['diameter'],
+                'length': props['length'],
+                'inhibit_fwd': inh_fwd,
+                'inhibit_aft': inh_aft,
+                'fmm_table': None,
+            })
+        elif gtype == 'Conical':
+            segments_data.append({
+                'kind': 'analytic',
+                'D_bore_fwd': props['forwardCoreDiameter'],
+                'D_bore_aft': props['aftCoreDiameter'],
                 'D_outer': props['diameter'],
                 'length': props['length'],
                 'inhibit_fwd': inh_fwd,
@@ -266,10 +278,10 @@ def convert_geometry(ric_grains, N_cells=None, spacing=None,
                 ) from e
             segments_data.append({
                 'kind': 'fmm',
-                'D_bore': props['diameter'],   # FMM has no circular bore;
-                                               # use D_outer as a placeholder
-                                               # (compile_geometry will overwrite
-                                               #  cell_wall_web from the FmmTable)
+                # FMM has no circular bore; D_outer placeholder gets
+                # overwritten by FmmTable in compile_geometry_arrays.
+                'D_bore_fwd': props['diameter'],
+                'D_bore_aft': props['diameter'],
                 'D_outer': props['diameter'],
                 'length': props['length'],
                 'inhibit_fwd': inh_fwd,
@@ -296,7 +308,8 @@ def convert_geometry(ric_grains, N_cells=None, spacing=None,
         segments.append(GrainSegment(
             x_start=x_cursor,
             length=sd['length'],
-            D_bore_fwd=sd['D_bore'],
+            D_bore_fwd=sd['D_bore_fwd'],
+            D_bore_aft=sd['D_bore_aft'],
             D_outer=sd['D_outer'],
             inhibit_fwd=sd['inhibit_fwd'],
             inhibit_aft=sd['inhibit_aft'],
@@ -697,7 +710,14 @@ def print_ric_summary(filepath):
     print(f"  Grains: {len(grains)}")
     for i, g in enumerate(grains):
         p = g['properties']
-        print(f"    [{i}] {g['type']}: D_bore={p['coreDiameter']*1e3:.1f}mm  "
+        if g['type'] == 'Conical':
+            bore_str = (f"D_bore_fwd={p['forwardCoreDiameter']*1e3:.1f}mm  "
+                        f"D_bore_aft={p['aftCoreDiameter']*1e3:.1f}mm")
+        elif 'coreDiameter' in p:
+            bore_str = f"D_bore={p['coreDiameter']*1e3:.1f}mm"
+        else:
+            bore_str = "(FMM core)"
+        print(f"    [{i}] {g['type']}: {bore_str}  "
               f"D_outer={p['diameter']*1e3:.1f}mm  L={p['length']*1e3:.1f}mm  "
               f"inhibited={p.get('inhibitedEnds', 'Neither')}")
 
