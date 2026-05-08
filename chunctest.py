@@ -101,6 +101,7 @@ def main():
         result,
         title="Chunc Sim vs Firing",
         experimental=CHUNC_EXPERIMENTAL,
+        time_offset=CHUNC_EXPERIMENTAL.get('time_offset', 0.0),
         save_path="chunc_pressure.png",
     )
 

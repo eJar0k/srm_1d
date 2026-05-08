@@ -1,0 +1,5 @@
+# Combustion gas transport for Hasegawa Propellant 1 (RPA effective values).
+# Loaded automatically by openmotor_adapter when reading hasegawa_a.ric.
+mu: 8.842e-5
+k: 0.3685
+Cp: 2060.0

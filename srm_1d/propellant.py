@@ -439,67 +439,8 @@ def characteristic_velocity(gamma, R_specific, T_flame):
 # ================================================================
 # Propellant Definitions
 # ================================================================
-
-def make_hasegawa_propellant_1():
-    """
-    Hasegawa et al. "Propellant 1" (69AP/17HTPB/14Al).
-
-    Used in all three Hasegawa cylindrical test motors (A, B, C); Ma
-    et al. (2020) use these for validation.
-
-    Burn rate at 4.9 MPa: 4.9 mm/s (Hasegawa Table 1). Pressure
-    exponent n = 0.3. Single-tab covering the full operating range.
-    """
-    P_ref = 4.9e6
-    r_ref = 4.9e-3
-    n = 0.3
-    a = r_ref / (P_ref ** n)
-
-    return Propellant(
-        name="Hasegawa Propellant 1 (69AP/17HTPB/14Al)",
-        tabs=[PropellantTab(
-            min_pressure=0.0,
-            max_pressure=2.0e7,
-            a=a, n=n,
-            gamma=1.19,
-            T_flame=3041.0,
-            molecular_weight=0.0254,
-        )],
-        rho_propellant=1700.0,
-        Cps=1500.0,
-        T_surface=1000.0,
-        T_initial=293.0,
-        mu_gas=8.842e-5,
-        k_gas=0.3685,
-        Cp_gas=2060.0,
-    )
-
-
-def make_king_propellant_4525():
-    """
-    King's propellant 4525 (73% AP 20μm + 27% HTPB, no metal fuel).
-    From Ma Table 1 and King's papers. Transport properties ESTIMATED.
-    """
-    P_ref = 6.0e6
-    r_ref = 0.83e-2
-    n = 0.3
-    a = r_ref / (P_ref ** n)
-
-    return Propellant(
-        name="King 4525 (73AP(20um)/27HTPB)",
-        tabs=[PropellantTab(
-            min_pressure=0.0,
-            max_pressure=2.0e7,
-            a=a, n=n,
-            gamma=1.25,
-            T_flame=1667.0,
-            molecular_weight=0.025,
-        )],
-        rho_propellant=1500.0,
-        Cps=1200.0,
-        T_surface=750.0,
-        T_initial=293.0,
-        mu_gas=6.0e-5,
-        k_gas=0.25,
-        Cp_gas=1800.0,
-    )
+#
+# Named propellants live in ``srm_1d/motors/<motor>.ric`` (combustion
+# data) and ``srm_1d/motors/<motor>.transport.yaml`` (transport
+# properties). Use ``run_from_ric(...)`` from openmotor_adapter or
+# ``convert_propellant`` directly.

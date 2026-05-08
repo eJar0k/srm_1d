@@ -174,16 +174,21 @@ class TestGeometryConversion:
         assert geo.segments[0].fmm_table is None
 
     def test_default_spacing(self):
-        """Default gap should be ~5% of D_outer."""
+        """Default gap auto-computed as max(3mm, 5%·D_outer); v0.6.0 snapping
+        rounds segment/gap lengths to integer dx, so L_motor matches the
+        analytical expectation only within a few-cell tolerance."""
         geo = convert_geometry(SAMPLE_RIC_GRAINS)
         expected_gap = max(0.003, 0.07 * 0.05)
-        total_grain = 4 * 0.12
-        expected_L = total_grain + 5 * expected_gap
-        assert geo.L_motor == pytest.approx(expected_L, rel=1e-6)
+        expected_L = 4 * 0.12 + 5 * expected_gap
+        assert abs(geo.L_motor - expected_L) < 5 * geo.dx
 
-    def test_custom_N_cells(self):
-        geo = convert_geometry(SAMPLE_RIC_GRAINS, N_cells=200)
-        assert geo.N_cells == 200
+    def test_target_propellant_cells(self):
+        geo = convert_geometry(SAMPLE_RIC_GRAINS, target_propellant_cells=200)
+        # Snapping may shave a few cells from the target depending on
+        # gap clamping; must be within ~10% of requested.
+        propellant_cells = sum(int(round(s.length / geo.dx))
+                               for s in geo.segments)
+        assert abs(propellant_cells - 200) < 20
 
 
 class TestNozzleConversion:

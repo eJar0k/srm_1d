@@ -34,6 +34,7 @@ Unit conversions from openMotor internal units:
     propellant.a: m/s per Pa^n  (same as ours, no conversion)
 """
 
+import os
 import warnings
 import numpy as np
 
@@ -44,7 +45,7 @@ except ImportError:
     HAS_YAML = False
 
 from .propellant import Propellant, PropellantTab
-from .grain_geometry import MotorGeometry, GrainSegment, make_bates_motor
+from .grain_geometry import build_snapped_geometry
 from .nozzle import Nozzle, compute_motor_performance, print_performance_summary
 from .simulation import run_simulation
 
@@ -107,6 +108,39 @@ def load_ric(filepath):
         'config': data['config'],
         'version': raw.get('version', (0, 0, 0)),
     }
+
+
+def load_transport(transport_path):
+    """
+    Load a srm_1d transport YAML sibling file (alongside a .ric).
+
+    The transport YAML is a srm_1d-specific extension that supplies
+    combustion gas transport properties not present in the openMotor
+    schema (.ric files only carry combustion thermo: γ, T_flame, MW).
+
+    Schema:
+        mu: <Pa·s>
+        k:  <W/(m·K)>
+        Cp: <J/(kg·K)>
+
+    Returns
+    -------
+    dict shaped like ``gas_props`` for ``convert_propellant``.
+    """
+    if not HAS_YAML:
+        raise ImportError(
+            "PyYAML is required to read transport YAML files."
+        )
+    with open(transport_path, 'r') as f:
+        data = yaml.safe_load(f)
+    required = {'mu', 'k', 'Cp'}
+    missing = required - set(data.keys())
+    if missing:
+        raise ValueError(
+            f"Transport YAML {transport_path} missing required keys: "
+            f"{sorted(missing)}"
+        )
+    return {'mu': data['mu'], 'k': data['k'], 'Cp': data['Cp']}
 
 
 # ================================================================
@@ -197,7 +231,7 @@ def convert_propellant(ric_propellant, gas_props=None):
     )
 
 
-def convert_geometry(ric_grains, N_cells=None, spacing=None,
+def convert_geometry(ric_grains, target_propellant_cells=100,
                      fmm_map_dim=1001):
     """
     Convert openMotor grain list to srm_1d MotorGeometry.
@@ -208,15 +242,18 @@ def convert_geometry(ric_grains, N_cells=None, spacing=None,
     have their regression maps built via openMotor (see srm_1d.fmm_grain)
     and attached as `GrainSegment.fmm_table`.
 
+    Routes through ``build_snapped_geometry`` so cell boundaries align
+    with segment edges and gap widths are guaranteed to be ≥1 cell.
+    Inter-segment gaps default to ``max(3mm, 5%·D_outer)``.
+
     Parameters
     ----------
     ric_grains : list of dict
         From the .ric file's 'grains' key.
-    N_cells : int or None
-        Number of cells. If None, auto-computed.
-    spacing : float or None
-        Inter-segment gap [m]. If None, defaults to 5% of grain
-        outer diameter.
+    target_propellant_cells : int
+        Approximate number of cells to spend on propellant. Cell width
+        is computed from this and the total propellant length, then
+        used to integer-snap segment lengths and gaps.
     fmm_map_dim : int
         FMM regression-map resolution for FMM grain types. openMotor
         default is 1001. Higher = more accurate perimeter/port-area
@@ -227,9 +264,8 @@ def convert_geometry(ric_grains, N_cells=None, spacing=None,
     -------
     MotorGeometry
     """
-    # BATES and Conical are analytic — handled directly. All FMM types
-    # are dispatched to srm_1d.fmm_grain.from_ric_grain.
-    segments_data = []
+    segments_spec = []
+    D_outer = None
 
     for i, grain in enumerate(ric_grains):
         gtype = grain['type']
@@ -241,32 +277,25 @@ def convert_geometry(ric_grains, N_cells=None, spacing=None,
                 f"Valid values: {list(_INHIBIT_MAP.keys())}"
             )
         inh_fwd, inh_aft = _INHIBIT_MAP[inhibit_str]
+        seg_D_outer = props['diameter']
 
         if gtype == 'BATES':
-            segments_data.append({
-                'kind': 'analytic',
+            spec = {
                 'D_bore_fwd': props['coreDiameter'],
                 'D_bore_aft': props['coreDiameter'],
-                'D_outer': props['diameter'],
                 'length': props['length'],
                 'inhibit_fwd': inh_fwd,
                 'inhibit_aft': inh_aft,
-                'fmm_table': None,
-            })
+            }
         elif gtype == 'Conical':
-            segments_data.append({
-                'kind': 'analytic',
+            spec = {
                 'D_bore_fwd': props['forwardCoreDiameter'],
                 'D_bore_aft': props['aftCoreDiameter'],
-                'D_outer': props['diameter'],
                 'length': props['length'],
                 'inhibit_fwd': inh_fwd,
                 'inhibit_aft': inh_aft,
-                'fmm_table': None,
-            })
+            }
         else:
-            # Try FMM dispatch. from_ric_grain raises with a clear
-            # message if `gtype` isn't a registered FMM type.
             from .fmm_grain import from_ric_grain
             try:
                 fmm_table = from_ric_grain(grain, map_dim=fmm_map_dim)
@@ -276,59 +305,39 @@ def convert_geometry(ric_grains, N_cells=None, spacing=None,
                     f"BATES uses analytic; FMM types must be registered. "
                     f"Inner error: {e}"
                 ) from e
-            segments_data.append({
-                'kind': 'fmm',
-                # FMM has no circular bore; D_outer placeholder gets
-                # overwritten by FmmTable in compile_geometry_arrays.
-                'D_bore_fwd': props['diameter'],
-                'D_bore_aft': props['diameter'],
-                'D_outer': props['diameter'],
+            # FMM has no circular bore; D_bore_* are placeholders that
+            # get overwritten by FmmTable in compile_geometry_arrays.
+            spec = {
+                'D_bore_fwd': seg_D_outer,
+                'D_bore_aft': seg_D_outer,
                 'length': props['length'],
                 'inhibit_fwd': inh_fwd,
                 'inhibit_aft': inh_aft,
                 'fmm_table': fmm_table,
-            })
+            }
 
-    if not segments_data:
+        if D_outer is None:
+            D_outer = seg_D_outer
+        elif abs(seg_D_outer - D_outer) > 1e-9:
+            warnings.warn(
+                f"Grain {i} has diameter {seg_D_outer} != motor D_outer {D_outer}. "
+                f"Using motor-level D_outer; per-segment outer-diameter is "
+                f"not yet supported."
+            )
+        segments_spec.append(spec)
+
+    if not segments_spec:
         raise ValueError("No supported grain segments found in .ric file.")
 
-    D_outer = segments_data[0]['D_outer']
+    # Default inter-segment gap: max(3mm, 5%·D_outer). Last segment has
+    # no gap_after (build_snapped_geometry handles trailing spacer).
+    inter_gap = max(0.003, D_outer * 0.05)
+    for spec in segments_spec[:-1]:
+        spec['gap_after'] = inter_gap
 
-    # Default gap: 5% of outer diameter, minimum 3mm
-    if spacing is None:
-        spacing = max(0.003, D_outer * 0.05)
-
-    # Build geometry
-    N_segments = len(segments_data)
-    L_motor = sum(s['length'] for s in segments_data) + (N_segments + 1) * spacing
-
-    segments = []
-    x_cursor = spacing
-    for sd in segments_data:
-        segments.append(GrainSegment(
-            x_start=x_cursor,
-            length=sd['length'],
-            D_bore_fwd=sd['D_bore_fwd'],
-            D_bore_aft=sd['D_bore_aft'],
-            D_outer=sd['D_outer'],
-            inhibit_fwd=sd['inhibit_fwd'],
-            inhibit_aft=sd['inhibit_aft'],
-            fmm_table=sd['fmm_table'],
-        ))
-        x_cursor += sd['length'] + spacing
-
-    # Auto cell count: ~25 cells per segment, ~3 cells per gap
-    if N_cells is None:
-        cells_per_seg = 25
-        cells_per_gap = 3
-        N_cells = N_segments * cells_per_seg + (N_segments + 1) * cells_per_gap
-        N_cells = max(N_cells, 50)
-
-    return MotorGeometry(
-        L_motor=L_motor,
-        D_outer=D_outer,
-        segments=segments,
-        N_cells=N_cells,
+    return build_snapped_geometry(
+        segments_spec, D_outer,
+        target_propellant_cells=target_propellant_cells,
     )
 
 
@@ -368,7 +377,7 @@ def convert_nozzle(ric_nozzle):
 # High-level convenience functions
 # ================================================================
 
-def ric_to_sim_args(motor, gas_props=None, N_cells=None, spacing=None,
+def ric_to_sim_args(motor, gas_props=None, target_propellant_cells=100,
                     **sim_overrides):
     """
     Convert a loaded .ric motor dict to run_simulation keyword arguments.
@@ -379,10 +388,10 @@ def ric_to_sim_args(motor, gas_props=None, N_cells=None, spacing=None,
         Output from load_ric().
     gas_props : dict or None
         Transport properties: {'mu': Pa·s, 'k': W/(m·K), 'Cp': J/(kg·K)}.
-    N_cells : int or None
-        Override cell count.
-    spacing : float or None
-        Override inter-segment gap [m].
+    target_propellant_cells : int
+        Approximate cell count to spend on propellant. Cell width is
+        derived from this and used to integer-snap segment lengths
+        and inter-segment gaps.
     **sim_overrides
         Additional keyword arguments passed to run_simulation
         (e.g. roughness, kappa, igniter params).
@@ -393,7 +402,8 @@ def ric_to_sim_args(motor, gas_props=None, N_cells=None, spacing=None,
     'propellant', 'nozzle', 'P_ambient', and 'P_cutoff' by default.
     """
     prop = convert_propellant(motor['propellant'], gas_props)
-    geo = convert_geometry(motor['grains'], N_cells=N_cells, spacing=spacing)
+    geo = convert_geometry(motor['grains'],
+                           target_propellant_cells=target_propellant_cells)
     nozzle = convert_nozzle(motor['nozzle'])
 
     P_amb = motor['config'].get('ambPressure', 101325.0)
@@ -410,19 +420,43 @@ def ric_to_sim_args(motor, gas_props=None, N_cells=None, spacing=None,
     return args
 
 
-def run_from_ric(filepath, gas_props=None, N_cells=None, spacing=None,
+def run_from_ric(filepath, gas_props=None, transport_path=None,
                  **sim_overrides):
     """
     Load a .ric file, run the 1D simulation, compute performance.
+
+    If ``gas_props`` is not given, looks for a sibling ``<stem>.transport.yaml``
+    next to the .ric file. Falls back to estimated transport properties
+    if neither is supplied.
+
+    Parameters
+    ----------
+    filepath : str
+        Path to the .ric file.
+    gas_props : dict or None
+        Explicit transport override: {'mu', 'k', 'Cp'}.
+    transport_path : str or None
+        Explicit transport YAML path. If None, sibling auto-resolution
+        is attempted.
 
     Returns
     -------
     result, perf, nozzle, geo, prop
     """
     motor = load_ric(filepath)
+
+    if gas_props is None:
+        if transport_path is None:
+            stem, _ = os.path.splitext(filepath)
+            candidate = stem + '.transport.yaml'
+            if os.path.exists(candidate):
+                transport_path = candidate
+        if transport_path is not None:
+            gas_props = load_transport(transport_path)
+
     args = ric_to_sim_args(
         motor, gas_props=gas_props,
-        N_cells=N_cells, spacing=spacing, **sim_overrides,
+        **sim_overrides,
     )
 
     geo = args.pop('geo')

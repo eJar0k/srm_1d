@@ -18,13 +18,28 @@ Delete `srm_1d/__pycache__/` after any change to `@njit` functions.
 Numba's `.nbi`/`.nbc` cache files persist even when `.pyc` files are
 removed. Stale compiled code is the #1 cause of "the fix didn't work."
 
-### End-face injection uses interval containment
-`x_lo <= x_face <= x_hi` (geometric containment), NOT distance-based.
-We tried three approaches:
-- `dist < dx` → double-counting at segment boundaries
-- `dist < dx/2` → missed faces when face drifts between cell centers
-- `dist < dx/2 + 1e-6` → missed faces after regression
-- `x_lo <= x_face <= x_hi` → correct, geometrically exact
+### End-face injection uses a partition-of-unity hat function (v0.6.0+)
+`update_cell_geometry` distributes each end-face's mass over the two
+adjacent cells with weights `w = 1 − |x_face − x_center|/dx`, summing
+to 1.0 by construction. This is the correct response to the v0.6.0
+snapping discretization — `build_snapped_geometry` puts segment edges
+on cell boundaries by design, which would cause the prior interval-
+containment kernel (`x_lo ≤ x_face ≤ x_hi`) to silently double-count
+because both adjacent cells satisfy the closed-interval test.
+
+The new kernel is gated by `tests/test_endface_conservation.py` which
+verifies <0.1% mass error against `2·ρ·r·A_face` for both snapped and
+deliberately-unsnapped grids across resolutions 50, 100, 200, 500.
+
+### Boundary clamp invariant in update_cell_geometry
+The face-distribution kernel has a hard-edge clamp:
+`if i == 0 and x_face < x: weight = 1.0` (and the symmetric N-1 clause).
+This assumes the face is **inside or at the edge of the motor domain**.
+If something pushes `x_fwd < 0` or `x_aft > L_motor` (e.g., a regression
+overshoot or a malformed segment), the clamp will inject the face's
+mass with weight=1 into the boundary cell, hiding the bug. Don't use
+this kernel for grains whose faces could drift outside the domain
+without a domain check upstream.
 
 ### compile_geometry_arrays must match update_cell_geometry
 Both must use the same overlap matching for cell-segment assignment.
@@ -50,11 +65,21 @@ Higher roughness preferentially boosts nozzle-end erosion (high Re).
 - 35-50 μm: physically reasonable for AP/HTPB/Al (aluminum agglomeration)
 - >50 μm: overpredicts; ignition spike becomes too large
 
-### Igniter
-- igniter_A_burn is the primary calibration knob for spike height
-- Auto-default (~11 cm² for 10g charge) works for Motor A
-- The 2/3-power taper controls decay rate — approximate, not tunable
-- Spike height matches well; decay back to plateau is slightly slow
+### Igniter (v0.6.0+ exponential-decay model)
+The v0.6.0 igniter is a **single-knob exponential-decay placeholder**:
+`mdot_igniter(t) = (m_init/τ) · exp(-t/τ)` distributed uniformly along
+the full grain length (`n_ign_cells = N`). The Saint-Robert pyrogen
+model (a, n, ρ, A_burn) and flame-front tracking (v_flame, x_flame)
+were deleted.
+- `igniter_tau` is the only decay knob. There is no pressure feedback
+  — chamber-pressure spikes don't change igniter mdot.
+- LHS-tuned `igniter_tau ≈ 127 ms` for Hasegawa Motor A is acting as a
+  numerical proxy for FSI/grain-viscoelastic cushioning, NOT a physical
+  igniter timescale. Don't read physics into the value.
+- Plan for v0.7.0+: replace with a hot-gas plenum injection model
+  (specified P0(t), T0(t), choked sonic orifice into cell 0). The
+  exponential-decay model is documented as a placeholder pending
+  literature review.
 
 ## Performance Profile (BATES 120 cells, 2.3M steps)
 
@@ -77,8 +102,11 @@ in geometry/burn rate/ignition (called every step or every N steps).
 - propellant.m is g/mol, divide by 1000 for kg/mol
 - propellant.a is m/s per Pa^n (same as ours, no conversion needed)
 - propellant.k is gamma (not thermal conductivity)
-- No inter-segment spacing in file; openMotor is 0-D and doesn't model gaps
-- No gas transport properties in file; must be supplied separately
+- No inter-segment spacing in file; openMotor is 0-D and doesn't model gaps.
+  srm_1d's adapter auto-applies `max(3mm, 5%·D_outer)` between segments.
+- No gas transport properties in file; supplied via sibling
+  `<motor>.transport.yaml` (mu, k, Cp) auto-discovered by `run_from_ric`,
+  or via explicit `gas_props={...}`.
 - No Cps or T_surface; we default to 1500 J/(kg·K) and 1000 K
 
 ## Grid Resolution Guidelines
@@ -193,3 +221,44 @@ in geometry/burn rate/ignition (called every step or every N steps).
       updated identically. `grain_geometry.py` got a private
       `_saint_robert_local` helper (duplicates burn_rate.py's lookup
       logic to keep grain_geometry.py a leaf module).
+- v0.6.0: dynamic discretization, .ric data motors, kernel rewrites.
+    - **Discretization API**: `convert_geometry(ric_grains, N_cells, spacing)`
+      → `convert_geometry(ric_grains, target_propellant_cells)`.
+      `cells_per_seg`/`cells_per_gap` defaults removed. `ric_to_sim_args`
+      and `run_from_ric` lose `N_cells`/`spacing` kwargs the same way.
+      Adapter routes through `build_snapped_geometry`.
+    - **`build_snapped_geometry`** is the canonical builder: takes a
+      `segments_spec` list (per-segment `D_bore_fwd`, `length`, optional
+      `gap_after`/`fmm_table`) plus `target_propellant_cells`, returns a
+      `MotorGeometry` with integer-snapped segment lengths and a
+      Nyquist-CFD-clamped dx.
+    - **End-face injection kernel**: replaced interval-containment
+      (`x_lo ≤ x_face ≤ x_hi`) with a partition-of-unity hat function
+      (`weight = 1 − |x_face − x|/dx`). See "Critical Gotchas". Gated
+      by `tests/test_endface_conservation.py`.
+    - **Volumetric overlap accumulator** in `update_cell_geometry`: the
+      `break` that used to stop after the first matching segment is
+      gone — cells straddling two segments now receive C_burn from
+      both, which fixes a silent under-count at narrow gaps.
+    - **Igniter model rewrite**: `igniter_a/n/rho/A_burn` and the
+      `v_flame_*` flame-front tracking are gone. New API:
+      `igniter_mass`, `igniter_tau` (single decay knob). Pyrogen
+      distributed full-grain (`n_ign_cells = N`).
+      `_run_time_loop` signature follows.
+    - **Named motors moved to `srm_1d/motors/*.ric`**:
+      `make_hasegawa_motor_A/B/C_geo/_nozzle`,
+      `make_hasegawa_propellant_1`, `make_king_propellant_4525`,
+      `make_bates_motor`, `make_single_cylinder`, `make_conical_grain`,
+      `make_stepped_motor`, `make_example_bates` are all DELETED.
+      Use `run_from_ric('srm_1d/motors/<motor>.ric')` or build geometry
+      directly via `build_snapped_geometry`.
+    - **Transport YAML sibling**: `<motor>.transport.yaml` next to a
+      `.ric` file is auto-discovered by `run_from_ric` and supplies
+      `mu`, `k`, `Cp` (which the openMotor schema doesn't carry).
+      Override with `transport_path=...` or `gas_props=...`.
+    - **`time_offset` removed** from `HASEGAWA_MOTOR_A_EXPERIMENTAL`
+      global dict. Pass `time_offset=` to `plot_pressure`/`plot_summary`
+      explicitly.
+    - **Sensitivity tooling** lives at `srm_1d/tools/sensitivity.py`
+      (`run_lhs`, `mse_fitness`, etc.). Example wrapper at
+      `srm_1d/examples/hasegawa_a_lhs.py`.

@@ -2,13 +2,17 @@
 hasegawa_motor_a.py — Validate against Hasegawa et al. (2006) Motor A
 =======================================================================
 
-Runs the Hasegawa Motor A simulation and compares the head-end pressure
-trace against digitized experimental data from Ma et al. (2020) Fig. 10.
+Loads the Hasegawa Motor A definition from `srm_1d/motors/hasegawa_a.ric`
+(geometry + propellant + nozzle) plus its sibling
+`hasegawa_a.transport.yaml` (RPA effective gas transport), runs the
+1D PISO simulation, and compares the head-end pressure trace against
+digitized experimental data from Ma et al. (2020) Fig. 10.
 
-Expected output:
-    P_peak ≈ 6.2 MPa (experiment: 6.4 MPa, within 10%)
-    Total impulse within 2% of experimental
-    Burn time ≈ 4.2 s (experiment: ≈ 4.7 s)
+The roughness / igniter parameters below are the Rank-1 fit from the
+v0.6.0 Latin Hypercube sweep (see srm_1d/tools/sensitivity.py and
+the hasegawa_a_lhs example). They are the canonical calibration
+target — see DEVNOTES "Calibration State" and the
+`project_hasegawa_calibration_state` memory.
 
 Usage:
     python -m srm_1d.examples.hasegawa_motor_a
@@ -19,81 +23,55 @@ Outputs:
     hasegawa_a_summary.png   — 4-panel summary
 """
 
+from pathlib import Path
+
 import matplotlib
-matplotlib.use('Agg')  # Non-interactive backend for script use
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-from srm_1d import run_simulation
-from srm_1d.propellant import make_hasegawa_propellant_1
-from srm_1d.grain_geometry import make_hasegawa_motor_A_geo
-from srm_1d.nozzle import Nozzle, compute_motor_performance, print_performance_summary
+from srm_1d.openmotor_adapter import run_from_ric
 from srm_1d.plotting import (
     plot_pressure, plot_flow_snapshot, plot_summary,
     HASEGAWA_MOTOR_A_EXPERIMENTAL,
 )
 
 
+MOTOR_PATH = Path(__file__).resolve().parents[1] / 'motors' / 'hasegawa_a.ric'
+EXPERIMENTAL_TIME_OFFSET = 0.02  # align experimental ignition with sim t=0
+
+
 def main():
-    # ============================================================
-    # Run simulation
-    # ============================================================
-    geo = make_hasegawa_motor_A_geo()
-    prop = make_hasegawa_propellant_1()
-    prop.k_gas = 0.37      # between frozen (0.37) and effective (0.65)
-    prop.Cp_gas = 2060.0    # between frozen (2060) and effective (1800)
-
-    nozzle = Nozzle(
-        D_throat=0.034,
-        D_exit=0.050,
-        div_angle=15.0,
-        efficiency=0.95,
-    )
-
-    result = run_simulation(
-        geo, prop, nozzle,
-        roughness=15e-6,
+    result, perf, nozzle, geo, prop = run_from_ric(
+        str(MOTOR_PATH),
+        # v0.6.0 LHS-tuned igniter + erosion parameters (Rank 1, MSE 0.24)
+        roughness=37.1e-6,
         kappa=0.45,
+        igniter_mass=0.0024,
+        igniter_tau=0.1269,
+        ignition_ramp_tau=0.0136,
         P_ignition=0.05e6,
-        ignition_ramp_tau=0.010,
         P_cutoff=0.05e6,
         snapshot_interval=0.2,
         print_interval=0.2,
-        igniter_mass = 0.010,
-        # igniter_a,
-        # igniter_n,
-        # igniter_rho,
-        igniter_A_burn = 10e-3,
     )
 
-    # ============================================================
-    # Nozzle performance
-    # ============================================================
-    perf = compute_motor_performance(result, nozzle, prop)
-    print_performance_summary(perf, nozzle)
-
-    # ============================================================
-    # Plots
-    # ============================================================
-    # Pressure trace vs experimental
     plot_pressure(
         result,
         title="Motor A — 1D PISO vs Experimental (Hasegawa 2006)",
         experimental=HASEGAWA_MOTOR_A_EXPERIMENTAL,
+        time_offset=EXPERIMENTAL_TIME_OFFSET,
         save_path="hasegawa_a_pressure.png",
     )
 
-    # Flow snapshot at t ≈ 2s (mid-burn, before burnthrough)
     plot_flow_snapshot(
-        result,
-        t_target=2.0,
+        result, t_target=2.0,
         save_path="hasegawa_a_flow.png",
     )
 
-    # 4-panel summary
     plot_summary(
-        result,
-        performance=perf,
+        result, performance=perf,
         experimental=HASEGAWA_MOTOR_A_EXPERIMENTAL,
+        time_offset=EXPERIMENTAL_TIME_OFFSET,
         title="Hasegawa Motor A — Simulation Summary",
         save_path="hasegawa_a_summary.png",
     )

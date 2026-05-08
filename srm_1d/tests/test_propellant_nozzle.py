@@ -3,10 +3,12 @@ import numpy as np
 import pytest
 from srm_1d.propellant import (
     Propellant, GasProperties, R_UNIVERSAL,
-    make_hasegawa_propellant_1, make_king_propellant_4525,
     create_gas_properties, create_gas_properties_estimated,
     speed_of_sound, density_from_ideal_gas,
     critical_flow_function, characteristic_velocity,
+)
+from srm_1d.tests._motor_fixtures import (
+    hasegawa_propellant_1 as make_hasegawa_propellant_1,
 )
 from srm_1d.nozzle import (
     Nozzle, exit_pressure_from_expansion_ratio,

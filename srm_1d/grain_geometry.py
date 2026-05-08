@@ -520,6 +520,7 @@ def update_cell_geometry(
         is_grain[i] = False
         C_burn[i] = 0.0
         endface_msource[i] = 0.0
+        total_grain_frac = 0.0
 
         # Cell extent
         x_lo = x - 0.5 * dx   # left edge of this cell
@@ -530,75 +531,110 @@ def update_cell_geometry(
             x_fwd = seg_x_start[k] + seg_fwd_reg[k]
             x_aft = seg_x_start[k] + seg_length[k] - seg_aft_reg[k]
 
-            # Segment fully consumed
             if x_fwd >= x_aft:
                 continue
 
             # -----------------------------------------------
-            # Axial overlap fraction
+            # 1. Volumetric Overlap 
+            # (Only applies if grain physically exists in this cell)
             # -----------------------------------------------
             overlap = max(0.0, min(x_hi, x_aft) - max(x_lo, x_fwd))
             grain_frac = overlap / dx
 
-            if grain_frac <= 0.0:
-                continue  # No overlap with this segment
+            if grain_frac > 0.0:
+                cell_segment_id[i] = k
+                is_grain[i] = True
+                total_grain_frac += grain_frac
 
-            # This cell has propellant
-            cell_segment_id[i] = k
-            is_grain[i] = True
+                w_total = cell_wall_web[i]
+                w_remaining = w_total - regress[i]
+                burnout_zone = 0.05 * w_total
 
-            # -----------------------------------------------
-            # Radial burnout ramp (f_active) — works in regression-
-            # depth space rather than diameter space, but the ratio
-            # is identical for cylindrical: same f_active value.
-            # Must match the factor in advance_bore_regression for
-            # mass conservation.
-            # -----------------------------------------------
-            w_total = cell_wall_web[i]
-            w_remaining = w_total - regress[i]
-            burnout_zone = 0.05 * w_total
+                if w_remaining <= 0.0:
+                    f_active = 0.0
+                elif w_total < 1e-10:
+                    f_active = 1.0
+                elif w_remaining < burnout_zone:
+                    f_active = w_remaining / burnout_zone
+                else:
+                    f_active = 1.0
 
-            if w_remaining <= 0.0:
-                f_active = 0.0
-            elif w_total < 1e-10:
-                f_active = 1.0
-            elif w_remaining < burnout_zone:
-                f_active = w_remaining / burnout_zone
-            else:
-                f_active = 1.0
+                C_burn[i] = base_perimeter * grain_frac * f_active
 
             # -----------------------------------------------
-            # Bore burning perimeter — uses base_perimeter from above
-            # (analytic π·D for cylindrical, FMM-table value for FMM).
-            # -----------------------------------------------
-            C_burn[i] = base_perimeter * grain_frac * f_active
-
-            # -----------------------------------------------
-            # End-face mass sources — propellant face area is
-            # (casting tube area) − (port area). Identical to
-            # π/4·(D_outer²−D²) for cylindrical; for FMM, uses the
-            # actual non-circular port area.
+            # 2. End-face mass sources (Linear Distribution Kernel)
+            # Evaluated independently of grain_frac so mass is not dropped
+            # when the hat function pushes it into an empty gap cell.
             # -----------------------------------------------
             casting_area = PI / 4.0 * D_outer * D_outer
-            A_face = casting_area - A_port[i]
-            if A_face < 0.0:
-                A_face = 0.0
+
             if not seg_inhibit_fwd[k]:
-                if x_lo <= x_fwd <= x_hi:
-                    r_normal = _saint_robert_local(
-                        P[i], tab_min_p, tab_max_p, tab_a, tab_n, n_tabs)
-                    endface_msource[i] += rho_propellant * r_normal * A_face / dx
+                dist_fwd = abs(x_fwd - x)
+                weight = 0.0
+                
+                if dist_fwd < dx:
+                    weight = 1.0 - (dist_fwd / dx)
+                if i == 0 and x_fwd < x:
+                    weight = 1.0
+                elif i == N - 1 and x_fwd > x:
+                    weight = 1.0
+                    
+                if weight > 0.0:
+                    x_sample = min(x_fwd + 0.1 * dx, x_aft - 1e-6)
+                    i_sample = max(0, min(N - 1, int(x_sample / dx)))
+                    
+                    if cell_segment_type[i_sample] == 1 and cell_fmm_idx[i_sample] >= 0:
+                        A_port_face = _fmm_lookup_flat(regress[i_sample], cell_fmm_idx[i_sample], fmm_offset, fmm_port_flat, fmm_reg_flat)
+                    else:
+                        D_face = cell_D_bore_init[i_sample] + 2.0 * regress[i_sample]
+                        D_face = min(D_face, D_outer)
+                        A_port_face = PI / 4.0 * D_face * D_face
+                        
+                    A_face = casting_area - A_port_face
+                    if A_face < 0.0: A_face = 0.0
+                    
+                    r_normal = _saint_robert_local(P[i], tab_min_p, tab_max_p, tab_a, tab_n, n_tabs)
+                    endface_msource[i] += weight * rho_propellant * r_normal * A_face / dx
 
             if not seg_inhibit_aft[k]:
-                if x_lo <= x_aft <= x_hi:
-                    r_normal = _saint_robert_local(
-                        P[i], tab_min_p, tab_max_p, tab_a, tab_n, n_tabs)
-                    endface_msource[i] += rho_propellant * r_normal * A_face / dx
+                dist_aft = abs(x_aft - x)
+                weight = 0.0
+                
+                if dist_aft < dx:
+                    weight = 1.0 - (dist_aft / dx)
+                if i == 0 and x_aft < x:
+                    weight = 1.0
+                elif i == N - 1 and x_aft > x:
+                    weight = 1.0
+                    
+                if weight > 0.0:
+                    x_sample = max(x_aft - 0.1 * dx, x_fwd + 1e-6)
+                    i_sample = max(0, min(N - 1, int(x_sample / dx)))
+                    
+                    if cell_segment_type[i_sample] == 1 and cell_fmm_idx[i_sample] >= 0:
+                        A_port_face = _fmm_lookup_flat(regress[i_sample], cell_fmm_idx[i_sample], fmm_offset, fmm_port_flat, fmm_reg_flat)
+                    else:
+                        D_face = cell_D_bore_init[i_sample] + 2.0 * regress[i_sample]
+                        D_face = min(D_face, D_outer)
+                        A_port_face = PI / 4.0 * D_face * D_face
+                        
+                    A_face = casting_area - A_port_face
+                    if A_face < 0.0: A_face = 0.0
+                    
+                    r_normal = _saint_robert_local(P[i], tab_min_p, tab_max_p, tab_a, tab_n, n_tabs)
+                    endface_msource[i] += weight * rho_propellant * r_normal * A_face / dx
 
-            break
-
-        # Gap cells have full port diameter
-        if not is_grain[i]:
+        # -----------------------------------------------
+        # Volumetric Flow Area Smoothing
+        # -----------------------------------------------
+        if total_grain_frac > 0.0:
+            casting_area = PI / 4.0 * D_outer * D_outer
+            # Smoothly blend the port area based on how much grain is in the cell
+            A_port[i] = A_port[i] * total_grain_frac + casting_area * (1.0 - total_grain_frac)
+            D_port[i] = (4.0 * A_port[i] / PI) ** 0.5
+            D_hyd[i] = D_port[i]
+        else:
+            # Pure Gap Cell
             D_port[i] = D_outer
             A_port[i] = PI / 4.0 * D_outer * D_outer
             D_hyd[i] = D_outer
@@ -756,198 +792,100 @@ def advance_endface_regression(
             seg_aft_reg[k] += r_normal * dt
 
 
-# ================================================================
-# SECTION 3: Factory Functions
-# ================================================================
+import warnings
 
-def make_bates_motor(
-    D_bore, D_outer, L_segment, N_segments, spacing,
-    N_cells=150,
-):
+def build_snapped_geometry(segments_spec: list[dict], D_outer: float, target_propellant_cells: int = 100) -> MotorGeometry:
     """
-    Create a BATES motor geometry. The throat is a property of the
-    Nozzle object — construct one separately (srm_1d.nozzle.Nozzle).
-
-    Layout: [gap][grain][gap][grain]...[grain][gap]
-    Both end faces of each segment burn (standard BATES).
-    """
-    L_motor = N_segments * L_segment + (N_segments + 1) * spacing
-
-    segments = []
-    for k in range(N_segments):
-        x_start = spacing + k * (L_segment + spacing)
-        segments.append(GrainSegment(
-            x_start=x_start,
-            length=L_segment,
-            D_bore_fwd=D_bore,
-            D_outer=D_outer,
-            inhibit_fwd=False,
-            inhibit_aft=False,
-        ))
-
-    return MotorGeometry(
-        L_motor=L_motor, D_outer=D_outer,
-        segments=segments, N_cells=N_cells,
-    )
-
-
-def make_single_cylinder(D_bore, D_outer, L_grain, N_cells=150):
-    """
-    Single cylindrical grain with inhibited ends (Hasegawa-style).
-    Pair with a Nozzle for the throat.
-    """
-    spacing = 0.001
-    return MotorGeometry(
-        L_motor=L_grain + 2 * spacing,
-        D_outer=D_outer,
-        segments=[GrainSegment(
-            x_start=spacing, length=L_grain,
-            D_bore_fwd=D_bore, D_outer=D_outer,
-            inhibit_fwd=True, inhibit_aft=True,
-        )],
-        N_cells=N_cells,
-    )
-
-
-def make_hasegawa_motor_A_geo():
-    """Hasegawa Motor A grain: D_bore=40mm, D_outer=80mm, L=1680mm. (Throat=34mm via make_hasegawa_motor_A_nozzle.)"""
-    return make_single_cylinder(0.040, 0.080, 1.680, N_cells=150)
-
-
-def make_hasegawa_motor_B_geo():
-    """Hasegawa Motor B grain: D_bore=40mm, D_outer=80mm, L=840mm. (Throat=23mm via make_hasegawa_motor_B_nozzle.)"""
-    return make_single_cylinder(0.040, 0.080, 0.840, N_cells=80)
-
-
-def make_hasegawa_motor_C_geo():
-    """Hasegawa Motor C grain: D_bore=60mm, D_outer=80mm, L=1260mm. (Throat=34mm via make_hasegawa_motor_C_nozzle.)"""
-    return make_single_cylinder(0.060, 0.080, 1.260, N_cells=100)
-
-
-def make_hasegawa_motor_A_nozzle():
-    """Hasegawa Motor A nozzle: D_throat=34mm, D_exit=50mm (ε≈2.16)."""
-    from .nozzle import Nozzle
-    return Nozzle(D_throat=0.034, D_exit=0.050)
-
-
-def make_hasegawa_motor_B_nozzle():
-    """Hasegawa Motor B nozzle: D_throat=23mm, D_exit=34mm (ε≈2.18)."""
-    from .nozzle import Nozzle
-    return Nozzle(D_throat=0.023, D_exit=0.034)
-
-
-def make_hasegawa_motor_C_nozzle():
-    """Hasegawa Motor C nozzle: D_throat=34mm, D_exit=50mm (ε≈2.16)."""
-    from .nozzle import Nozzle
-    return Nozzle(D_throat=0.034, D_exit=0.050)
-
-
-def make_example_bates():
-    """
-    Example 4-segment BATES grain (typical amateur L-class).
-    76mm casing, 38mm bore, 4×120mm segments, 5mm spacing.
-    Pair with a Nozzle (e.g. D_throat=20mm) for the throat.
-    """
-    return make_bates_motor(
-        D_bore=0.038, D_outer=0.070, L_segment=0.120,
-        N_segments=4, spacing=0.005, N_cells=120,
-    )
-
-
-def make_conical_grain(D_bore_fwd, D_bore_aft, D_outer, L_grain,
-                       N_cells=150,
-                       inhibit_fwd=True, inhibit_aft=True):
-    """
-    Single conical grain (linearly tapered bore). Pair with a Nozzle.
-    """
-    spacing = 0.001
-    return MotorGeometry(
-        L_motor=L_grain + 2 * spacing,
-        D_outer=D_outer,
-        segments=[GrainSegment(
-            x_start=spacing, length=L_grain,
-            D_bore_fwd=D_bore_fwd, D_outer=D_outer,
-            D_bore_aft=D_bore_aft,
-            inhibit_fwd=inhibit_fwd, inhibit_aft=inhibit_aft,
-        )],
-        N_cells=N_cells,
-    )
-
-
-def make_stepped_motor(segments_spec, D_outer, N_cells=None):
-    """
-    Motor with segments placed end-to-end (no gaps at bonded interfaces).
-    Pair with a Nozzle for the throat.
-
-    Segments that touch are auto-inhibited at their shared face.
-    Segments with explicit gaps between them keep their specified
-    inhibition flags.
-
+    Intelligent geometry preprocessor that guarantees perfect node alignment
+    and CFD minimum gap resolution via Integer-Snapping.
+    
     Parameters
     ----------
     segments_spec : list of dict
-        Each dict specifies one segment:
-            'D_bore_fwd': float — bore diameter at forward end [m]
-            'D_bore_aft': float (optional) — bore at aft end [m]
-            'length': float — segment length [m]
-            'gap_after': float (optional) — gap after this segment [m].
-                Default: 0 (bonded to next segment).
-            'inhibit_fwd': bool (optional) — default False
-            'inhibit_aft': bool (optional) — default False
+        Specifications for each segment. Expected keys:
+        - 'D_bore_fwd': float (bore diameter at forward end)
+        - 'D_bore_aft': float (optional, defaults to D_bore_fwd)
+        - 'length': float (segment length)
+        - 'gap_after': float (optional, gap after this segment, default 0.0)
+        - 'inhibit_fwd': bool (optional, default False)
+        - 'inhibit_aft': bool (optional, default False)
+        - 'fmm_table': FmmTable or None (optional, attaches an FMM
+          regression table to this segment for Finocyl/Star/etc.)
     D_outer : float
-        Outer diameter [m].
-    N_cells : int or None
-        If None, auto-computed.
-
-    Returns
-    -------
-    MotorGeometry
-
-    Example
-    -------
-    # Two bonded cylindrical segments with different bore diameters:
-    make_stepped_motor([
-        {'D_bore_fwd': 0.030, 'length': 0.100},
-        {'D_bore_fwd': 0.040, 'length': 0.150},
-    ], D_outer=0.070)
+        Outer casing diameter [m].
+    target_propellant_cells : int
+        Desired number of cells to represent the propellant mass.
     """
-    leading_gap = 0.001  # Minimal leading spacer
-
-    # Compute segment positions
+    # 1. Sum total pure propellant length
+    L_prop_total = sum(spec['length'] for spec in segments_spec)
+    
+    # 2. Calculate preliminary coarse dx
+    dx = L_prop_total / target_propellant_cells
+    
+    # 3. The Nyquist-CFD Clamp (Enforce 3-cell minimum on physical gaps only)
+    gaps = [spec.get('gap_after', 0.0) for spec in segments_spec if spec.get('gap_after', 0.0) > 1e-6]
+    leading_gap = 0.001 # Minimal leading spacer for internal boundary conditions
+    
+    # Only clamp if there are actual physical gaps between segments
+    if gaps:
+        min_gap = min(gaps)
+        max_allowed_dx = min_gap / 1.0 # Reverted to 1.0 from 3.0 to speed up run time, even though 3.0 increases resolution
+        
+        if dx > max_allowed_dx:
+            dx = max_allowed_dx
+        
+    # 4. Reconstruct geometry using Integer-Snapping
     segments = []
-    x_cursor = leading_gap
-    for i, spec in enumerate(segments_spec):
-        D_fwd = spec['D_bore_fwd']
-        D_aft = spec.get('D_bore_aft', D_fwd)
-        length = spec['length']
-        inh_fwd = spec.get('inhibit_fwd', False)
-        inh_aft = spec.get('inhibit_aft', False)
+    x_cursor = 0.0
+    total_cells = 0
+    
+    # Snap leading gap
+    n_leading = max(1, int(round(leading_gap / dx)))
+    x_cursor += n_leading * dx
+    total_cells += n_leading
 
+    for i, spec in enumerate(segments_spec):
+        # Snap the propellant segment
+        n_seg = max(1, int(round(spec['length'] / dx)))
+        snapped_length = n_seg * dx
+        
         segments.append(GrainSegment(
             x_start=x_cursor,
-            length=length,
-            D_bore_fwd=D_fwd,
+            length=snapped_length,
+            D_bore_fwd=spec['D_bore_fwd'],
             D_outer=D_outer,
-            D_bore_aft=D_aft,
-            inhibit_fwd=inh_fwd,
-            inhibit_aft=inh_aft,
+            D_bore_aft=spec.get('D_bore_aft', spec['D_bore_fwd']),
+            inhibit_fwd=spec.get('inhibit_fwd', False),
+            inhibit_aft=spec.get('inhibit_aft', False),
+            fmm_table=spec.get('fmm_table', None),
         ))
-
-        x_cursor += length
-        gap = spec.get('gap_after', 0.0)
-        x_cursor += gap
-
-    # Trailing spacer
-    L_motor = x_cursor + 0.001
-
-    # Auto-inhibition of touching faces is handled in compile_geometry_arrays
-
-    if N_cells is None:
-        N_cells = max(50, int(L_motor / 0.004))  # ~4mm per cell
+        
+        x_cursor += snapped_length
+        total_cells += n_seg
+        
+        # Snap the trailing gap
+        raw_gap = spec.get('gap_after', 0.0)
+        if raw_gap > 1e-6:
+            n_gap = max(1, int(round(raw_gap / dx)))  # Stop forcing 3-cell minimum, allow 1 for speed
+            snapped_gap = n_gap * dx
+            x_cursor += snapped_gap
+            total_cells += n_gap
+            
+    # Trailing motor spacer
+    n_trailing = max(1, int(round(0.001 / dx)))
+    x_cursor += n_trailing * dx
+    total_cells += n_trailing
+    
+    L_motor_snapped = x_cursor
+    
+    # Verify deviation is within acceptable physical limits (< 10mm)
+    if abs(L_motor_snapped - (L_prop_total + sum(gaps))) > 0.01:
+        warnings.warn(f"Integer-snapping altered total motor length by more than 10mm. Check segment proportions.")
 
     return MotorGeometry(
-        L_motor=L_motor,
+        L_motor=L_motor_snapped,
         D_outer=D_outer,
         segments=segments,
-        N_cells=N_cells,
+        N_cells=total_cells
     )
+

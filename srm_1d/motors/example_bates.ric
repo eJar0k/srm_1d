@@ -1,0 +1,55 @@
+# Example 4-segment BATES motor — used for tests and the bates_4seg example.
+# 4 grains × 120mm; D_bore=40mm, D_outer=70mm. Both ends free on each grain.
+# Inter-segment spacing handled by the adapter (defaults to 5%×D_outer).
+data:
+  config:
+    ambPressure: 101325.0
+  grains:
+    - type: BATES
+      properties:
+        coreDiameter: 0.040
+        diameter: 0.070
+        length: 0.120
+        inhibitedEnds: Neither
+    - type: BATES
+      properties:
+        coreDiameter: 0.040
+        diameter: 0.070
+        length: 0.120
+        inhibitedEnds: Neither
+    - type: BATES
+      properties:
+        coreDiameter: 0.040
+        diameter: 0.070
+        length: 0.120
+        inhibitedEnds: Neither
+    - type: BATES
+      properties:
+        coreDiameter: 0.040
+        diameter: 0.070
+        length: 0.120
+        inhibitedEnds: Neither
+  nozzle:
+    throat: 0.020
+    exit: 0.040
+    efficiency: 0.95
+    divAngle: 15.0
+    convAngle: 30.0
+    throatLength: 0.0
+    erosionCoeff: 0.0
+    slagCoeff: 0.0
+  propellant:
+    name: Hasegawa Propellant 1 (69AP/17HTPB/14Al)
+    density: 1700.0
+    tabs:
+      - minPressure: 0.0
+        maxPressure: 20000000.0
+        a: 4.821e-5
+        n: 0.3
+        k: 1.19
+        t: 3041.0
+        m: 25.4
+version:
+  - 0
+  - 6
+  - 0

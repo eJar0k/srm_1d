@@ -88,10 +88,10 @@ def _ignition_source_and_mass(
     P, has_ignited, is_burning, is_grain, ignition_time,
     r_total, r_erosive, mass_source,
     C_burn, endface_msource,
-    ignition_ramp_tau, P_ignition, x_flame,
-    x_centers, t, rho_propellant, N,
+    ignition_ramp_tau, P_ignition,
+    t, rho_propellant, N,
 ):
-    """Ignition check + source assembly + mass sum — single pass."""
+    """Hybrid Ignition: Gas-Dynamic Trigger + Thermal Soak Ramp."""
     n_burning = 0
     n_ignited = 0
     mass_sum = 0.0
@@ -104,18 +104,23 @@ def _ignition_source_and_mass(
             if has_ignited[i]:
                 n_ignited += 1
         else:
+            # 1. The Trigger: Pure local CFD pressure wave
             if not has_ignited[i]:
-                if P[i] >= P_ignition and x_centers[i] <= x_flame:
+                if P[i] >= P_ignition:
                     has_ignited[i] = True
                     is_burning[i] = True
                     ignition_time[i] = t
 
+            # 2. The Response: Thermal boundary layer development proxy
             if has_ignited[i]:
                 n_ignited += 1
                 elapsed = t - ignition_time[i]
+                
+                # Smooth asymptotic approach to 100% burn rate
                 ramp = 1.0 - math.exp(-elapsed / ignition_ramp_tau)
                 r_total[i] *= ramp
                 r_erosive[i] *= ramp
+                
                 if is_burning[i]:
                     n_burning += 1
 
@@ -123,6 +128,7 @@ def _ignition_source_and_mass(
             mass_source[i] = rho_propellant * r_total[i] * C_burn[i]
         else:
             mass_source[i] = 0.0
+            
         mass_source[i] += endface_msource[i]
         mass_sum += mass_source[i]
 
@@ -158,12 +164,11 @@ def _run_time_loop(
     rho_propellant, Cps, T_surface, T_initial,
     # --- Burn rate tabs (parallel arrays) ---
     tab_min_p, tab_max_p, tab_a, tab_n, n_tabs,
-    # --- Simulation parameters ---
+        # --- Simulation parameters ---
     roughness, kappa,
     cfl_target, dt_max, burn_update_interval,
-    igniter_mass_init, igniter_a, igniter_n, igniter_rho, igniter_A_burn, n_ign_cells,
+    igniter_mass_init, igniter_tau, n_ign_cells,  # <-- EDITED LINE
     P_ignition, ignition_ramp_tau,
-    v_flame_ref, v_flame_P_ref, v_flame_n,
     t_max, P_cutoff,
     erosion_coeff, slag_coeff, throat_is_evolving,
     snapshot_interval,
@@ -213,7 +218,6 @@ def _run_time_loop(
     D_throat = D_throat_init
     A_throat = A_throat_init
     igniter_mass_remaining = igniter_mass_init
-    x_flame = 0.0  # Flame front position [m], advances each step
 
     # Initial a_max for CFL
     T_max = T[0]
@@ -290,42 +294,19 @@ def _run_time_loop(
         # ============================================
         # STEP 3: IGNITION + SOURCE ASSEMBLY
         # ============================================
-        # Advance flame front (pressure-dependent velocity)
-        P_for_flame = P[0] if P[0] > 1e4 else 1e4
-        v_flame = v_flame_ref * (P_for_flame / v_flame_P_ref) ** v_flame_n
-        x_flame += v_flame * dt
 
         n_burning, n_ignited, mass_sum = _ignition_source_and_mass(
             P, has_ignited, is_burning, is_grain, ignition_time,
             r_total, r_erosive, mass_source,
             C_burn, endface_msource,
-            ignition_ramp_tau, P_ignition, x_flame,
-            x_centers, t, rho_propellant, N,
+            ignition_ramp_tau, P_ignition,
+            t, rho_propellant, N,
         )
 
-        # Add igniter: pressure-dependent burn rate with tapering
+        # Add igniter: Decoupled Exponential Decay Model
+        # mdot = (M_init / tau) * exp(-t / tau)
         if igniter_mass_remaining > 0.0:
-            # Use average of first few cells for pressure (more physical
-            # than P[0] alone, which is in the direct injection zone)
-            P_ign_avg = 0.0
-            n_avg = min(n_ign_cells, N)
-            for j in range(n_avg):
-                P_ign_avg += P[j]
-            P_ign_avg = P_ign_avg / n_avg
-            if P_ign_avg < 101325.0:
-                P_ign_avg = 101325.0
-
-            r_ign = igniter_a * P_ign_avg ** igniter_n
-
-            # Taper burning surface area with remaining mass fraction.
-            # As the charge is consumed, exposed surface area decreases
-            # (pellets shrink, pyrogen web burns away). Exponent 2/3
-            # gives area proportional to (volume)^(2/3), which is the
-            # geometric scaling for shrinking spherical pellets.
-            mass_frac = igniter_mass_remaining / igniter_mass_init
-            A_ign_current = igniter_A_burn * mass_frac ** (2.0 / 3.0)
-
-            mdot_igniter = igniter_rho * r_ign * A_ign_current
+            mdot_igniter = (igniter_mass_init / igniter_tau) * math.exp(-t / igniter_tau)
 
             # Don't consume more than remaining mass
             dm = mdot_igniter * dt
@@ -451,15 +432,9 @@ def run_simulation(
     burn_update_interval=None,
     # --- Igniter ---
     igniter_mass=0.010,
-    igniter_a=1.0e-4,
-    igniter_n=0.4,
-    igniter_rho=1800.0,
-    igniter_A_burn=None,
+    igniter_tau=0.015,
     P_ignition=0.05e6,
     ignition_ramp_tau=0.010,
-    v_flame_ref=50.0,
-    v_flame_P_ref=1.0e6,
-    v_flame_n=0.4,
     # --- Termination ---
     t_max=10.0,
     P_cutoff=0.5e6,
@@ -495,23 +470,12 @@ def run_simulation(
         Recompute burn rates every N flow steps. If None, auto-set.
     igniter_mass : float
         Total igniter propellant mass [kg]. Default: 1 g.
-    igniter_a : float
-        Saint-Robert coefficient for igniter composition [m/s / Pa^n].
-        Default: 1e-4 (approximate BKNO3).
-    igniter_n : float
-        Saint-Robert pressure exponent for igniter [-]. Default 0.4.
-    igniter_rho : float
-        Igniter propellant density [kg/m³]. Default 1800 (BKNO3).
-    igniter_A_burn : float or None
-        Igniter burning surface area [m²]. If None, estimated from
-        mass and density. Primary spike-height calibration knob.
+    igniter_tau : float
+        Exponential decay time constant [s]. Default: 15 ms.
     P_ignition : float
         Pressure threshold for cell ignition [Pa]. Default: 0.05 MPa.
     ignition_ramp_tau : float
         Exponential ramp time constant [s]. Default: 10 ms.
-    v_flame_ref, v_flame_P_ref, v_flame_n : float
-        Pressure-dependent flame spread:
-            v_flame = v_flame_ref × (P / v_flame_P_ref)^v_flame_n.
     t_max : float
         Maximum simulation time [s]. Default: 10.
     P_cutoff : float
@@ -586,12 +550,8 @@ def run_simulation(
         ga['fmm_perim_flat'], ga['fmm_port_flat'],
     )
 
-    # Igniter: pressure-dependent Saint-Robert model
-    if igniter_A_burn is None:
-        # Estimate from mass/density: packed 3mm pellets, ~10% exposure
-        igniter_A_burn = 0.10 * 6.0 * igniter_mass / (igniter_rho * 0.003)
-        igniter_A_burn = max(5e-4, min(igniter_A_burn, 0.01))
-    n_ign_cells = max(int(0.15 * N), 2)
+    # Igniter: Decoupled exponential decay
+    n_ign_cells = N # max(int(0.15 * N), 2)
 
     # Flow state
     P = np.full(N, 101325.0)
@@ -644,8 +604,7 @@ def run_simulation(
           f"D_throat={nozzle.D_throat*1e3:.1f}mm  segments={ga['N_seg']}")
     print(f"  Params: Ts={propellant.T_surface:.0f}K  Cps={propellant.Cps:.0f}  "
           f"roughness={roughness*1e6:.0f}um  kappa={kappa}")
-    print(f"  Igniter: m={igniter_mass*1e3:.1f}g  a={igniter_a:.2e}  n={igniter_n:.2f}  "
-          f"A_burn={igniter_A_burn*1e4:.1f}cm²")
+    print(f"  Igniter: m={igniter_mass*1e3:.1f}g  tau={igniter_tau*1000:.1f}ms")
     print()
 
     wall_start = clock.time()
@@ -686,9 +645,8 @@ def run_simulation(
         # Simulation parameters
         roughness, kappa,
         cfl_target, dt_max, burn_update_interval,
-        igniter_mass, igniter_a, igniter_n, igniter_rho, igniter_A_burn, n_ign_cells,
+        igniter_mass, igniter_tau, n_ign_cells,  # <-- EDITED LINE
         P_ignition, ignition_ramp_tau,
-        v_flame_ref, v_flame_P_ref, v_flame_n,
         t_max, P_cutoff,
         erosion_coeff, slag_coeff, throat_is_evolving,
         snapshot_interval,

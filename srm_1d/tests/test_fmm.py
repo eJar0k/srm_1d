@@ -199,11 +199,11 @@ class TestFmmSimulation:
         """Full simulation should produce mass balance < 1% (mass produced
         through bore vs. mass through nozzle)."""
         from srm_1d import run_simulation
-        from srm_1d.propellant import make_hasegawa_propellant_1
+        from srm_1d.tests._motor_fixtures import hasegawa_propellant_1
         from srm_1d.nozzle import Nozzle
 
         geo, _ = self._build_finocyl_motor()
-        prop = make_hasegawa_propellant_1()
+        prop = hasegawa_propellant_1()
         nozzle = Nozzle(D_throat=0.020, D_exit=0.035, efficiency=0.95)
 
         result = run_simulation(

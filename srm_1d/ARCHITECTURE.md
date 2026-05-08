@@ -1,4 +1,4 @@
-# Architecture Map — srm_1d v0.5.0
+# Architecture Map — srm_1d v0.6.0
 
 Function-level map of every module. Use as a reference when making
 changes to verify nothing is lost or silently modified.
@@ -42,8 +42,10 @@ changes to verify nothing is lost or silently modified.
 - `density_from_ideal_gas(P, R, T)` — ρ = P/(RT).
 - `critical_flow_function(gamma)` — Γ for choked nozzle flow.
 - `characteristic_velocity(gamma, R, T)` — c* = √(RT)/Γ.
-- `make_hasegawa_propellant_1()` — Validated: 69AP/17HTPB/14Al.
-- `make_king_propellant_4525()` — 73AP/27HTPB (estimated transport).
+
+(Named propellants live as data in `srm_1d/motors/<motor>.ric` plus
+sibling `<motor>.transport.yaml`. The v0.5.x `make_hasegawa_propellant_1`
+/ `make_king_propellant_4525` factories were deleted in v0.6.0.)
 
 ## grain_geometry.py (no project dependencies)
 
@@ -72,8 +74,11 @@ changes to verify nothing is lost or silently modified.
   type 1 (FMM): A_port and base_perimeter from CSR-packed FMM tables;
   D_hyd = 4·A_port/perimeter (correct for non-circular ports).
   Then axial overlap fraction (grain_frac), radial burnout ramp
-  (f_active in regression-depth space), C_burn = base_perimeter·grain_frac·f_active,
-  end-face injection via interval containment.
+  (f_active in regression-depth space), C_burn = base_perimeter·grain_frac·f_active.
+  v0.6.0+ also: a **volumetric overlap accumulator** (cells straddling
+  two segments sum C_burn from both) and a **partition-of-unity
+  end-face kernel** (each face's mass split over 2 adjacent cells with
+  weights summing to 1.0).
 - `advance_bore_regression(regress, r_total, dt, N, cell_wall_web,
   cell_segment_id)` — regress[i] += r_total[i]·f_active·dt. Same
   burnout ramp logic for analytic and FMM cells; primary state is
@@ -81,14 +86,20 @@ changes to verify nothing is lost or silently modified.
 - `advance_endface_regression(...)` — Saint-Robert rate only (no erosion).
 - `_saint_robert_local`, `_fmm_lookup_flat` — private helpers.
 
-### Factory functions (geometry side; pair with a Nozzle separately)
-- `make_bates_motor(D_bore, D_outer, L_seg, N_seg, spacing)`
-- `make_single_cylinder(D_bore, D_outer, L)`
-- `make_conical_grain(D_bore_fwd, D_bore_aft, D_outer, L)`
-- `make_stepped_motor(segments_spec, D_outer)` — arbitrary
-  segments with optional gaps. Auto-inhibits bonded interfaces.
-- `make_hasegawa_motor_A/B/C_geo()`, `make_example_bates()`
-- `make_hasegawa_motor_A/B/C_nozzle()` — sibling Nozzle factories.
+### `build_snapped_geometry(segments_spec, D_outer, target_propellant_cells=100)`
+The canonical builder. Computes `dx = L_propellant / target_cells`,
+applies a Nyquist-CFD clamp so the smallest gap gets ≥1 cell, then
+integer-snaps every segment length and inter-segment gap to multiples
+of `dx`. Returns a `MotorGeometry` whose cell boundaries align with
+segment edges by construction. `segments_spec` keys: `D_bore_fwd`
+(required), `length` (required), `D_bore_aft`, `gap_after`,
+`inhibit_fwd`/`inhibit_aft`, `fmm_table` (all optional).
+
+(The v0.5.x parametric factories — `make_bates_motor`,
+`make_single_cylinder`, `make_conical_grain`, `make_stepped_motor`,
+`make_example_bates`, `make_hasegawa_motor_A/B/C_geo/_nozzle` — were
+deleted in v0.6.0. Build geometry directly via `build_snapped_geometry`
+or load named motors from `srm_1d/motors/*.ric`.)
 
 ## nozzle.py (imports propellant.critical_flow_function; openMotor-aligned)
 
@@ -127,7 +138,7 @@ changes to verify nothing is lost or silently modified.
   n_ignited, mass_sum.
 
 ### Compiled time loop
-- `_run_time_loop(55 args)` — Single @njit function containing the entire
+- `_run_time_loop` — Single @njit function containing the entire
   while loop. Steps: geometry → burn rates → ignition+source → throat
   evolution → PISO → post-PISO → bookkeeping+snapshots.
   Returns: n_steps, n_snaps, mass_produced, mass_nozzle, burnthrough_time,
@@ -139,43 +150,86 @@ changes to verify nothing is lost or silently modified.
   the Nozzle, calls _run_time_loop, wraps results into dict with time
   histories, snapshots, per-grain data, and structured summary.
 
-### Igniter model (inside _run_time_loop)
-Pressure-dependent: r_ign = a_ign × P^n_ign, A_burn tapers as
-(m_remaining/m_init)^(2/3). Pressure averaged over injection cells.
+### Igniter model (v0.6.0 placeholder)
+Single-knob exponential decay distributed full-grain:
+`mdot_igniter(t) = (igniter_mass/igniter_tau) · exp(-t/igniter_tau)`,
+injected uniformly across all N cells (`n_ign_cells = N`). No pressure
+feedback. The v0.5.x Saint-Robert pyrogen model and `v_flame_*`
+flame-front tracking were deleted. This model is documented as a
+placeholder pending a hot-gas plenum replacement (v0.7.0+); see
+DEVNOTES "Igniter".
 
 ## plotting.py (imports matplotlib)
 
-- `plot_pressure(result, experimental, n_head_cells, save_path)` —
-  Head-end pressure with experimental overlay. Supports time_offset.
+- `plot_pressure(result, experimental, time_offset=0.0, ...)` —
+  Head-end pressure with experimental overlay. `time_offset` (seconds)
+  is applied uniformly to all experimental datasets to align ignition
+  events; pre-shift the time arrays for per-dataset offsets.
 - `plot_thrust(result, perf, save_path)` — Thrust + Isp two-panel.
 - `plot_flow_snapshot(result, t_target)` — 2×2: P, Mach, burn rate
   (with endface orange bars), port diameter.
-- `plot_summary(result, perf, experimental)` — 2×2 combined.
+- `plot_summary(result, perf, experimental, time_offset=0.0)` — 2×2 combined.
 - `plot_comparison(result, perf, reference)` — Overlay with openMotor CSV.
 - `plot_grain_regression(grain_metrics, geo)` — Per-grain regression/web.
 - `load_experimental_csv(filepath, ...)` — CSV with unit conversion.
 - `HASEGAWA_MOTOR_A_EXPERIMENTAL` — Embedded digitized data (36 points).
+  v0.6.0 removed the in-dict `time_offset` key; pass it as a kwarg
+  to `plot_pressure`/`plot_summary`.
 
 ## openmotor_adapter.py (imports propellant, grain_geometry, nozzle, simulation)
 
 - `load_ric(filepath)` — YAML parser with Python-tag handling.
+- `load_transport(transport_path)` — sibling YAML loader returning a
+  `gas_props` dict (`mu`, `k`, `Cp`).
 - `convert_propellant(ric_prop, gas_props)` — MW g/mol→kg/mol.
-- `convert_geometry(ric_grains, N_cells, spacing)` —
-  BATES only. Auto-gap = max(3mm, 5%×D_outer). Throat is now in the
-  Nozzle, not the geometry.
+- `convert_geometry(ric_grains, target_propellant_cells=100,
+  fmm_map_dim=1001)` — Routes through `build_snapped_geometry`.
+  Auto-applies inter-segment gap of `max(3mm, 5%·D_outer)` via
+  per-segment `gap_after`. BATES + Conical analytic, FMM via
+  `from_ric_grain`. v0.6.0 removed `N_cells` and `spacing` kwargs.
 - `convert_nozzle(ric_nozzle)` — Returns a Nozzle. Maps
   `throat/exit/efficiency/divAngle/convAngle/throatLength/erosionCoeff/slagCoeff`
   to our snake_case fields. erosionCoeff converted m/(s·Pa)→μm/(s·MPa).
-- `ric_to_sim_args(motor, gas_props)` — Returns a kwargs dict including
-  `geo`, `propellant`, `nozzle`, `P_ambient`, `P_cutoff`.
-- `run_from_ric(filepath, gas_props)` — Full pipeline. Returns
-  result, perf, nozzle, geo, prop.
+- `ric_to_sim_args(motor, gas_props=None, target_propellant_cells=100,
+  **sim_overrides)` — Returns a kwargs dict including `geo`,
+  `propellant`, `nozzle`, `P_ambient`, `P_cutoff`.
+- `run_from_ric(filepath, gas_props=None, transport_path=None,
+  **sim_overrides)` — Full pipeline. If `gas_props` is None,
+  auto-resolves a sibling `<stem>.transport.yaml`. Returns
+  `result, perf, nozzle, geo, prop`.
 - `compute_grain_metrics(result, geo, propellant)` — Per-grain regression,
   web, mass remaining at each snapshot time.
 - `result_to_csv(result, perf, geo, propellant)` — openMotor-compatible CSV.
 - `save_csv(filepath, ...)` — Write to file.
 - `load_openmotor_csv(filepath)` — Read openMotor CSV for comparison.
 - `print_ric_summary(filepath)` — Human-readable .ric summary.
+
+## motors/ (data-driven motor library, v0.6.0+)
+
+Each named motor lives as a `.ric` file (openMotor schema) plus an
+optional sibling `.transport.yaml` (srm_1d-specific extension supplying
+`mu`, `k`, `Cp` — combustion gas transport). Loaded via
+`run_from_ric('srm_1d/motors/<motor>.ric')` which auto-discovers the
+sibling YAML.
+
+- `hasegawa_a.ric`, `hasegawa_a.transport.yaml` — Hasegawa Motor A
+  (L/D=42 single-segment BATES; canonical validation target).
+- `hasegawa_b.ric`, `hasegawa_b.transport.yaml` — Motor B (half-length).
+- `hasegawa_c.ric`, `hasegawa_c.transport.yaml` — Motor C (wider bore).
+- `example_bates.ric`, `example_bates.transport.yaml` — 4×120mm BATES.
+
+## tools/sensitivity.py (Latin Hypercube parameter sweeps)
+
+- `run_lhs(motor_path, bounds, n_samples, fitness_fn, n_workers,
+  seed, csv_path, **sim_kwargs)` — Parallel LHS driver. Uses
+  `scipy.stats.qmc.LatinHypercube` + `concurrent.futures.ProcessPoolExecutor`.
+- `mse_fitness(t_exp, p_exp, t_min)` — Factory: full-trace MSE
+  fitness function (default for trace-fitting).
+- `impulse_error_fitness(I_target)`,
+  `peak_pressure_error_fitness(P_target)` — Alternate fitness factories.
+- Worker (`_run_one`) is module-level so it pickles cleanly into
+  ProcessPoolExecutor children. All `@njit` functions in the solver
+  use `cache=True` so workers reuse compiled artifacts.
 
 ## fmm_grain.py (openMotor bridge for FMM grain types)
 

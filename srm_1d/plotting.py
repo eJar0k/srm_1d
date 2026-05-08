@@ -63,9 +63,8 @@ HASEGAWA_MOTOR_A_EXPERIMENTAL = {
         5.951, 5.990, 5.854, 5.348, 4.762, 4.441, 3.935, 3.550,
         3.253, 2.923, 2.602, 2.256, 1.894, 1.219, 0.778, 0.464,
         0.191, 0.110, 0.110,
-    
+
     ]),
-    'time_offset': 0.07,  # Align ignition events
 }
 
 
@@ -130,8 +129,8 @@ def load_experimental_csv(filepath, time_col=0, pressure_col=1,
 # ================================================================
 
 def plot_pressure(result, title="Head-End Pressure",
-                  experimental=None, save_path=None, ax=None,
-                  n_head_cells=1):
+                  experimental=None, time_offset=0.0,
+                  save_path=None, ax=None, n_head_cells=1):
     """
     Plot head-end pressure vs time.
 
@@ -143,9 +142,12 @@ def plot_pressure(result, title="Head-End Pressure",
         Plot title.
     experimental : dict or list of dicts, optional
         Experimental data to overlay. Each dict must have 'time'
-        (seconds), 'pressure' (MPa), and optionally 'label' and
-        'time_offset' (seconds, added to experimental time axis
-        to align ignition events).
+        (seconds), 'pressure' (MPa), and optionally 'label'.
+    time_offset : float
+        Seconds added to all experimental time axes. Use to align
+        the experimental ignition event with the simulation t=0.
+        For per-dataset offsets, pre-shift the 'time' arrays before
+        passing.
     save_path : str or None
         If provided, save figure to this path.
     ax : matplotlib Axes or None
@@ -200,8 +202,7 @@ def plot_pressure(result, title="Head-End Pressure",
             color = colors[i % len(colors)]
             marker = markers[i % len(markers)]
             label = expt.get('label', f'Experimental {i+1}')
-            t_offset = expt.get('time_offset', 0.0)
-            ax.plot(expt['time'] + t_offset, expt['pressure'],
+            ax.plot(expt['time'] + time_offset, expt['pressure'],
                     color=color, linewidth=2, marker=marker,
                     markersize=3, markevery=max(1, len(expt['time'])//20),
                     label=label)
@@ -416,6 +417,7 @@ def plot_flow_snapshot(result, t_target=None, snap_index=None,
 # ================================================================
 
 def plot_summary(result, performance=None, experimental=None,
+                 time_offset=0.0,
                  title="Simulation Summary", save_path=None):
     """
     Combined plot: pressure, thrust (if available), and a flow snapshot.
@@ -429,6 +431,8 @@ def plot_summary(result, performance=None, experimental=None,
         is replaced with exit pressure.
     experimental : dict or list of dicts, optional
         Experimental pressure data for overlay.
+    time_offset : float
+        Seconds added to all experimental time axes (alignment knob).
     title : str
         Overall figure title.
     save_path : str or None
@@ -448,7 +452,8 @@ def plot_summary(result, performance=None, experimental=None,
 
     # (0,0) Pressure trace
     plot_pressure(result, title="Head-End Pressure",
-                  experimental=experimental, ax=axes[0, 0])
+                  experimental=experimental, time_offset=time_offset,
+                  ax=axes[0, 0])
 
     # (0,1) Thrust or exit pressure
     if performance is not None:

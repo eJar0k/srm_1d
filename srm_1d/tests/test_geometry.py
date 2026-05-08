@@ -2,12 +2,49 @@
 import numpy as np
 import pytest
 from srm_1d.grain_geometry import (
-    make_single_cylinder, make_example_bates, make_bates_motor,
-    make_hasegawa_motor_A_geo, make_hasegawa_motor_A_nozzle,
     update_cell_geometry, advance_bore_regression,
     advance_endface_regression,
 )
-from srm_1d.propellant import make_hasegawa_propellant_1
+from srm_1d.nozzle import Nozzle
+from srm_1d.openmotor_adapter import load_ric, convert_geometry, convert_nozzle
+from srm_1d.tests._motor_fixtures import (
+    hasegawa_propellant_1 as make_hasegawa_propellant_1,
+    single_cylinder_geo, example_bates_geo, bates_motor_geo,
+    MOTORS_DIR,
+)
+
+
+def make_single_cylinder(D_bore, D_outer, length, N_cells=None):
+    """Adapter for v0.5.x test signature.
+
+    The old factory took ``N_cells`` directly; the snapped builder takes
+    ``target_propellant_cells``. They map 1:1 for a single inhibited
+    cylinder where leading/trailing spacers add ≤2 cells.
+    """
+    target = N_cells if N_cells is not None else 50
+    return single_cylinder_geo(D_bore, D_outer, length,
+                               target_propellant_cells=target)
+
+
+def make_example_bates():
+    return example_bates_geo()
+
+
+def make_bates_motor(D_bore, D_outer, L_segment, N_segments, spacing):
+    return bates_motor_geo(D_bore, D_outer, L_segment, N_segments, spacing)
+
+
+def _hasegawa_a_geo_and_nozzle():
+    motor = load_ric(str(MOTORS_DIR / 'hasegawa_a.ric'))
+    return convert_geometry(motor['grains']), convert_nozzle(motor['nozzle'])
+
+
+def make_hasegawa_motor_A_geo():
+    return _hasegawa_a_geo_and_nozzle()[0]
+
+
+def make_hasegawa_motor_A_nozzle():
+    return _hasegawa_a_geo_and_nozzle()[1]
 
 
 def _init_geometry_arrays(geo):
@@ -106,11 +143,18 @@ class TestOverlapMatching:
 
 class TestEndfaceInjection:
     def test_bates_8_faces(self):
-        """4-segment BATES with no inhibition should have 8 burning faces."""
+        """4-segment BATES with no inhibition has 8 burning faces.
+
+        The v0.6.0 linear-distribution kernel splits each face's mass
+        over 2 adjacent cells (partition of unity). Intermediate
+        single-cell inter-segment gaps receive contributions from
+        BOTH bordering faces, so the cell count is
+        8 faces × 2 cells − 3 shared gap cells = 13 distinct cells.
+        """
         geo = make_example_bates()
         ga, prop, D_port, A_port, C_burn, D_hyd, is_grain, ef, P = \
             _init_geometry_arrays(geo)
-        assert int(np.sum(ef > 0)) == 8
+        assert int(np.sum(ef > 0)) == 13
 
     def test_inhibited_ends_no_faces(self):
         """Single cylinder with inhibited ends should have 0 burning faces."""
