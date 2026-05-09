@@ -81,6 +81,60 @@ were deleted.
   exponential-decay model is documented as a placeholder pending
   literature review.
 
+### Zerox motor (LHS-calibrated, v0.6.0)
+Forward-Finocyl + aft-BATES, ~1.45 kg "Risky Batman V3" propellant.
+Static-fire data is the calibration ground truth — the openMotor
+.ric values for `erosionCoeff` and propellant `a` were both
+significantly off for this firing.
+
+**Calibrated `.ric` values (`srm_1d/motors/zerox_LHS.ric`):**
+- `erosionCoeff = 2.585e-10 m/(s·Pa)` — **2.34× the openMotor default**
+  (1.105e-10). Risky Batman V3 / phenolic ablates much faster than
+  the original .ric assumed. Real motor's throat opens to ~34.5 mm
+  by burnout (Δr ≈ 9 mm) vs 29.65 mm with the original coefficient.
+- `propellant a = 4.634e-6 m/s/Pa^n` — 0.917× the openMotor default
+  (5.054e-6). The propellant is ~8% over-rated.
+
+**LHS rank-1 igniter / kappa:**
+- `roughness=20μm, kappa=0.329, igniter_mass=3.28g, igniter_tau=36.5ms,`
+  `ignition_ramp_tau=11.0ms, P_ignition=99.4kPa`
+- LHS rank-1 MSE = 0.071 MPa² (RMS ≈ 0.27 MPa, ~7% of peak).
+- See `srm_1d/examples/zerox.py` for the canonical reproduction.
+
+**Pinned-variant sensitivity** (LHS where one variable is held at the
+Hasegawa-A inherited value; reveals which knobs are essential):
+
+| Pinned at | Best MSE | Verdict |
+|---|---|---|
+| Main 6-var (no pin) | 0.071 | reference |
+| `erosion_coeff_scale = 1.0` | 0.357 | **5× worse** — dominant lever |
+| `a_scale = 1.0` | 0.149 | 2× worse — moderate |
+| `igniter_tau` | 0.129 | 1.8× — moderate |
+| `ignition_ramp_tau` | 0.114 | 1.6× — minor |
+| `kappa = 0.45` | 0.104 | 1.5× — minor |
+| `igniter_mass = 2.4g` | 0.099 | 1.4× — minor |
+| `P_ignition = 0.042 MPa` | 0.075 | 1.06× — **inert; dropped from LHS** |
+
+**Residual structural artifacts (NOT parametric — cannot be tuned away):**
+- ~25% spike overshoot (sim ~5 MPa peak vs experimental ~4 MPa) —
+  same FSI-cushioning proxy issue Hasegawa A has. v0.7.0 hot-gas
+  plenum is the planned fix.
+- Sharp step at t≈1.9s — fin-burnout transition in the FMM finocyl
+  model. Real motor has it smoothed/absent. The FMM table is
+  axially uniform within each segment (per `fmm_grain.py:329-414`),
+  which is geometrically reasonable for the user's fin layout but
+  treats fin consumption as a single-radius event. Possible v0.7.0+
+  fix: per-cell axial FMM table.
+
+**Conservation diagnostic** (the trick that pinned the issue):
+sweeping `a × {0.80..1.05}` showed `∫P dt ≈ 19.6 MPa·s` was nearly
+invariant across the sweep (per 0D equilibrium ∫P dt ≈ m·c\*/Ā_t).
+Experimental ∫P dt = 16.4 MPa·s → 20% gap could only come from
+larger A_t in real motor (c\* drop unphysical at >15%). The
+erosion sweep then settled it: erosion × 2.5–3.0 brackets the
+experimental impulse-time integral. See `zerox_diagnostic.py`,
+`zerox_a_sweep.py`, `zerox_erosion_sweep.py`, `zerox_lhs.py`.
+
 ## Performance Profile (BATES 120 cells, 2.3M steps)
 
 ```

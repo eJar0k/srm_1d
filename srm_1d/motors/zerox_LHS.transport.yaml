@@ -1,0 +1,8 @@
+# Combustion gas transport for Risky Batman V3 Jan2024 (Zerox motor).
+# RPA-derived FROZEN values. Effective values were tested in the
+# zerox_a_sweep workflow and amplified the ignition spike (wrong
+# direction for this motor) without helping the plateau.
+# Loaded automatically by openmotor_adapter when reading zerox_LHS.ric.
+mu: 8.604e-5
+k: 0.3455
+Cp: 2052.0

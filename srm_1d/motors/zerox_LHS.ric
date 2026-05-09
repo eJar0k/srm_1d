@@ -31,16 +31,16 @@ data:
     convAngle: 50.0
     divAngle: 15.0
     efficiency: 0.95
-    erosionCoeff: 1.1051875595755959e-10
+    erosionCoeff: 2.585101504780401e-10
     exit: 0.06858013716027433
     slagCoeff: 0.0
     throat: 0.025400050800101603
     throatLength: 0.012700025400050802
   propellant:
     density: 1682.0520769611899
-    name: Risky Batman V3 Jan2024
+    name: Risky Batman V3 Jan2024 (LHS-calibrated)
     tabs:
-    - a: 5.054532350783141e-06
+    - a: 4.6343518757893865e-06
       k: 1.19889
       m: 23.7923
       maxPressure: 13100500.000000002
