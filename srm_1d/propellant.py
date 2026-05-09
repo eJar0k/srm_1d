@@ -94,6 +94,29 @@ class PropellantTab:
 
 
 # ================================================================
+# Pyrogen (single-tab igniter propellant)
+# ================================================================
+
+@dataclass
+class Pyrogen:
+    """
+    Pyrogen propellant properties for the v0.7.0 igniter chamber.
+
+    This mirrors the scalar combustion fields on PropellantTab, but is
+    intentionally single-tab: small pyrogen charges burn over a narrow
+    pressure range and do not need openMotor-style pressure bands.
+    """
+    name: str
+    a: float             # Saint-Robert coefficient [m/s / Pa^n]
+    n: float             # Saint-Robert pressure exponent [-]
+    rho: float           # Solid pyrogen density [kg/m^3]
+    T_flame: float       # Adiabatic flame temperature [K]
+    M: float             # Product molecular weight [kg/mol]
+    gamma: float         # Product gas specific heat ratio [-]
+    impetus_W: float = 0.0  # Optional DeMar impetus [psi*in^3/g]
+
+
+# ================================================================
 # Propellant
 # ================================================================
 

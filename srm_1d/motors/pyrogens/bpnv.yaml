@@ -1,0 +1,11 @@
+# Boron/KNO3/Viton (BPNV), 25:60:15 by mass.
+# DeMar 2021 reports W ~= 5000 psi*in^3/g and heat flux ~= 69 cal/cm^2/s.
+# Saint-Robert a is an approximate Phase 1 seed value pending measured data.
+name: BPNV
+a: 2.0e-5
+n: 0.5
+rho: 1700.0
+T_flame: 2800.0
+M: 0.030
+gamma: 1.25
+impetus_W: 5000.0

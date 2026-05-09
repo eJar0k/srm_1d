@@ -37,6 +37,7 @@ from .grain_geometry import (
 from .propellant import (
     Propellant,
     PropellantTab,
+    Pyrogen,
     GasProperties,
     create_gas_properties,
     critical_flow_function,

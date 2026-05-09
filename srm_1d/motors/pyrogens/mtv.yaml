@@ -1,0 +1,12 @@
+# Magnesium/Teflon/Viton (MTV).
+# DeMar 2021 reports faster action and higher heat flux than BPNV, but
+# substantially higher electrostatic sensitivity. Not the default.
+# Saint-Robert a is an approximate Phase 1 seed value pending measured data.
+name: MTV
+a: 3.0e-5
+n: 0.5
+rho: 1800.0
+T_flame: 3000.0
+M: 0.032
+gamma: 1.22
+impetus_W: 4700.0
