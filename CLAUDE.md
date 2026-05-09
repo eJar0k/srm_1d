@@ -99,6 +99,11 @@ srm_1d/
 - `srm_1d/ARCHITECTURE.md` — function-level map of every module
 - `srm_1d/DEVNOTES.md` — full gotchas, calibration state, complete
   API breaking-change log per minor version, performance profile
+- `srm_1d/docs/v0_7_0/` — v0.7.0 hot-gas plenum design package:
+  `DESIGN.md` (architecture), `TASKS.md` (file-level implementation
+  breakdown), `references/` (extracted papers + Goodman integral
+  derivation + Sutton/DeMar summaries). Self-contained for any agent
+  picking up v0.7.0 implementation.
 - `gemini summary.md` (repo root) — historical record of the v0.6.0
   development cycle that originated build_snapped_geometry, the new
   end-face kernel, and the exponential-decay igniter
@@ -107,18 +112,28 @@ srm_1d/
     (full pressure-trace match vs experimental is the gold standard)
   - `project_hasegawa_calibration_state.md` — v0.6.0 LHS-derived
     parameter set + FSI fat-spike caveat
+  - `project_zerox_calibration_state.md` — v0.6.0 LHS rank-1 fit;
+    erosionCoeff 2.34× openMotor default; P_ignition pinned-inert
+  - `project_v0_7_0_design.md` — v0.7.0 design state, pointer to
+    `srm_1d/docs/v0_7_0/`
   - `feedback_*` — user preferences (defer to openMotor, hard breaks
-    OK, terse responses preferred)
+    OK, terse responses preferred, no unfounded smoothing/dispersion,
+    igniter conventions)
   - `reference_openmotor_source.md` — pointer to local openMotor checkout
   - `reference_validation_papers.md` — Ma 2020 + Hasegawa 2006 PDFs
     in repo root
 
 ## Open roadmap (priority order)
 
-1. **Hot-gas plenum igniter model** (v0.7.0) — replace exponential
-   decay with prescribed P0(t), T0(t) and choked-orifice mass injection
-   into cell 0. Removes `igniter_tau` as a tuning knob; restores
-   pressure coupling. Pending literature review.
+1. **Hot-gas plenum igniter model** (v0.7.0) — **design complete**, see
+   `srm_1d/docs/v0_7_0/DESIGN.md` and `TASKS.md`. Pyrogen 0D plenum
+   coupled to cell 0 via choked sonic orifice; per-cell `T_surf`
+   ignition criterion driven by Goodman cubic-polynomial integral
+   solid-phase conduction. Default pyrogen sizing via Sutton Eq. 15-4
+   (`m = 0.12·V_F^0.7`); pyrogen datasheet schema modeled on DeMar 2021
+   amateur measurements. **Implementation pending** — start with
+   Phase 1 (standalone plenum) per TASKS.md. References (extracted
+   papers + equation derivations) at `srm_1d/docs/v0_7_0/references/`.
 2. **Per-step gas thermo for multi-tab** (deferred) — γ, T_flame, MW
    varying inside the hot loop. Documented in DEVNOTES; hold off
    until calibration shows it helps.
