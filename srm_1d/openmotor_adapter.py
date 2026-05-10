@@ -422,11 +422,20 @@ def convert_geometry(ric_grains, target_propellant_cells=100,
     if not segments_spec:
         raise ValueError("No supported grain segments found in .ric file.")
 
-    # Default inter-segment gap: max(3mm, 5%·D_outer). Last segment has
-    # no gap_after (build_snapped_geometry handles trailing spacer).
+    # Default inter-segment gap: max(3mm, 5%·D_outer), but only when
+    # at least one face at the interface is uninhibited. If both the
+    # aft face of segment i and the forward face of segment i+1 are
+    # inhibited, treat the interface as bonded/touching. This preserves
+    # multi-slice .ric grains that use separate grain entries to describe
+    # a continuous inhibited grain profile.
     inter_gap = max(0.003, D_outer * 0.05)
-    for spec in segments_spec[:-1]:
-        spec['gap_after'] = inter_gap
+    for i, spec in enumerate(segments_spec[:-1]):
+        next_spec = segments_spec[i + 1]
+        interface_bonded = (
+            spec.get('inhibit_aft', False)
+            and next_spec.get('inhibit_fwd', False)
+        )
+        spec['gap_after'] = 0.0 if interface_bonded else inter_gap
 
     return build_snapped_geometry(
         segments_spec, D_outer,

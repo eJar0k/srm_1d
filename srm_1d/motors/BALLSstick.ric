@@ -1,0 +1,107 @@
+data:
+  config:
+    ambPressure: 101356.50000000001
+    burnoutThrustThres: 0.1
+    burnoutWebThres: 2.5400050800101604e-05
+    flowSeparationWarnPercent: 0.05
+    mapDim: 750
+    maxMachNumber: 1.0
+    maxMassFlux: 1406.4697609001405
+    maxPressure: 10342500.000000002
+    minPortThroat: 2.0
+    sepPressureRatio: 0.4
+    timestep: 0.025
+  grains:
+  - properties:
+      aftCoreDiameter: 0.02216154432308865
+      diameter: 0.0650241300482601
+      forwardCoreDiameter: 0.012700025400050802
+      inhibitedEnds: Both
+      length: 0.8128016256032513
+    type: Conical
+  - properties:
+      coreDiameter: 0.022225044450088903
+      diameter: 0.0650241300482601
+      finLength: 0.0015875031750063502
+      finWidth: 0.006096012192024385
+      inhibitedEnds: Both
+      invertedFins: false
+      length: 0.025400050800101603
+      numFins: 8
+    type: Finocyl
+  - properties:
+      coreDiameter: 0.02235204470408941
+      diameter: 0.0650241300482601
+      finLength: 0.0031750063500127004
+      finWidth: 0.006477012954025909
+      inhibitedEnds: Both
+      invertedFins: false
+      length: 0.05080010160020321
+      numFins: 8
+    type: Finocyl
+  - properties:
+      coreDiameter: 0.02247904495808992
+      diameter: 0.0650241300482601
+      finLength: 0.004762509525019051
+      finWidth: 0.006604013208026417
+      inhibitedEnds: Both
+      invertedFins: false
+      length: 0.05080010160020321
+      numFins: 8
+    type: Finocyl
+  - properties:
+      coreDiameter: 0.022606045212090427
+      diameter: 0.0650241300482601
+      finLength: 0.006350012700025401
+      finWidth: 0.006858013716027433
+      inhibitedEnds: Both
+      invertedFins: false
+      length: 0.05080010160020321
+      numFins: 8
+    type: Finocyl
+  - properties:
+      coreDiameter: 0.025400050800101603
+      diameter: 0.0650241300482601
+      finLength: 0.006350012700025401
+      finWidth: 0.006985013970027942
+      inhibitedEnds: Both
+      invertedFins: false
+      length: 0.025400050800101603
+      numFins: 8
+    type: Finocyl
+  - properties:
+      coreDiameter: 0.025831851663703328
+      diameter: 0.0650241300482601
+      finLength: 0.005760731521463044
+      finWidth: 0.007493014986029973
+      inhibitedEnds: Both
+      invertedFins: false
+      length: 0.0025730251460502926
+      numFins: 8
+    type: Finocyl
+  nozzle:
+    convAngle: 75.0
+    divAngle: 15.0
+    efficiency: 0.95
+    erosionCoeff: 0.0
+    exit: 0.06350012700025401
+    slagCoeff: 0.0
+    throat: 0.02460629921259843
+    throatLength: 0.0031750063500127004
+  propellant:
+    density: 1862.8571744913124
+    name: Chase - Energy
+    tabs:
+    - a: 1.075303334201942e-05
+      k: 1.198
+      m: 24.98
+      maxPressure: 13790000.000000002
+      minPressure: 0.0
+      n: 0.412
+      t: 2977.0
+type: !!python/object/apply:uilib.fileIO.fileTypes
+- 3
+version: !!python/tuple
+- 0
+- 6
+- 0

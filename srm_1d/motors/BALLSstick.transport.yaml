@@ -1,0 +1,6 @@
+# Combustion gas transport for UPET, approx.
+# RPA-derived FROZEN values.
+# Loaded automatically by openmotor_adapter when reading BALLSstick.ric.
+mu: 9.009e-5
+k: 0.3460
+Cp: 2017.0

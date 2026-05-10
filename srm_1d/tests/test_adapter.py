@@ -255,6 +255,37 @@ class TestGeometryConversion:
         expected_L = 4 * 0.12 + 5 * expected_gap
         assert abs(geo.L_motor - expected_L) < 5 * geo.dx
 
+    def test_bonded_inhibited_interface_gets_no_default_gap(self):
+        """Both inhibited interface faces means adjacent grains are bonded."""
+        grains = [
+            {'type': 'BATES', 'properties': {
+                'coreDiameter': 0.020, 'diameter': 0.050,
+                'inhibitedEnds': 'Both', 'length': 0.100}},
+            {'type': 'Conical', 'properties': {
+                'forwardCoreDiameter': 0.020, 'aftCoreDiameter': 0.030,
+                'diameter': 0.050, 'inhibitedEnds': 'Both',
+                'length': 0.100}},
+        ]
+        geo = convert_geometry(grains)
+        first_end = geo.segments[0].x_start + geo.segments[0].length
+        second_start = geo.segments[1].x_start
+        assert first_end == pytest.approx(second_start)
+
+    def test_uninhibited_interface_keeps_default_gap(self):
+        """A burning interface face needs gas access, so keep a gap."""
+        grains = [
+            {'type': 'BATES', 'properties': {
+                'coreDiameter': 0.020, 'diameter': 0.050,
+                'inhibitedEnds': 'Bottom', 'length': 0.100}},
+            {'type': 'BATES', 'properties': {
+                'coreDiameter': 0.020, 'diameter': 0.050,
+                'inhibitedEnds': 'Bottom', 'length': 0.100}},
+        ]
+        geo = convert_geometry(grains)
+        first_end = geo.segments[0].x_start + geo.segments[0].length
+        second_start = geo.segments[1].x_start
+        assert second_start - first_end > 0.0
+
     def test_target_propellant_cells(self):
         geo = convert_geometry(SAMPLE_RIC_GRAINS, target_propellant_cells=200)
         # Snapping may shave a few cells from the target depending on
