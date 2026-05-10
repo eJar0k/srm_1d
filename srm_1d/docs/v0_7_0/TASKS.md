@@ -6,6 +6,9 @@ The original implementation checklist is preserved in the phase commits:
 - `c3cad25` -- Phase 1 standalone pyrogen plenum.
 - `6e6b367` -- Phase 2 Goodman solid thermal solver.
 - `613ae5f` -- Phase 3 main-loop pyrogen + Goodman integration.
+- `e58657a` -- Phase 3 status docs and segmented LHS diagnostics.
+- `4fc45d1` -- inhibited-interface gap fix plus BALLSstick/L3035 examples.
+- `883e1fb` -- snapped-interface cell assignment fix.
 
 This file now tracks the current project state and the remaining work
 before a `v0.7.0` tag.
@@ -68,8 +71,17 @@ Completed pre-work:
 - Added segmented pressure metrics for Hasegawa A diagnostics:
   spike, post-spike shoulder, plateau, and taildown.
 - Added quiet LHS progress modes: `brief`, `verbose`, and `none`.
-- Moved local Hasegawa analysis outputs under
-  `artifacts/hasegawa_a_lhs/`; `artifacts/` is git-ignored.
+- Added `BALLSstick` and `L3035` `.ric` example motors with sibling
+  transport YAMLs and simple plotting examples.
+- Moved current generated outputs under `artifacts/`; `artifacts/` is
+  git-ignored. Root-level generated plot/CSV/LHS output files were
+  cleaned on 2026-05-10.
+- Fixed `.ric` geometry conversion for bonded inhibited interfaces:
+  default inter-segment gaps are inserted only when at least one
+  interface face is uninhibited.
+- Fixed snapped-interface cell assignment: setup now assigns cells to
+  the segment with the largest axial overlap, avoiding epsilon-overlap
+  misclassification at touching segment boundaries.
 
 Current finding:
 
@@ -87,6 +99,8 @@ Pending:
 - Re-run segmented Hasegawa A LHS after that model change.
 - Re-run Zerox LHS with v0.7.0 pyrogen parameters.
 - Update Hasegawa and Zerox calibration tables in `DEVNOTES.md`.
+- Revisit L3035/BALLSstick after any geometry or ignition-model change;
+  current examples are exploratory and not calibrated predictions.
 
 ## Phase 5 -- Release
 

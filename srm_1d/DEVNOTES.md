@@ -46,6 +46,20 @@ Both must use the same overlap matching for cell-segment assignment.
 If compile uses point-in-range and update uses overlap, boundary cells
 get wrong initial D_port, causing silent conservation errors.
 
+For snapped/touching segment interfaces, assign a cell to the segment
+with the largest axial overlap and ignore epsilon-sized overlaps. A
+first-positive-overlap search can misclassify the first downstream cell
+because roundoff makes it overlap the upstream segment by ~1e-16 m.
+This was caught by the L3035 BATES-to-conical inhibited-interface case.
+
+### .ric inhibited interfaces are not always gaps
+openMotor `.ric` files do not carry explicit inter-segment spacing.
+srm_1d supplies default gaps only when at least one interface face is
+uninhibited. If both the upstream aft face and downstream forward face
+are inhibited, treat the interface as bonded/touching. Otherwise
+multi-slice grains such as L3035 and BALLSstick get artificial full-port
+gap cells and false end-face exposure in flow snapshots.
+
 ### seg_D_bore_init is dead — use cell_D_bore_init
 All per-segment bore diameter arrays were replaced with per-cell
 arrays in the conical grain refactor. The compiled loop, geometry
@@ -89,6 +103,18 @@ igniter momentum or adding new igniter smoothing knobs.
 
 Current local artifacts live under `artifacts/hasegawa_a_lhs/` and are
 intentionally ignored by git.
+
+### Ad-hoc motor examples and artifacts
+`srm_1d/motors/L3035.ric` and `BALLSstick.ric` are exploratory `.ric`
+examples, each with a sibling `.transport.yaml` and example script.
+They are useful adapter/geometry smoke cases, not validated calibration
+targets.
+
+Generated plots, CSVs, LHS pickles, and run artifacts should go under
+`artifacts/<case>/`. Root-level generated outputs were cleaned on
+2026-05-10; keep the repo root for source files, reference PDFs,
+tracked data inputs, and intentionally retained local inputs such as
+`Zerox Data.xlsx`.
 
 ### Zerox motor (LHS-calibrated, v0.6.0)
 Forward-Finocyl + aft-BATES, ~1.45 kg "Risky Batman V3" propellant.
@@ -166,7 +192,9 @@ in geometry/burn rate/ignition (called every step or every N steps).
 - propellant.a is m/s per Pa^n (same as ours, no conversion needed)
 - propellant.k is gamma (not thermal conductivity)
 - No inter-segment spacing in file; openMotor is 0-D and doesn't model gaps.
-  srm_1d's adapter auto-applies `max(3mm, 5%·D_outer)` between segments.
+  srm_1d's adapter auto-applies `max(3mm, 5%·D_outer)` between segments
+  only when at least one interface face is uninhibited. Fully inhibited
+  interfaces are treated as bonded/touching.
 - No gas transport properties in file; supplied via sibling
   `<motor>.transport.yaml` (mu, k, Cp) auto-discovered by `run_from_ric`,
   or via explicit `gas_props={...}`.
@@ -339,3 +367,7 @@ in geometry/burn rate/ignition (called every step or every N steps).
     - **Sensitivity diagnostics**: `run_lhs` supports `metrics_fn`,
       segmented pressure metrics, quiet `progress_mode`, and
       `sim_verbose=False` for large sweeps.
+    - **.ric interface geometry fixes**: bonded inhibited interfaces no
+      longer receive default gaps, and snapped interface cells are mapped
+      by largest axial overlap to avoid epsilon-overlap misclassification.
+      Regression coverage lives in `tests/test_adapter.py`.
