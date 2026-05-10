@@ -65,7 +65,9 @@ _SNAP_ENDFACE = 8
 _SNAP_IS_BURNING = 9
 _SNAP_IS_GRAIN = 10
 _SNAP_T_SURF = 11
-N_SNAP_CHANNELS = 12
+_SNAP_MASS_SOURCE = 12
+_SNAP_THERMAL_SOURCE = 13
+N_SNAP_CHANNELS = 14
 
 
 # ================================================================
@@ -199,6 +201,7 @@ def _run_time_loop(
     roughness, kappa,
     cfl_target, dt_max, burn_update_interval,
     T_ignition,
+    diagnostic_disable_erosive, diagnostic_disable_endfaces,
     t_max, P_cutoff,
     erosion_coeff, slag_coeff, throat_is_evolving,
     snapshot_interval,
@@ -285,13 +288,14 @@ def _run_time_loop(
         # STEP 1: GEOMETRY
         # ============================================
         P_for_endface = P[0] if P[0] > 1e4 else 101325.0
-        advance_endface_regression(
-            seg_fwd_regression, seg_aft_regression,
-            seg_length, seg_x_start,
-            seg_inhibit_fwd, seg_inhibit_aft,
-            N_seg, P_for_endface,
-            tab_min_p, tab_max_p, tab_a, tab_n, n_tabs, dt,
-        )
+        if not diagnostic_disable_endfaces:
+            advance_endface_regression(
+                seg_fwd_regression, seg_aft_regression,
+                seg_length, seg_x_start,
+                seg_inhibit_fwd, seg_inhibit_aft,
+                N_seg, P_for_endface,
+                tab_min_p, tab_max_p, tab_a, tab_n, n_tabs, dt,
+            )
 
         advance_bore_regression(
             regress, r_total, dt, N,
@@ -312,6 +316,9 @@ def _run_time_loop(
                 cell_segment_type, cell_fmm_idx,
                 fmm_offset, fmm_reg_flat, fmm_perim_flat, fmm_port_flat,
             )
+            if diagnostic_disable_endfaces:
+                for i in range(N):
+                    endface_msource[i] = 0.0
 
         # ============================================
         # STEP 2: BURN RATES
@@ -326,8 +333,15 @@ def _run_time_loop(
                 kappa, N,
             )
             for i in range(N):
-                r_total[i] = r_total_new[i]
-                r_erosive[i] = r_erosive_new[i]
+                if diagnostic_disable_erosive:
+                    r_normal = r_total_new[i] - r_erosive_new[i]
+                    if r_normal < 0.0:
+                        r_normal = 0.0
+                    r_total[i] = r_normal
+                    r_erosive[i] = 0.0
+                else:
+                    r_total[i] = r_total_new[i]
+                    r_erosive[i] = r_erosive_new[i]
 
         # ============================================
         # STEP 3: IGNITION + SOURCE ASSEMBLY
@@ -444,6 +458,8 @@ def _run_time_loop(
                 snap_data[snap_idx, _SNAP_IS_BURNING, i] = 1.0 if is_burning[i] else 0.0
                 snap_data[snap_idx, _SNAP_IS_GRAIN, i] = 1.0 if is_grain[i] else 0.0
                 snap_data[snap_idx, _SNAP_T_SURF, i] = T_surf[i]
+                snap_data[snap_idx, _SNAP_MASS_SOURCE, i] = mass_source[i]
+                snap_data[snap_idx, _SNAP_THERMAL_SOURCE, i] = thermal_source[i]
             snap_idx += 1
             last_snapshot_t = t
 
@@ -482,6 +498,10 @@ def run_simulation(
     burn_update_interval=None,
     # --- Ignition ---
     T_ignition=850.0,
+    # --- Diagnostics ---
+    initial_gas_temperature=None,
+    diagnostic_disable_erosive=False,
+    diagnostic_disable_endfaces=False,
     # --- Termination ---
     t_max=10.0,
     P_cutoff=0.5e6,
@@ -520,6 +540,16 @@ def run_simulation(
         Recompute burn rates every N flow steps. If None, auto-set.
     T_ignition : float
         Per-cell solid surface ignition threshold [K]. Default: 850 K.
+    initial_gas_temperature : float or None
+        Optional diagnostic override for the initial bore gas temperature
+        [K]. ``None`` preserves the historical behavior: fill the bore
+        gas at propellant flame temperature.
+    diagnostic_disable_erosive : bool
+        If True, remove the Ma erosive increment from burn rates while
+        preserving the Saint-Robert normal rate. Diagnostic only.
+    diagnostic_disable_endfaces : bool
+        If True, suppress end-face regression and end-face mass source
+        terms. Diagnostic only.
     t_max : float
         Maximum simulation time [s]. Default: 10.
     P_cutoff : float
@@ -537,6 +567,8 @@ def run_simulation(
     """
     if pyrogen_chamber is None:
         raise ValueError("pyrogen_chamber is required for v0.7.0 ignition")
+    if initial_gas_temperature is not None and initial_gas_temperature <= 0.0:
+        raise ValueError("initial_gas_temperature must be positive")
 
     erosion_coeff = nozzle.erosion_coeff
     slag_coeff = nozzle.slag_coeff
@@ -560,7 +592,6 @@ def run_simulation(
         rep_tab.gamma, rep_tab.molecular_weight, rep_tab.T_flame,
         propellant.mu_gas, propellant.k_gas, propellant.Cp_gas,
     )
-    RT = gas.R_specific * rep_tab.T_flame
     Gamma_crit = critical_flow_function(gas.gamma)
     gamma_R = gas.gamma * gas.R_specific
     nozzle_denom = 1.0 / (gas.R_specific * rep_tab.T_flame) ** 0.5
@@ -601,9 +632,12 @@ def run_simulation(
 
     # Flow state
     P = np.full(N, P_ambient)
-    rho = P / RT
+    T_initial_gas = rep_tab.T_flame
+    if initial_gas_temperature is not None:
+        T_initial_gas = float(initial_gas_temperature)
+    rho = P / (gas.R_specific * T_initial_gas)
     u = np.zeros(N + 1)
-    T = np.full(N, rep_tab.T_flame)
+    T = np.full(N, T_initial_gas)
 
     # Ignition state
     is_burning = np.zeros(N, dtype=np.bool_)
@@ -712,6 +746,7 @@ def run_simulation(
         roughness, kappa,
         cfl_target, dt_max, burn_update_interval,
         T_ignition,
+        bool(diagnostic_disable_erosive), bool(diagnostic_disable_endfaces),
         t_max, P_cutoff,
         erosion_coeff, slag_coeff, throat_is_evolving,
         snapshot_interval,
@@ -762,6 +797,8 @@ def run_simulation(
             'is_burning': snap_data[s, _SNAP_IS_BURNING, :] > 0.5,
             'is_grain': snap_data[s, _SNAP_IS_GRAIN, :] > 0.5,
             'T_surf': snap_data[s, _SNAP_T_SURF, :].copy(),
+            'mass_source': snap_data[s, _SNAP_MASS_SOURCE, :].copy(),
+            'thermal_source': snap_data[s, _SNAP_THERMAL_SOURCE, :].copy(),
         })
 
     peak_idx = np.argmax(P_head_arr) if len(P_head_arr) > 0 else 0
@@ -840,6 +877,9 @@ def run_simulation(
         'pyrogen_mass_remaining': float(m_pyrogen_arr[-1]) if len(m_pyrogen_arr) > 0 else float(plenum_state[0]),
         'pyrogen_duration': float(pyrogen_duration),
         'pyrogen_peak_P': float(pyrogen_peak_P),
+        'initial_gas_temperature': float(T_initial_gas),
+        'diagnostic_disable_erosive': bool(diagnostic_disable_erosive),
+        'diagnostic_disable_endfaces': bool(diagnostic_disable_endfaces),
     }
 
     # Per-grain summary from snapshots
