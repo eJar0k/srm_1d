@@ -33,24 +33,27 @@ parametric geometry construction without a .ric, use
 
 ```
 srm_1d/
-├── __init__.py              # Public API, v0.6.0
+├── __init__.py              # Public API, v0.7.0
 ├── solver.py                # PISO: TDMA, pressure correction, CFL
 ├── burn_rate.py             # Ma et al.: Haaland → Gnielinski → bisection
 ├── grain_geometry.py        # GrainSegment, MotorGeometry, build_snapped_geometry
 ├── propellant.py            # Propellant (multi-tab) + gas properties + thermo utilities
 ├── nozzle.py                # openMotor-aligned Nozzle: thrust, Isp, CF, throat erosion
 ├── fmm_grain.py             # openMotor FmmGrain bridge — extracts FmmTable from any FMM grain
+├── igniter_plenum.py        # Pyrogen chamber and choked/subsonic vent model
+├── solid_thermal.py         # Goodman integral solid-heating ignition model
 ├── simulation.py            # Compiled time loop (_run_time_loop @njit)
 ├── plotting.py              # Pressure/thrust/snapshot/comparison plots
 ├── openmotor_adapter.py     # .ric reader, transport YAML loader, CSV export
-├── motors/                  # Canonical motor data (v0.6.0+)
+├── motors/                  # Canonical motor + pyrogen data (v0.6.0+)
 │   ├── hasegawa_a.ric, hasegawa_a.transport.yaml
 │   ├── hasegawa_b.ric, hasegawa_b.transport.yaml
 │   ├── hasegawa_c.ric, hasegawa_c.transport.yaml
-│   └── example_bates.ric, example_bates.transport.yaml
+│   ├── example_bates.ric, example_bates.transport.yaml
+│   └── pyrogens/bpnv.yaml, mtv.yaml
 ├── tools/
 │   └── sensitivity.py       # Latin Hypercube sweeps with parallel execution
-├── tests/  (7 files, 107 tests)
+├── tests/  (11 files, 133 tests)
 └── examples/ (hasegawa_motor_a.py, bates_4seg.py, hasegawa_a_lhs.py)
 ```
 
@@ -64,7 +67,8 @@ run_simulation(geo, propellant, nozzle, ...)   Python: setup, allocate
       ├─ advance_bore_regression      (mass-conserving burnout ramp)
       ├─ update_cell_geometry         (volumetric overlap + hat-function end-face kernel)
       ├─ compute_burn_rates           (every N steps)
-      ├─ _ignition_source_and_mass    (fused: ignition+source+mass)
+      ├─ _goodman_ignition_sources_and_mass
+      │   (Goodman ignition + mass/thermal source assembly)
       ├─ piso_step                    (staggered grid, 2 corrections)
       └─ _post_piso_update            (fused: flow+friction+CFL)
   → wrap results: dict + summary    Python: snapshots, per-grain data
@@ -142,26 +146,32 @@ Coefficients live on the `Nozzle` object passed to `run_simulation`.
   level (not in tabs); supplied via sibling `<motor>.transport.yaml`
   or `gas_props={...}`.
 
-### openMotor Adapter (v0.6.0)
+### openMotor Adapter (v0.7.0)
 - `load_ric()` → parse YAML with Python-tag handling
 - `load_transport()` → parse sibling `<motor>.transport.yaml`
+- `load_pyrogen()` → built-in (`'bpnv'`, `'mtv'`) or YAML pyrogen loader
 - `convert_propellant()` → Propellant with all .ric tabs preserved 1:1
 - `convert_geometry(grains, target_propellant_cells)` → MotorGeometry
   via `build_snapped_geometry`. Auto-applies inter-segment gap of
   `max(3mm, 5%·D_outer)` between segments.
 - `convert_nozzle()` → Nozzle (erosionCoeff m/(s·Pa) → μm/(s·MPa))
 - `run_from_ric()` → result, perf, nozzle, geo, prop. Auto-resolves
-  sibling transport YAML.
+  sibling transport YAML and requires explicit `pyrogen=...` or a
+  sibling `<motor>.pyrogen.yaml`. `verbose=False` suppresses setup and
+  performance summary blocks for sweeps.
 - `save_csv()` → Time, Kn, P, Force, Mass Flow, per-grain regression/web
 - Supported grains: BATES, Conical (analytic) + all 7 FMM types.
 
-### Sensitivity Tooling (v0.6.0)
+### Sensitivity Tooling (v0.7.0)
 `srm_1d.tools.sensitivity.run_lhs(motor_path, bounds, n_samples,
 fitness_fn, **sim_kwargs)` runs an N-sample Latin Hypercube sweep with
 `scipy.stats.qmc.LatinHypercube` and `concurrent.futures.ProcessPoolExecutor`.
 Pluggable fitness factories: `mse_fitness`,
-`impulse_error_fitness`, `peak_pressure_error_fitness`. All runs are
-persisted to CSV. Example: `srm_1d/examples/hasegawa_a_lhs.py`.
+`impulse_error_fitness`, `peak_pressure_error_fitness`, and
+`segmented_pressure_fitness`. Optional `metrics_fn` columns are persisted
+to CSV. `progress_mode='brief'|'verbose'|'none'` controls terminal noise,
+and `sim_verbose=False` is the sweep default. Example:
+`srm_1d/examples/hasegawa_a_lhs.py`.
 
 ## Result Dict Keys
 
@@ -172,9 +182,13 @@ result['P_exit']     # ndarray, nozzle-end pressure [Pa]
 result['D_throat']   # ndarray, throat diameter [m]
 result['Kn']         # ndarray, burning area / throat area
 result['massflow']   # ndarray, nozzle mass flow [kg/s]
+result['P_ig']       # ndarray, pyrogen plenum pressure [Pa]
+result['T_ig']       # ndarray, pyrogen plenum temperature [K]
+result['mdot_ig']    # ndarray, igniter mass flow into cell 0 [kg/s]
+result['m_pyrogen']  # ndarray, remaining solid pyrogen mass [kg]
 result['snapshots']  # list of dicts (P, u, Mach, T, r_total, r_erosive,
                      #   D_port, x, C_burn, endface_msource,
-                     #   is_burning, is_grain)
+                     #   is_burning, is_grain, T_surf)
 result['grains']     # list of per-segment dicts (regression, web)
 result['summary']    # dict (P_peak, t_peak, mass_balance_error, etc.)
 ```
@@ -186,18 +200,25 @@ result['summary']    # dict (P_peak, t_peak, mass_balance_error, etc.)
 3. Burnout ramp extends burn time ~30% (asymptotic f_active tail)
 4. The `build_snapped_geometry` ±10mm warning fires on coarse grids
    (target_propellant_cells ≤ 100 with leading_gap=1mm); cosmetic only
+5. Phase 3 Goodman ignition switches cells immediately to full burning.
+   Hasegawa segmented diagnostics indicate the next structural fix should
+   be a finite post-ignition burn-establishment/participation model.
 
-## Validated Parameters (Hasegawa Motor A, v0.6.0 LHS Rank-1)
+## Calibration State (Hasegawa Motor A)
 
 Motor: D_bore=40mm, D_outer=80mm, L=1680mm, D_throat=34mm
 Propellant: a=4.821e-5, n=0.3, ρ=1700, T_flame=3041K, γ=1.19, MW=0.0254
 Transport (RPA effective): μ=8.842e-5, k=0.3685, Cp=2060
-Roughness: 37.1 μm, κ=0.45
-Igniter: BPNV pyrogen plenum, T_ignition=850K
+Roughness: 37.1 μm remains the inherited v0.6.0 erosive baseline.
+Igniter: v0.7.0 uses BPNV pyrogen plenum + Goodman `T_surf` ignition;
+the old `igniter_tau`/`P_ignition` knobs are removed. Phase 4 segmented
+LHS diagnostics are in `artifacts/hasegawa_a_lhs/` locally and point to
+post-ignition burn establishment as the next modeling target.
 
 ## Roadmap
 
 1. Per-step gas thermo (γ, T_flame, MW) for multi-tab propellants
-2. Squib stage before pyrogen ignition
-3. RodTube grain support (PerforatedGrain extension to from_openmotor)
-4. openMotor front-end integration (CFDSimulation subclass — deferred)
+2. Post-ignition burn participation/establishment after Goodman trigger
+3. Squib stage before pyrogen ignition
+4. RodTube grain support (PerforatedGrain extension to from_openmotor)
+5. openMotor front-end integration (CFDSimulation subclass — deferred)

@@ -2,9 +2,9 @@
 igniter_plenum.py -- Standalone v0.7.0 pyrogen plenum model
 ============================================================
 
-Phase 1 implementation only: a forward 0D pyrogen chamber with a
-Saint-Robert burn law and choked/subsonic vent to a downstream chamber.
-This module is intentionally not wired into simulation.py yet.
+Forward 0D pyrogen chamber with a Saint-Robert burn law and
+choked/subsonic vent to a downstream chamber. v0.7.0 Phase 3 wires this
+module into ``simulation.py`` as the hot-gas igniter source.
 """
 
 import numpy as np

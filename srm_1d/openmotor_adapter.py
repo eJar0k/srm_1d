@@ -517,7 +517,7 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
                  pyrogen=None, pyrogen_mass=None,
                  pyrogen_throat_area=None, pyrogen_volume=None,
                  pyrogen_burn_area=None, pyrogen_burn_law='0d',
-                 T_ignition=850.0, **sim_overrides):
+                 T_ignition=850.0, verbose=True, **sim_overrides):
     """
     Load a .ric file, run the 1D simulation, compute performance.
 
@@ -537,6 +537,9 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
     pyrogen : Pyrogen, str, or None
         Explicit pyrogen object, built-in name, or YAML path. If None,
         a sibling ``<stem>.pyrogen.yaml`` must exist.
+    verbose : bool
+        If True, print simulation and performance summary blocks. Set
+        False for large parameter sweeps.
 
     Returns
     -------
@@ -587,11 +590,13 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
         pyrogen_burn_law=pyrogen_burn_law,
     )
     args['T_ignition'] = T_ignition
+    args['verbose'] = verbose
 
     result = run_simulation(geo, prop, **args)
 
     perf = compute_motor_performance(result, nozzle, prop, P_ambient=P_amb)
-    print_performance_summary(perf, nozzle)
+    if verbose:
+        print_performance_summary(perf, nozzle)
 
     return result, perf, nozzle, geo, prop
 

@@ -16,6 +16,7 @@ __pycache__/
 
 # Generated CSV exports
 output.csv
+artifacts/
 
 # Editor / IDE / OS / agent metadata
 .vscode/

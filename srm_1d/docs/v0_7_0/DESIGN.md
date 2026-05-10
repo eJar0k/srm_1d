@@ -1,15 +1,16 @@
 # srm_1d v0.7.0 — Hot-gas Plenum Igniter Model
 
-**Status**: design (not yet implemented)
+**Status**: implemented through Phase 3 on branch `v0.7.0-phase3`.
+Phase 4 validation is in progress; do not tag `v0.7.0` yet.
 **Target**: replace the v0.6.0 single-knob exponential-decay igniter
-([simulation.py](../../simulation.py) lines ~430-450) with a physically
-grounded forward model that removes `igniter_tau` as an FSI-cushioning
-calibration knob.
+with a physically grounded forward model that removes `igniter_tau` as
+an FSI-cushioning calibration knob.
 
 This document is self-contained. A fresh coding agent should be able to
 check out the repo, read this doc + [TASKS.md](TASKS.md) + the
-[references/](references/) directory, and implement v0.7.0 without
-needing to re-derive the literature.
+[references/](references/) directory, understand the implemented
+v0.7.0 design, and continue Phase 4 validation without re-deriving the
+literature.
 
 ## Context — why this is needed
 
@@ -105,15 +106,17 @@ throughout. Implement as a fallback with a warning.
 
 ## Coupling to cell 0
 
-Inject `mdot_choke`, enthalpy `h_inject = c_p · T_ig`, and momentum
-`mdot_choke · v_inject` (where `v_inject = √(γ R T_ig / M_ig)` is sonic
-at the throat) into cell 0 as source terms. Reuse the existing
-`endface_msource` distribution machinery in
-[grain_geometry.py](../../grain_geometry.py:481-505) — single-cell
-injection by default. Multi-cell impingement-region distribution
-(Cavallini SPINBALL) is deferred to v0.8.0 since it requires axial
-geometry of the igniter jets, which amateur designs typically don't
-specify.
+Inject `mdot_choke` and enthalpy `h_inject = c_p · T_ig` into cell 0 as
+source terms. The implementation uses separate per-cell `mass_source`
+and `thermal_source` arrays: propellant/end-face sources contribute at
+`T_flame`, and pyrogen contributes at `T_ig`.
+
+Igniter momentum (`mdot_choke · v_inject`) is explicitly deferred. This
+differs from the early design sketch and follows the Phase 3 decision to
+avoid adding a poorly constrained startup impulse until validation shows
+it is needed. Multi-cell impingement-region distribution (Cavallini
+SPINBALL) is also deferred to v0.8.0 since it requires axial geometry of
+the igniter jets, which amateur designs typically don't specify.
 
 ## Ignition criterion
 
@@ -229,15 +232,23 @@ we exclude:
 ## Validation strategy
 
 Primary target: **Hasegawa Motor A** (single-segment BATES, no erosive
-nozzle). The motor's calibration is already locked in v0.6.0
-(`igniter_tau = 127 ms` FSI-proxy, MSE = 0.24 MPa²). v0.7.0 success
-criterion:
+nozzle). The motor's calibration was locked in v0.6.0
+(`igniter_tau = 127 ms` FSI-proxy, MSE = 0.24 MPa²). The original
+v0.7.0 success criterion was:
 
 - **Spike overshoot drops from ~25% to <10%** — gross structural fix
 - **MSE drops from 0.24 → ~0.10 MPa²** — comparable improvement
 - **`igniter_tau` is removed from the parameter set** — replaced by
   pyrogen mass, throat, volume, and T_ignition (all physically grounded)
-- **All 107 existing pytest tests still pass**
+- **All tests still pass**
+
+Current Phase 4 pre-work: segmented LHS diagnostics show the Phase 3
+model can tune the post-spike shoulder, plateau, and taildown, but the
+spike segment remains the limiting residual. The main observed issue is
+that all grain cells become active almost immediately after Goodman
+surface ignition. The next structural model target is a finite
+post-ignition burn-establishment/participation factor, not a return to
+the old exponential igniter smoothing knobs.
 
 Secondary target: Zerox (forward-Finocyl + aft-BATES, *with* erosive
 nozzle — calibrated in v0.6.0 with `erosionCoeff` 2.34× openMotor
@@ -249,10 +260,12 @@ without erosive nozzles** for further validation. Add as available.
 
 ## Roadmap (post v0.7.0)
 
-- **v0.7.1**: optional radiation (lumped `C_hc(x/L)` per d'Agostino,
+- **v0.7.1**: post-ignition burn establishment / participation ramp
+  after Goodman surface ignition
+- **v0.7.2**: optional radiation (lumped `C_hc(x/L)` per d'Agostino,
   flagged as calibration knob)
-- **v0.7.2**: squib stage (electric → BPNV ramp → pyrogen → main)
-- **v0.7.3**: optional multi-species via passive scalar `Y_ig[i]`
+- **v0.7.3**: squib stage (electric → BPNV ramp → pyrogen → main)
+- **v0.7.4**: optional multi-species via passive scalar `Y_ig[i]`
   (Cavallini-style mass-fraction-weighted thermo)
 - **v0.8.0**: head-end primary motor with own nozzle (the user's
   long-term goal — Shuttle-SRB-style architecture). Pyrogen chamber
@@ -270,11 +283,12 @@ without erosive nozzles** for further validation. Add as available.
 | New: `srm_1d/solid_thermal.py` | Goodman cubic-polynomial integral solver: `_step_goodman_ode` per-cell + `_compute_T_surf` |
 | New: `srm_1d/motors/pyrogens/bpnv.yaml` | Reference Boron-KNO3-Viton pyrogen |
 | New: `srm_1d/motors/pyrogens/mtv.yaml` | Reference Mg-Teflon-Viton pyrogen |
-| [propellant.py](../../propellant.py) | Add `Pyrogen` dataclass mirroring `Propellant` |
-| [simulation.py](../../simulation.py) | Replace lines ~430-450 igniter sim_kwargs; integrate plenum step into `_run_time_loop`; add per-cell `T_surf` and `δ` fields; switch ignition criterion to per-cell `T_surf > T_ignition` |
-| [grain_geometry.py](../../grain_geometry.py) | Cell 0 injection picks up `mdot_choke`, `T_ig` from plenum each step |
-| [openmotor_adapter.py](../../openmotor_adapter.py) | Add `<motor>.pyrogen.yaml` sibling-file parsing (mirrors `transport.yaml` pattern) |
-| [DEVNOTES.md](../../DEVNOTES.md) | "v0.7.0 hot-gas plenum igniter" section replacing the v0.6.0 placeholder docs |
+| [propellant.py](../../propellant.py) | `Pyrogen` dataclass plus `Propellant.k_solid` for Goodman ignition |
+| [simulation.py](../../simulation.py) | Replaced legacy igniter sim kwargs; integrates plenum step into `_run_time_loop`; adds per-cell `T_surf` and `δ`; switches ignition criterion to per-cell `T_surf > T_ignition`; records `P_ig`, `T_ig`, `mdot_ig`, `m_pyrogen` |
+| [solver.py](../../solver.py) | `piso_step` consumes separate `mass_source` and `thermal_source` arrays |
+| [openmotor_adapter.py](../../openmotor_adapter.py) | Adds pyrogen loading, sibling `<motor>.pyrogen.yaml` discovery, and default `PyrogenChamber` builder |
+| [tools/sensitivity.py](../../tools/sensitivity.py) | Adds segmented pressure metrics and quiet LHS progress controls for Phase 4 analysis |
+| [DEVNOTES.md](../../DEVNOTES.md) | Current gotchas, validation state, and v0.7.0 breaking-change notes |
 
 See [TASKS.md](TASKS.md) for the concrete file-level task breakdown.
 

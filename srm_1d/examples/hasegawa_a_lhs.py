@@ -2,40 +2,198 @@
 hasegawa_a_lhs.py — Hasegawa Motor A Latin Hypercube optimization.
 ==================================================================
 
-4-variable LHS sweep over the Ma erosive-burning + pyrogen ignition parameters,
-fitting head-end pressure trace MSE against Hasegawa et al. (2006)
-experimental data. The Rank-1 result of an N=500 run of this script
-is the v0.6.0 calibration baseline (see DEVNOTES "Calibration State").
+LHS sweep over Ma erosive-burning and v0.7.0 pyrogen ignition
+parameters, fitting the Hasegawa et al. (2006) head-end pressure trace.
+The default fitness is segmented so the spike, post-spike shoulder,
+plateau, and taildown are visible as separate diagnostics.
 
 Usage:
     python -m srm_1d.examples.hasegawa_a_lhs
 
 By default runs N=500 samples across all CPU cores. Override
-``N_SAMPLES`` or ``MAX_WORKERS`` below for shorter test runs.
+``SRM_HASEGAWA_LHS_SAMPLES`` or ``SRM_HASEGAWA_LHS_WORKERS`` for shorter
+test runs. Set ``SRM_LHS_PROGRESS=brief|verbose|none`` and
+``SRM_SIM_VERBOSE=1`` to restore per-run solver summary blocks.
 
 Output:
-    hasegawa_a_lhs.csv — one row per sample, all params + fitness
-    hasegawa_a_lhs_top5.png — top-5 trace overlay
+    artifacts/hasegawa_a_lhs/hasegawa_a_lhs.csv
+    artifacts/hasegawa_a_lhs/hasegawa_a_lhs_top5.png
+    artifacts/hasegawa_a_lhs/hasegawa_a_lhs_metrics.png
+    artifacts/hasegawa_a_lhs/hasegawa_a_lhs_diagnostics.png
 """
 
+import os
 from pathlib import Path
 
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import numpy as np
 
-from srm_1d.tools.sensitivity import run_lhs, mse_fitness
+from srm_1d.tools.sensitivity import (
+    DEFAULT_PRESSURE_SEGMENTS,
+    run_lhs,
+    mse_fitness,
+    pressure_trace_metrics,
+    segmented_pressure_fitness,
+)
 from srm_1d.openmotor_adapter import run_from_ric
 from srm_1d.plotting import HASEGAWA_MOTOR_A_EXPERIMENTAL
 
 
 MOTOR_PATH = str(Path(__file__).resolve().parents[1] / 'motors' / 'hasegawa_a.ric')
-EXPERIMENTAL_TIME_OFFSET = 0.02  # align experimental ignition with sim t=0
-N_SAMPLES = 500
-MAX_WORKERS = None  # default: os.cpu_count()
+EXPERIMENTAL_TIME_OFFSET = 0.0  # align experimental ignition with sim t=0
+N_SAMPLES = int(os.environ.get('SRM_HASEGAWA_LHS_SAMPLES', '500'))
+MAX_WORKERS = os.environ.get('SRM_HASEGAWA_LHS_WORKERS')
+MAX_WORKERS = None if MAX_WORKERS in (None, '', 'auto') else int(MAX_WORKERS)
+DEFAULT_OUTPUT_PREFIX = str(
+    Path('artifacts') / 'hasegawa_a_lhs' / 'hasegawa_a_lhs'
+)
+OUTPUT_PREFIX = os.environ.get('SRM_HASEGAWA_LHS_PREFIX', DEFAULT_OUTPUT_PREFIX)
+FITNESS_MODE = os.environ.get('SRM_HASEGAWA_LHS_FITNESS', 'segmented')
+PROGRESS_MODE = os.environ.get('SRM_LHS_PROGRESS', 'brief')
+SIM_VERBOSE = os.environ.get('SRM_SIM_VERBOSE', '0').lower() in {'1', 'true', 'yes'}
+
+SEGMENT_WEIGHTS = {
+    'mse_spike': 0.25,
+    'mse_post_spike': 0.35,
+    'mse_plateau': 0.20,
+    'mse_taildown': 0.20,
+}
+
+
+def _plot_metric_tradeoffs(rows, prefix):
+    valid = [r for r in rows if not r.get('error')]
+    if not valid:
+        return
+
+    def arr(key):
+        return np.array([float(r.get(key, np.nan)) for r in valid])
+
+    def set_robust_limits(ax, x_values, y_values, lo=0.0):
+        for setter, values in ((ax.set_xlim, x_values), (ax.set_ylim, y_values)):
+            finite = values[np.isfinite(values)]
+            if finite.size == 0:
+                continue
+            hi = np.percentile(finite, 90.0) if finite.size > 8 else np.max(finite)
+            if np.isfinite(hi) and hi > lo:
+                setter(lo, hi * 1.15)
+
+    fitness = arr('fitness')
+    fig, axes = plt.subplots(2, 2, figsize=(13, 9))
+
+    post = arr('mse_post_spike')
+    plateau = arr('mse_plateau')
+    sc = axes[0, 0].scatter(
+        post, plateau, c=fitness,
+        cmap='viridis_r', s=24, alpha=0.85,
+    )
+    axes[0, 0].set_xlabel('Post-spike MSE [MPa^2]')
+    axes[0, 0].set_ylabel('Plateau MSE [MPa^2]')
+    axes[0, 0].set_title('Post-spike vs plateau')
+    set_robust_limits(axes[0, 0], post, plateau)
+    fig.colorbar(sc, ax=axes[0, 0], label='fitness')
+
+    tail = arr('mse_taildown')
+    axes[0, 1].scatter(tail, plateau,
+                       c=fitness, cmap='viridis_r', s=24, alpha=0.85)
+    axes[0, 1].set_xlabel('Taildown MSE [MPa^2]')
+    axes[0, 1].set_ylabel('Plateau MSE [MPa^2]')
+    axes[0, 1].set_title('Taildown vs plateau')
+    set_robust_limits(axes[0, 1], tail, plateau)
+
+    duration = arr('pyrogen_duration_ms')
+    axes[1, 0].scatter(duration, post,
+                       c=arr('pyrogen_peak_P_MPa'), cmap='plasma',
+                       s=24, alpha=0.85)
+    axes[1, 0].set_xlabel('Pyrogen duration [ms]')
+    axes[1, 0].set_ylabel('Post-spike MSE [MPa^2]')
+    axes[1, 0].set_title('Igniter duration vs shoulder error')
+    set_robust_limits(axes[1, 0], duration, post)
+
+    axes[1, 1].scatter(arr('peak_error_pct'), arr('trough_error_pct'),
+                       c=fitness, cmap='viridis_r', s=24, alpha=0.85)
+    axes[1, 1].axhline(0.0, color='0.5', linewidth=0.8)
+    axes[1, 1].axvline(0.0, color='0.5', linewidth=0.8)
+    axes[1, 1].set_xlabel('Spike peak error [%]')
+    axes[1, 1].set_ylabel('Post-spike trough error [%]')
+    axes[1, 1].set_title('Spike amplitude vs shoulder floor')
+
+    for ax in axes.flat:
+        ax.grid(True, alpha=0.3)
+    fig.suptitle('Hasegawa A segmented metric tradeoffs')
+    fig.tight_layout()
+    path = f'{prefix}_metrics.png'
+    fig.savefig(path, dpi=180)
+    plt.close(fig)
+    print(f'Saved {path}')
+
+
+def _plot_best_diagnostics(result, t_exp, p_exp, prefix):
+    fig, axes = plt.subplots(4, 1, figsize=(12, 12), sharex=False)
+
+    t = result['time']
+    p_sim = result['P_head'] / 1e6
+    p_at_exp = np.interp(t_exp, t, p_sim)
+
+    axes[0].plot(t, p_sim, 'b-', linewidth=2, label='simulation')
+    axes[0].plot(t_exp, p_exp, 'ko-', linewidth=1.5, markersize=3,
+                 label='experimental')
+    axes[0].set_ylabel('P_head [MPa]')
+    axes[0].legend(loc='best')
+    axes[0].grid(True, alpha=0.3)
+
+    axes[1].plot(t_exp, p_at_exp - p_exp, 'r.-', linewidth=1.2)
+    axes[1].axhline(0.0, color='0.4', linewidth=0.8)
+    axes[1].set_ylabel('Residual [MPa]')
+    axes[1].grid(True, alpha=0.3)
+
+    ax_pig = axes[2]
+    ax_mdot = ax_pig.twinx()
+    ax_pig.plot(t, result['P_ig'] / 1e6, color='tab:purple',
+                linewidth=1.6, label='P_ig')
+    ax_mdot.plot(t, result['mdot_ig'] * 1000.0, color='tab:orange',
+                 linewidth=1.2, label='mdot_ig')
+    ax_pig.set_ylabel('P_ig [MPa]')
+    ax_mdot.set_ylabel('mdot_ig [g/s]')
+    ax_pig.grid(True, alpha=0.3)
+    lines, labels = ax_pig.get_legend_handles_labels()
+    more_lines, more_labels = ax_mdot.get_legend_handles_labels()
+    ax_pig.legend(lines + more_lines, labels + more_labels, loc='best')
+
+    snapshots = result.get('snapshots', [])
+    if snapshots:
+        snap_t = np.array([s['t'] for s in snapshots])
+        ign_frac = np.array([
+            np.mean(s['is_burning'][s['is_grain']]) if np.any(s['is_grain']) else 0.0
+            for s in snapshots
+        ])
+        max_tsurf = np.array([np.max(s['T_surf']) for s in snapshots])
+        ax_frac = axes[3]
+        ax_tsurf = ax_frac.twinx()
+        ax_frac.plot(snap_t, ign_frac, 'g-', linewidth=1.8,
+                     label='burning grain fraction')
+        ax_tsurf.plot(snap_t, max_tsurf, color='tab:red',
+                      linewidth=1.2, label='max T_surf')
+        ax_frac.set_ylabel('Burning fraction [-]')
+        ax_tsurf.set_ylabel('max T_surf [K]')
+        lines, labels = ax_frac.get_legend_handles_labels()
+        more_lines, more_labels = ax_tsurf.get_legend_handles_labels()
+        ax_frac.legend(lines + more_lines, labels + more_labels, loc='best')
+    axes[3].set_xlabel('Time [s]')
+    axes[3].grid(True, alpha=0.3)
+
+    fig.suptitle('Hasegawa A best-run diagnostics')
+    fig.tight_layout()
+    path = f'{prefix}_diagnostics.png'
+    fig.savefig(path, dpi=180)
+    plt.close(fig)
+    print(f'Saved {path}')
 
 
 def main():
+    Path(OUTPUT_PREFIX).parent.mkdir(parents=True, exist_ok=True)
+
     t_exp = HASEGAWA_MOTOR_A_EXPERIMENTAL['time'] + EXPERIMENTAL_TIME_OFFSET
     p_exp = HASEGAWA_MOTOR_A_EXPERIMENTAL['pressure']
 
@@ -46,14 +204,31 @@ def main():
         'T_ignition':        (700.0, 950.0),
     }
 
+    metrics_fn = pressure_trace_metrics(
+        t_exp, p_exp, t_min=0.01, segments=DEFAULT_PRESSURE_SEGMENTS,
+    )
+    if FITNESS_MODE == 'mse':
+        fitness_fn = mse_fitness(t_exp, p_exp, t_min=0.01)
+    elif FITNESS_MODE == 'segmented':
+        fitness_fn = segmented_pressure_fitness(
+            t_exp, p_exp, t_min=0.01,
+            segments=DEFAULT_PRESSURE_SEGMENTS,
+            weights=SEGMENT_WEIGHTS,
+        )
+    else:
+        raise ValueError("SRM_HASEGAWA_LHS_FITNESS must be 'segmented' or 'mse'")
+
     rows = run_lhs(
         motor_path=MOTOR_PATH,
         bounds=bounds,
         n_samples=N_SAMPLES,
-        fitness_fn=mse_fitness(t_exp, p_exp, t_min=0.01),
+        fitness_fn=fitness_fn,
+        metrics_fn=metrics_fn,
         n_workers=MAX_WORKERS,
         seed=42,
-        csv_path='hasegawa_a_lhs.csv',
+        csv_path=f'{OUTPUT_PREFIX}.csv',
+        progress_mode=PROGRESS_MODE,
+        sim_verbose=SIM_VERBOSE,
         # Locked sim kwargs
         kappa=0.45, t_max=6.0, P_cutoff=0.05e6,
         snapshot_interval=2.0, print_interval=20.0,
@@ -68,12 +243,20 @@ def main():
     print("--- TOP 5 BEST FITS ---")
     print("=" * 50)
     for rank, r in enumerate(sorted_rows[:5], start=1):
-        print(f"Rank {rank} (MSE: {r['fitness']:.4f}):")
-        print(f"  Roughness    = {r['roughness']*1e6:.1f} μm")
+        print(f"Rank {rank} (fitness: {r['fitness']:.4f}):")
+        print(f"  Roughness    = {r['roughness']*1e6:.1f} um")
         print(f"  Pyro Mass    = {r['pyrogen_mass']*1000:.1f} g")
         print(f"  Pyro Throat  = {r['pyrogen_throat_area']*1e6:.2f} mm^2")
         print(f"  T_ignition   = {r['T_ignition']:.0f} K")
+        print(f"  MSE segments = spike {r.get('mse_spike', np.nan):.3f}, "
+              f"post {r.get('mse_post_spike', np.nan):.3f}, "
+              f"plateau {r.get('mse_plateau', np.nan):.3f}, "
+              f"tail {r.get('mse_taildown', np.nan):.3f}")
+        print(f"  Peak/trough  = {r.get('peak_error_pct', np.nan):+.1f}% / "
+              f"{r.get('trough_error_pct', np.nan):+.1f}%")
         print("-" * 30)
+
+    _plot_metric_tradeoffs(rows, OUTPUT_PREFIX)
 
     # Re-run the top-5 to recapture full traces (results aren't stored
     # to keep memory bounded during the sweep)
@@ -88,11 +271,12 @@ def main():
             kappa=0.45, t_max=6.0, P_cutoff=0.05e6,
             snapshot_interval=2.0, print_interval=20.0,
             pyrogen='bpnv',
+            verbose=SIM_VERBOSE,
             **params,
         )
         plt.plot(result['time'], result['P_head'] / 1e6,
                  color=colors[rank], linewidth=1.5, alpha=0.9,
-                 label=f"Rank {rank+1} | MSE={r['fitness']:.3f}")
+                 label=f"Rank {rank+1} | fitness={r['fitness']:.3f}")
 
     plt.title(f"Hasegawa A — {len(bounds)}-Variable LHS (Top 5, N={N_SAMPLES})",
               fontsize=16)
@@ -102,9 +286,21 @@ def main():
     plt.xlim(0, 5.5)
     plt.legend(loc='upper right', fontsize=10)
     plt.tight_layout()
-    plt.savefig("hasegawa_a_lhs_top5.png", dpi=300)
+    plt.savefig(f"{OUTPUT_PREFIX}_top5.png", dpi=300)
     plt.close()
-    print("\nSaved hasegawa_a_lhs_top5.png")
+    print(f"\nSaved {OUTPUT_PREFIX}_top5.png")
+
+    if sorted_rows:
+        best_params = {k: sorted_rows[0][k] for k in bounds.keys()}
+        best_result, *_ = run_from_ric(
+            MOTOR_PATH,
+            kappa=0.45, t_max=6.0, P_cutoff=0.05e6,
+            snapshot_interval=0.02, print_interval=20.0,
+            pyrogen='bpnv',
+            verbose=SIM_VERBOSE,
+            **best_params,
+        )
+        _plot_best_diagnostics(best_result, t_exp, p_exp, OUTPUT_PREFIX)
 
 
 if __name__ == "__main__":

@@ -2,8 +2,8 @@
 
 A 1D transient finite-volume solid rocket motor internal ballistics
 simulator with the Ma et al. (2020) erosive burning model. Numba-JIT
-compiled time loop hits ~45–90k steps/s. Validated against Hasegawa
-Motor A.
+compiled time loop hits ~45-90k steps/s. v0.7.0-phase3 adds a
+pyrogen-plenum igniter and Goodman solid-heating ignition model.
 
 This file is loaded on every session — keep it tight. Pointers to
 deeper docs at the bottom.
@@ -11,7 +11,7 @@ deeper docs at the bottom.
 ## Quick start
 
 ```bash
-# Tests (pyenv 3.10.5 — has numba, pytest, scikit-fmm installed; 107 tests)
+# Tests (pyenv 3.10.5 -- has numba, pytest, scikit-fmm installed; 133 tests)
 "C:/Users/ejarocki/.pyenv/pyenv-win/versions/3.10.5/python.exe" -m pytest srm_1d/tests/
 
 # Hasegawa A example (loads srm_1d/motors/hasegawa_a.ric)
@@ -31,18 +31,22 @@ srm_1d/
 ├── grain_geometry.py    GrainSegment / MotorGeometry / build_snapped_geometry; per-cell regress[i]
 ├── nozzle.py            openMotor-aligned Nozzle: thrust, Isp, CF, throat erosion. Adjusted-CF formula.
 ├── fmm_grain.py         Bridge to local openMotor checkout; FmmTable extraction + Numba lookup
-├── simulation.py        run_simulation wrapper + @njit _run_time_loop (exp-decay igniter)
+├── igniter_plenum.py    Pyrogen chamber, choked/subsonic venting, Sutton sizing defaults
+├── solid_thermal.py     Goodman integral solid-heating ignition subsolver
+├── simulation.py        run_simulation wrapper + @njit _run_time_loop (pyrogen + Goodman)
 ├── plotting.py          matplotlib plots (pressure, thrust, flow snapshots, summary)
 ├── openmotor_adapter.py .ric reader, transport YAML loader, convert_propellant/_geometry/_nozzle, CSV export
 ├── motors/              Canonical motor data: <motor>.ric + <motor>.transport.yaml pairs
 ├── tools/sensitivity.py Latin Hypercube parameter sweeps with parallel execution
 ├── examples/            hasegawa_motor_a, bates_4seg, hasegawa_a_lhs, Zerox_test, ZeroxOptimizer
-└── tests/               7 files, 107 tests (incl. test_endface_conservation gating)
+└── tests/               11 files, 133 tests
 ```
 
 ## Dev workflow
 
-- **Versioning is git tags**, not folder names. Current: `v0.6.0`.
+- **Versioning is git tags**, not folder names. Current branch:
+  `v0.7.0-phase3`. Do not tag `v0.7.0` until Phase 4 validation/docs
+  are finished.
   Bump on hard API breaks; document each break in DEVNOTES "API
   Breaking Changes Log."
 - **Hard API breaks are fine** — refactor cleanly, no backward-compat
@@ -72,11 +76,11 @@ srm_1d/
    function: each face's mass splits over 2 adjacent cells with weights
    summing to 1.0. Coupled to snapping (which puts faces on cell edges).
    Gated by `tests/test_endface_conservation.py`.
-4. **Igniter is a v0.6.0 placeholder** — exponential decay
-   (`mdot = (m/τ)·exp(-t/τ)`) with no pressure feedback.
-   `igniter_tau≈127ms` for Hasegawa A is acting as a numerical
-   FSI-cushioning proxy, not a physical timescale. v0.7.0+ replaces
-   with a hot-gas plenum.
+4. **Igniter API hard-broke in v0.7.0** -- the exponential knobs
+   (`igniter_mass`, `igniter_tau`, `ignition_ramp_tau`, `P_ignition`)
+   are gone. Use `pyrogen_chamber` directly or `run_from_ric(...,
+   pyrogen='bpnv')`. The plenum injects mass plus temperature-weighted
+   enthalpy into cell 0; igniter momentum is intentionally deferred.
 5. **Frozen vs effective gas transport** — tunable knob. Frozen
    (k=0.37, Cp=2060) under-predicts erosive spike; effective
    (k~0.65, Cp~1800) over-predicts plateau. Hasegawa A is sensitive
@@ -95,47 +99,32 @@ srm_1d/
 
 ## Where to look for more
 
-- `srm_1d/README.md` — public API, motor designation, validated parameters
-- `srm_1d/ARCHITECTURE.md` — function-level map of every module
-- `srm_1d/DEVNOTES.md` — full gotchas, calibration state, complete
+- `srm_1d/README.md` -- public API, motor designation, validated parameters
+- `srm_1d/ARCHITECTURE.md` -- function-level map of every module
+- `srm_1d/DEVNOTES.md` -- full gotchas, calibration state, complete
   API breaking-change log per minor version, performance profile
-- `srm_1d/docs/v0_7_0/` — v0.7.0 hot-gas plenum design package:
-  `DESIGN.md` (architecture), `TASKS.md` (file-level implementation
-  breakdown), `references/` (extracted papers + Goodman integral
-  derivation + Sutton/DeMar summaries). Self-contained for any agent
-  picking up v0.7.0 implementation.
-- `gemini summary.md` (repo root) — historical record of the v0.6.0
+- `srm_1d/docs/v0_7_0/` -- v0.7.0 hot-gas plenum design package:
+  `DESIGN.md` (implemented architecture), `TASKS.md` (phase status),
+  `references/` (extracted papers + Goodman integral derivation +
+  Sutton/DeMar summaries).
+- `gemini summary.md` (repo root) -- historical record of the v0.6.0
   development cycle that originated build_snapped_geometry, the new
   end-face kernel, and the exponential-decay igniter
-- Memory directory (`~/.claude/projects/.../memory/`):
-  - `project_validation_targets.md` — figure of merit for the model
-    (full pressure-trace match vs experimental is the gold standard)
-  - `project_hasegawa_calibration_state.md` — v0.6.0 LHS-derived
-    parameter set + FSI fat-spike caveat
-  - `project_zerox_calibration_state.md` — v0.6.0 LHS rank-1 fit;
-    erosionCoeff 2.34× openMotor default; P_ignition pinned-inert
-  - `project_v0_7_0_design.md` — v0.7.0 design state, pointer to
-    `srm_1d/docs/v0_7_0/`
-  - `feedback_*` — user preferences (defer to openMotor, hard breaks
-    OK, terse responses preferred, no unfounded smoothing/dispersion,
-    igniter conventions)
-  - `reference_openmotor_source.md` — pointer to local openMotor checkout
-  - `reference_validation_papers.md` — Ma 2020 + Hasegawa 2006 PDFs
-    in repo root
+- `generic agent instructions.md` -- short current handoff for future
+  coding agents. Older external agent-memory references are historical;
+  this repo's committed Markdown is the source of truth.
 
 ## Open roadmap (priority order)
 
-1. **Hot-gas plenum igniter model** (v0.7.0) — **design complete**, see
-   `srm_1d/docs/v0_7_0/DESIGN.md` and `TASKS.md`. Pyrogen 0D plenum
-   coupled to cell 0 via choked sonic orifice; per-cell `T_surf`
-   ignition criterion driven by Goodman cubic-polynomial integral
-   solid-phase conduction. Default pyrogen sizing via Sutton Eq. 15-4
-   (`m = 0.12·V_F^0.7`); pyrogen datasheet schema modeled on DeMar 2021
-   amateur measurements. **Implementation pending** — start with
-   Phase 1 (standalone plenum) per TASKS.md. References (extracted
-   papers + equation derivations) at `srm_1d/docs/v0_7_0/references/`.
-2. **Per-step gas thermo for multi-tab** (deferred) — γ, T_flame, MW
+1. **Post-ignition burn establishment** -- Hasegawa segmented LHS shows
+   the current Phase 3 model can tune shoulder/plateau/tail, but the
+   spike residual is dominated by immediate full-cell burn participation.
+   Add a per-cell participation/ramp model after Goodman ignition before
+   revisiting igniter momentum.
+2. **Phase 4 validation** -- update Hasegawa and Zerox calibration tables
+   with pyrogen-based parameters once the burn-establishment model lands.
+3. **Per-step gas thermo for multi-tab** (deferred) -- gamma, T_flame, MW
    varying inside the hot loop. Documented in DEVNOTES; hold off
    until calibration shows it helps.
-3. **RodTube grain support** — small extension (PerforatedGrain in
+4. **RodTube grain support** -- small extension (PerforatedGrain in
    addition to FmmGrain in `from_openmotor`).

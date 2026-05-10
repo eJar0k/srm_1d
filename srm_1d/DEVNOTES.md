@@ -75,6 +75,21 @@ solid heating. Grain cells ignite when `T_surf > T_ignition`.
   momentum is intentionally deferred.
 - Built-in pyrogen datasheets live under `srm_1d/motors/pyrogens/`.
 
+### Hasegawa A segmented ignition diagnostics (Phase 4 pre-work)
+The v0.7.0 Phase 3 model removes the old exponential igniter degeneracy,
+but Hasegawa A LHS runs still show a structural startup residual:
+shoulder, plateau, and taildown can be tuned, while the spike segment
+sets the remaining floor. Diagnostics show all grain cells become active
+almost immediately after Goodman ignition.
+
+Interpretation: the next physical model should separate "surface has
+ignited" from "cell contributes full burning source." Add a per-cell
+post-ignition burn-establishment/participation factor before revisiting
+igniter momentum or adding new igniter smoothing knobs.
+
+Current local artifacts live under `artifacts/hasegawa_a_lhs/` and are
+intentionally ignored by git.
+
 ### Zerox motor (LHS-calibrated, v0.6.0)
 Forward-Finocyl + aft-BATES, ~1.45 kg "Risky Batman V3" propellant.
 Static-fire data is the calibration ground truth — the openMotor
@@ -109,8 +124,10 @@ Hasegawa-A inherited value; reveals which knobs are essential):
 | `pyrogen_mass` | TBD | v0.7.0 LHS pending |
 
 **Residual structural artifacts (NOT parametric — cannot be tuned away):**
-- Spike behavior now depends on the pyrogen plenum and Goodman ignition
-  coupling; Phase 4 validation will quantify the remaining residual.
+- Hasegawa ignition spike residual: Phase 3 pyrogen+Goodman coupling
+  removes the old exponential fallback but still activates all grain
+  cells too abruptly. Treat post-ignition burn establishment as the next
+  structural model target.
 - Sharp step at t≈1.9s — fin-burnout transition in the FMM finocyl
   model. Real motor has it smoothed/absent. The FMM table is
   axially uniform within each segment (per `fmm_grain.py:329-414`),
@@ -306,3 +323,19 @@ in geometry/burn rate/ignition (called every step or every N steps).
     - **Sensitivity tooling** lives at `srm_1d/tools/sensitivity.py`
       (`run_lhs`, `mse_fitness`, etc.). Example wrapper at
       `srm_1d/examples/hasegawa_a_lhs.py`.
+- v0.7.0: hot-gas plenum ignition and Goodman solid heating.
+    - **Igniter API hard break**: `run_simulation` requires
+      `pyrogen_chamber`; `run_from_ric` requires `pyrogen=...` or a
+      sibling `<motor>.pyrogen.yaml`. Removed `igniter_mass`,
+      `igniter_tau`, `ignition_ramp_tau`, and `P_ignition`.
+    - **Pyrogen plumbing**: `igniter_plenum.py` tracks pyrogen mass,
+      plenum gas mass/temperature, choked/subsonic venting, and Sutton
+      default sizing in the adapter builder.
+    - **Goodman ignition**: `solid_thermal.py` advances per-cell
+      `T_surf` and `delta`; cells ignite at `T_surf > T_ignition`.
+    - **Source coupling**: PISO takes per-cell `mass_source` and
+      `thermal_source`, so propellant/end-face sources use `T_flame`
+      and pyrogen source uses `T_ig`. Igniter momentum remains deferred.
+    - **Sensitivity diagnostics**: `run_lhs` supports `metrics_fn`,
+      segmented pressure metrics, quiet `progress_mode`, and
+      `sim_verbose=False` for large sweeps.

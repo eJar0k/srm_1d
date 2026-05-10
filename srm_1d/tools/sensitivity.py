@@ -43,6 +43,7 @@ same ``(result) -> float`` shape.
 
 import csv
 import concurrent.futures
+import time
 from typing import Callable, Dict, Tuple
 
 import numpy as np
@@ -80,6 +81,8 @@ class MSEFitness:
             return 1e6
         p_sim_at_exp = np.interp(self.t_exp, t_sim, p_sim_mpa)
         mask = self.t_exp >= self.t_min
+        if not np.any(mask):
+            return 1e6
         return float(np.mean((p_sim_at_exp[mask] - self.p_exp_mpa[mask]) ** 2))
 
 
@@ -114,6 +117,164 @@ class PeakPressureErrorFitness:
         return abs(Pp - self.target) / self.target
 
 
+DEFAULT_PRESSURE_SEGMENTS = (
+    ('spike', 0.03, 0.12),
+    ('post_spike', 0.12, 0.60),
+    ('plateau', 0.60, 2.45),
+    ('taildown', 2.45, 4.75),
+)
+
+
+class PressureTraceMetrics:
+    """Named pressure-trace metrics for calibration diagnostics.
+
+    Pressures are reported in MPa-based units. Segment MSE columns are
+    ``mse_<segment>`` in MPa^2 and are computed after interpolating the
+    simulation onto the experimental timestamps.
+    """
+    def __init__(self, t_exp, p_exp_mpa, t_min=0.0,
+                 segments=DEFAULT_PRESSURE_SEGMENTS,
+                 peak_window=(0.03, 0.18),
+                 trough_window=(0.12, 0.60)):
+        self.t_exp = np.asarray(t_exp, dtype=float)
+        self.p_exp_mpa = np.asarray(p_exp_mpa, dtype=float)
+        self.t_min = float(t_min)
+        self.segments = tuple((str(name), float(lo), float(hi))
+                              for name, lo, hi in segments)
+        self.peak_window = tuple(float(v) for v in peak_window)
+        self.trough_window = tuple(float(v) for v in trough_window)
+
+    def _window_peak(self, t, p, window):
+        mask = (t >= window[0]) & (t <= window[1])
+        if not np.any(mask):
+            return np.nan, np.nan
+        t_win = t[mask]
+        p_win = p[mask]
+        idx = int(np.argmax(p_win))
+        return float(t_win[idx]), float(p_win[idx])
+
+    def _window_trough(self, t, p, window):
+        mask = (t >= window[0]) & (t <= window[1])
+        if not np.any(mask):
+            return np.nan, np.nan
+        t_win = t[mask]
+        p_win = p[mask]
+        idx = int(np.argmin(p_win))
+        return float(t_win[idx]), float(p_win[idx])
+
+    def __call__(self, result):
+        t_sim = np.asarray(result.get('time', []), dtype=float)
+        p_sim = np.asarray(result.get('P_head', []), dtype=float) / 1e6
+        metrics = {}
+
+        if len(t_sim) < 2:
+            return {'mse_all': 1e6}
+
+        p_sim_at_exp = np.interp(self.t_exp, t_sim, p_sim)
+        all_mask = self.t_exp >= self.t_min
+        if np.any(all_mask):
+            residual = p_sim_at_exp[all_mask] - self.p_exp_mpa[all_mask]
+            metrics['mse_all'] = float(np.mean(residual ** 2))
+            metrics['mae_all'] = float(np.mean(np.abs(residual)))
+        else:
+            metrics['mse_all'] = 1e6
+            metrics['mae_all'] = 1e3
+
+        for name, lo, hi in self.segments:
+            mask = (self.t_exp >= lo) & (self.t_exp <= hi)
+            if np.any(mask):
+                err = p_sim_at_exp[mask] - self.p_exp_mpa[mask]
+                metrics[f'mse_{name}'] = float(np.mean(err ** 2))
+                metrics[f'mae_{name}'] = float(np.mean(np.abs(err)))
+                metrics[f'bias_{name}'] = float(np.mean(err))
+            else:
+                metrics[f'mse_{name}'] = np.nan
+                metrics[f'mae_{name}'] = np.nan
+                metrics[f'bias_{name}'] = np.nan
+
+        t_peak_sim, p_peak_sim = self._window_peak(t_sim, p_sim, self.peak_window)
+        t_peak_exp, p_peak_exp = self._window_peak(
+            self.t_exp, self.p_exp_mpa, self.peak_window,
+        )
+        metrics['t_peak_sim'] = t_peak_sim
+        metrics['P_peak_sim_MPa'] = p_peak_sim
+        metrics['t_peak_exp'] = t_peak_exp
+        metrics['P_peak_exp_MPa'] = p_peak_exp
+        if np.isfinite(p_peak_exp) and abs(p_peak_exp) > 1e-12:
+            metrics['peak_error_pct'] = float(
+                100.0 * (p_peak_sim - p_peak_exp) / p_peak_exp
+            )
+        else:
+            metrics['peak_error_pct'] = np.nan
+
+        t_trough_sim, p_trough_sim = self._window_trough(
+            t_sim, p_sim, self.trough_window,
+        )
+        t_trough_exp, p_trough_exp = self._window_trough(
+            self.t_exp, self.p_exp_mpa, self.trough_window,
+        )
+        metrics['t_trough_sim'] = t_trough_sim
+        metrics['P_trough_sim_MPa'] = p_trough_sim
+        metrics['t_trough_exp'] = t_trough_exp
+        metrics['P_trough_exp_MPa'] = p_trough_exp
+        if np.isfinite(p_trough_exp) and abs(p_trough_exp) > 1e-12:
+            metrics['trough_error_pct'] = float(
+                100.0 * (p_trough_sim - p_trough_exp) / p_trough_exp
+            )
+        else:
+            metrics['trough_error_pct'] = np.nan
+
+        summary = result.get('summary', {})
+        metrics['t_burn_sim'] = float(summary.get(
+            't_burn', t_sim[-1] if len(t_sim) else np.nan,
+        ))
+        metrics['pyrogen_duration_ms'] = float(
+            summary.get('pyrogen_duration', np.nan)
+        ) * 1000.0
+        metrics['pyrogen_peak_P_MPa'] = float(
+            summary.get('pyrogen_peak_P', np.nan)
+        ) / 1e6
+        metrics['pyrogen_mass_burned_g'] = float(
+            summary.get('pyrogen_mass_burned', np.nan)
+        ) * 1000.0
+        return metrics
+
+
+class SegmentedPressureFitness:
+    """Weighted average of segment MSE metrics.
+
+    The score remains in MPa^2 when weights sum to one. The default
+    weighting deliberately gives the post-spike shoulder a separate vote
+    instead of allowing plateau/tail duration to dominate the scalar MSE.
+    """
+    def __init__(self, t_exp, p_exp_mpa, t_min=0.0,
+                 segments=DEFAULT_PRESSURE_SEGMENTS, weights=None):
+        self.metrics = PressureTraceMetrics(
+            t_exp, p_exp_mpa, t_min=t_min, segments=segments,
+        )
+        if weights is None:
+            weights = {
+                'mse_spike': 0.25,
+                'mse_post_spike': 0.35,
+                'mse_plateau': 0.20,
+                'mse_taildown': 0.20,
+            }
+        self.weights = dict(weights)
+
+    def __call__(self, result):
+        metrics = self.metrics(result)
+        score = 0.0
+        weight_sum = 0.0
+        for key, weight in self.weights.items():
+            value = metrics.get(key, np.nan)
+            if np.isfinite(value):
+                score += float(weight) * float(value)
+                weight_sum += float(weight)
+        if weight_sum <= 0.0:
+            return 1e6
+        return float(score / weight_sum)
+
+
 # Backwards-friendly factory aliases (instantiate the class directly)
 def mse_fitness(t_exp, p_exp_mpa, t_min=0.0):
     return MSEFitness(t_exp, p_exp_mpa, t_min=t_min)
@@ -127,22 +288,43 @@ def peak_pressure_error_fitness(p_peak_target_pa):
     return PeakPressureErrorFitness(p_peak_target_pa)
 
 
+def pressure_trace_metrics(t_exp, p_exp_mpa, t_min=0.0,
+                           segments=DEFAULT_PRESSURE_SEGMENTS,
+                           peak_window=(0.03, 0.18),
+                           trough_window=(0.12, 0.60)):
+    return PressureTraceMetrics(
+        t_exp, p_exp_mpa, t_min=t_min, segments=segments,
+        peak_window=peak_window, trough_window=trough_window,
+    )
+
+
+def segmented_pressure_fitness(t_exp, p_exp_mpa, t_min=0.0,
+                               segments=DEFAULT_PRESSURE_SEGMENTS,
+                               weights=None):
+    return SegmentedPressureFitness(
+        t_exp, p_exp_mpa, t_min=t_min, segments=segments, weights=weights,
+    )
+
+
 # ================================================================
 # Worker (must be top-level for ProcessPoolExecutor)
 # ================================================================
 
 def _run_one(args: tuple):
     """Worker entrypoint. Importable by pickling."""
-    idx, params, motor_path, sim_kwargs, fitness_fn = args
+    idx, params, motor_path, sim_kwargs, fitness_fn, metrics_fn = args
     try:
         result, _perf, _noz, _geo, _prop = run_from_ric(
             motor_path,
             **{**sim_kwargs, **params},
         )
     except Exception as exc:
-        return idx, params, 1e6, str(exc)
+        return idx, params, 1e6, {}, str(exc)
     fitness = float(fitness_fn(result))
-    return idx, params, fitness, None
+    metrics = {}
+    if metrics_fn is not None:
+        metrics = dict(metrics_fn(result))
+    return idx, params, fitness, metrics, None
 
 
 # ================================================================
@@ -154,10 +336,13 @@ def run_lhs(
     bounds: Dict[str, Tuple[float, float]],
     n_samples: int,
     fitness_fn: Callable,
+    metrics_fn: Callable = None,
     n_workers: int = None,
     seed: int = 42,
     csv_path: str = None,
     progress_every: int = 25,
+    progress_mode: str = 'brief',
+    sim_verbose: bool = False,
     **sim_kwargs,
 ) -> list:
     """
@@ -177,6 +362,9 @@ def run_lhs(
         Number of LHS samples to draw and evaluate.
     fitness_fn : callable
         ``(result_dict) -> float`` (lower is better).
+    metrics_fn : callable or None
+        Optional ``(result_dict) -> dict``. Returned keys are added to
+        each result row and CSV output.
     n_workers : int or None
         Worker process count; defaults to ``os.cpu_count()``.
     seed : int
@@ -186,6 +374,14 @@ def run_lhs(
         bounds keys + ``fitness`` + ``error`` for any worker exceptions).
     progress_every : int
         Print a one-line progress message every N completed samples.
+    progress_mode : {'brief', 'verbose', 'none'}
+        Controls LHS progress output. ``brief`` updates a compact status
+        line, ``verbose`` prints normal progress lines, and ``none``
+        suppresses LHS progress output.
+    sim_verbose : bool
+        Passed to ``run_from_ric`` as ``verbose`` unless already supplied
+        in ``sim_kwargs``. Defaults to False so worker simulations do not
+        print setup/summary blocks.
     **sim_kwargs
         Locked simulation kwargs passed verbatim to ``run_from_ric``
         (e.g. ``kappa=0.45``, ``t_max=6.0``).
@@ -205,28 +401,88 @@ def run_lhs(
 
     sim_kwargs = dict(sim_kwargs)
     sim_kwargs.setdefault('pyrogen', 'bpnv')
+    sim_kwargs.setdefault('verbose', sim_verbose)
 
     work = [
-        (i, dict(zip(keys, row.tolist())), motor_path, sim_kwargs, fitness_fn)
+        (
+            i,
+            dict(zip(keys, row.tolist())),
+            motor_path,
+            sim_kwargs,
+            fitness_fn,
+            metrics_fn,
+        )
         for i, row in enumerate(scaled)
     ]
 
-    print(f"sensitivity.run_lhs: {n_samples} samples, "
-          f"{len(keys)} dims, motor={motor_path}")
+    progress_mode = str(progress_mode).lower()
+    if progress_mode not in {'brief', 'verbose', 'none'}:
+        raise ValueError("progress_mode must be 'brief', 'verbose', or 'none'")
+    progress_every = max(1, int(progress_every))
+    start = time.time()
+    best = float('inf')
+    n_errors = 0
+
+    def emit_progress(done, final=False):
+        if progress_mode == 'none':
+            return
+        elapsed = time.time() - start
+        msg = (
+            f"LHS {done}/{n_samples}  best={best:.4g}  "
+            f"errors={n_errors}  elapsed={elapsed:.0f}s"
+        )
+        if progress_mode == 'brief':
+            print('\r' + msg, end='' if not final else '\n', flush=True)
+        else:
+            print('  ' + msg)
+
+    if progress_mode != 'none':
+        workers = n_workers if n_workers is not None else 'auto'
+        print(
+            f"sensitivity.run_lhs: {n_samples} samples, {len(keys)} dims, "
+            f"workers={workers}, sim_verbose={sim_kwargs.get('verbose', True)}"
+        )
 
     rows = []
-    with concurrent.futures.ProcessPoolExecutor(max_workers=n_workers) as exe:
-        for i, (idx, params, fitness, err) in enumerate(exe.map(_run_one, work)):
+    if n_workers == 1:
+        iterator = (_run_one(item) for item in work)
+        for done, (idx, params, fitness, metrics, err) in enumerate(iterator, start=1):
             rec = dict(params)
+            rec['idx'] = idx
             rec['fitness'] = fitness
+            rec.update(metrics)
             if err is not None:
                 rec['error'] = err
+                n_errors += 1
             rows.append(rec)
-            if (i + 1) % progress_every == 0:
-                print(f"  {i+1}/{n_samples} done")
+            if fitness < best:
+                best = fitness
+            if done % progress_every == 0 or done == n_samples:
+                emit_progress(done, final=done == n_samples)
+    else:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=n_workers) as exe:
+            futures = [exe.submit(_run_one, item) for item in work]
+            for done, fut in enumerate(concurrent.futures.as_completed(futures), start=1):
+                idx, params, fitness, metrics, err = fut.result()
+                rec = dict(params)
+                rec['idx'] = idx
+                rec['fitness'] = fitness
+                rec.update(metrics)
+                if err is not None:
+                    rec['error'] = err
+                    n_errors += 1
+                rows.append(rec)
+                if fitness < best:
+                    best = fitness
+                if done % progress_every == 0 or done == n_samples:
+                    emit_progress(done, final=done == n_samples)
 
     if csv_path is not None:
-        fieldnames = keys + ['fitness', 'error']
+        metric_keys = sorted({
+            k for rec in rows for k in rec.keys()
+            if k not in set(keys + ['idx', 'fitness', 'error'])
+        })
+        fieldnames = ['idx'] + keys + ['fitness'] + metric_keys + ['error']
         with open(csv_path, 'w', newline='') as f:
             w = csv.DictWriter(f, fieldnames=fieldnames)
             w.writeheader()
@@ -234,6 +490,7 @@ def run_lhs(
                 # Ensure 'error' column exists for every row
                 rec.setdefault('error', '')
                 w.writerow(rec)
-        print(f"sensitivity.run_lhs: wrote {csv_path}")
+        if progress_mode != 'none':
+            print(f"sensitivity.run_lhs: wrote {csv_path}")
 
     return rows

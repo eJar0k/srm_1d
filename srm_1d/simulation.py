@@ -488,6 +488,7 @@ def run_simulation(
     # --- Output ---
     print_interval=0.2,
     snapshot_interval=0.2,
+    verbose=True,
 ):
     """
     Run a complete transient simulation.
@@ -527,6 +528,8 @@ def run_simulation(
         Print status every this many seconds of simulated time.
     snapshot_interval : float
         Store flow field snapshots at this interval [s].
+    verbose : bool
+        If True, print setup and summary blocks. Set False for large sweeps.
 
     Returns
     -------
@@ -654,17 +657,18 @@ def run_simulation(
     # ============================================================
     # STATUS PRINT
     # ============================================================
-    numba_status = "Numba JIT enabled" if HAS_NUMBA else "Pure Python (no Numba)"
-    print(f"PISO Solver ({numba_status}): {propellant.name}")
-    print(f"  Motor: L={geo.L_motor*1e3:.0f}mm  D_outer={geo.D_outer*1e3:.0f}mm  "
-          f"D_throat={nozzle.D_throat*1e3:.1f}mm  segments={ga['N_seg']}")
-    print(f"  Params: Ts={propellant.T_surface:.0f}K  Cps={propellant.Cps:.0f}  "
-          f"roughness={roughness*1e6:.0f}um  kappa={kappa}")
-    print(f"  Pyrogen: {pyrogen_chamber.pyrogen.name}  "
-          f"m={pyrogen_chamber.m_pyrogen_initial*1e3:.1f}g  "
-          f"A_t={pyrogen_chamber.A_throat*1e6:.2f}mm^2  "
-          f"T_ignition={T_ignition:.0f}K")
-    print()
+    if verbose:
+        numba_status = "Numba JIT enabled" if HAS_NUMBA else "Pure Python (no Numba)"
+        print(f"PISO Solver ({numba_status}): {propellant.name}")
+        print(f"  Motor: L={geo.L_motor*1e3:.0f}mm  D_outer={geo.D_outer*1e3:.0f}mm  "
+              f"D_throat={nozzle.D_throat*1e3:.1f}mm  segments={ga['N_seg']}")
+        print(f"  Params: Ts={propellant.T_surface:.0f}K  Cps={propellant.Cps:.0f}  "
+              f"roughness={roughness*1e6:.0f}um  kappa={kappa}")
+        print(f"  Pyrogen: {pyrogen_chamber.pyrogen.name}  "
+              f"m={pyrogen_chamber.m_pyrogen_initial*1e3:.1f}g  "
+              f"A_t={pyrogen_chamber.A_throat*1e6:.2f}mm^2  "
+              f"T_ignition={T_ignition:.0f}K")
+        print()
 
     wall_start = clock.time()
 
@@ -775,34 +779,35 @@ def run_simulation(
     }
     term_str = termination_names.get(termination_code, "unknown")
 
-    print(f"\n{'='*65}")
-    print(f"SUMMARY: {propellant.name}")
-    print(f"  Motor: L={geo.L_motor*1e3:.0f}mm  D_outer={geo.D_outer*1e3:.0f}mm  "
-          f"D_throat={nozzle.D_throat*1e3:.1f}mm  segments={ga['N_seg']}")
-    print(f"  Params: Ts={propellant.T_surface:.0f}K  Cps={propellant.Cps:.0f}  "
-          f"roughness={roughness*1e6:.0f}um  kappa={kappa}")
-    print(f"  t_burn={time_arr[-1]:.3f}s  steps={n_steps}  cells={N}")
-    print(f"  Termination: {term_str}")
-    if first_burnthrough_time is not None:
-        print(f"  t_first_burnout={first_burnthrough_time:.3f}s")
-    print(f"  P_peak={P_head_arr[peak_idx]/1e6:.2f}MPa @ t={time_arr[peak_idx]:.3f}s")
-    if len(P_head_arr) > 10:
-        P_mid = np.mean(P_head_arr[max(0, len(P_head_arr)//4):len(P_head_arr)//2])
-        print(f"  P_mid_burn={P_mid/1e6:.2f}MPa  P_final={P_head_arr[-1]/1e6:.2f}MPa")
-    if throat_is_evolving:
-        delta_mm = (D_throat_final - nozzle.D_throat) * 1000
-        direction = "eroded" if delta_mm > 0 else "slagged"
-        print(f"  Throat: {nozzle.D_throat*1e3:.2f} → {D_throat_final*1e3:.2f} mm "
-              f"({direction} {abs(delta_mm):.3f} mm)")
-    print(f"  Wall time: {wall_elapsed:.1f}s ({n_steps/max(wall_elapsed,0.01):.0f} steps/s)")
-    print(f"  Mass: propellant={theoretical_propellant_mass:.3f}kg  "
-          f"produced={total_mass_produced:.3f}kg  nozzle={total_mass_nozzle:.3f}kg  "
-          f"balance_err={abs(total_mass_produced - total_mass_nozzle)/max(theoretical_propellant_mass,0.001)*100:.1f}%")
-    print(f"  Pyrogen: burned={pyrogen_mass_burned*1e3:.2f}g  "
-          f"peak_P_ig={pyrogen_peak_P/1e6:.2f}MPa  "
-          f"duration={pyrogen_duration*1000:.1f}ms")
-    print(f"  c*={cstar:.1f}m/s")
-    print(f"{'='*65}")
+    if verbose:
+        print(f"\n{'='*65}")
+        print(f"SUMMARY: {propellant.name}")
+        print(f"  Motor: L={geo.L_motor*1e3:.0f}mm  D_outer={geo.D_outer*1e3:.0f}mm  "
+              f"D_throat={nozzle.D_throat*1e3:.1f}mm  segments={ga['N_seg']}")
+        print(f"  Params: Ts={propellant.T_surface:.0f}K  Cps={propellant.Cps:.0f}  "
+              f"roughness={roughness*1e6:.0f}um  kappa={kappa}")
+        print(f"  t_burn={time_arr[-1]:.3f}s  steps={n_steps}  cells={N}")
+        print(f"  Termination: {term_str}")
+        if first_burnthrough_time is not None:
+            print(f"  t_first_burnout={first_burnthrough_time:.3f}s")
+        print(f"  P_peak={P_head_arr[peak_idx]/1e6:.2f}MPa @ t={time_arr[peak_idx]:.3f}s")
+        if len(P_head_arr) > 10:
+            P_mid = np.mean(P_head_arr[max(0, len(P_head_arr)//4):len(P_head_arr)//2])
+            print(f"  P_mid_burn={P_mid/1e6:.2f}MPa  P_final={P_head_arr[-1]/1e6:.2f}MPa")
+        if throat_is_evolving:
+            delta_mm = (D_throat_final - nozzle.D_throat) * 1000
+            direction = "eroded" if delta_mm > 0 else "slagged"
+            print(f"  Throat: {nozzle.D_throat*1e3:.2f} -> {D_throat_final*1e3:.2f} mm "
+                  f"({direction} {abs(delta_mm):.3f} mm)")
+        print(f"  Wall time: {wall_elapsed:.1f}s ({n_steps/max(wall_elapsed,0.01):.0f} steps/s)")
+        print(f"  Mass: propellant={theoretical_propellant_mass:.3f}kg  "
+              f"produced={total_mass_produced:.3f}kg  nozzle={total_mass_nozzle:.3f}kg  "
+              f"balance_err={abs(total_mass_produced - total_mass_nozzle)/max(theoretical_propellant_mass,0.001)*100:.1f}%")
+        print(f"  Pyrogen: burned={pyrogen_mass_burned*1e3:.2f}g  "
+              f"peak_P_ig={pyrogen_peak_P/1e6:.2f}MPa  "
+              f"duration={pyrogen_duration*1000:.1f}ms")
+        print(f"  c*={cstar:.1f}m/s")
+        print(f"{'='*65}")
 
     # Structured summary
     P_mid = float(np.mean(
