@@ -157,7 +157,7 @@ def thomas_solve(a, b, c, d, N):
 
 @njit(cache=True)
 def piso_step(
-    rho, u, P, T, A_port, D_hyd, mass_source, f_darcy,
+    rho, u, P, T, A_port, D_hyd, mass_source, thermal_source, f_darcy,
     dx, dt, gamma, R_specific, T_flame, Cp_gas, A_throat, N,
 ):
     """
@@ -185,6 +185,9 @@ def piso_step(
     mass_source : ndarray (N,)
         Mass source per unit length [kg/(m·s)]. From propellant
         combustion and igniter.
+    thermal_source : ndarray (N,)
+        Temperature-weighted mass source per unit length. Each source
+        contributes mass_source_component * source_temperature.
     f_darcy : ndarray (N,)
         Darcy friction factor at cell centers [-].
     dx : float
@@ -447,7 +450,7 @@ def piso_step(
             flux_e = P_new[i] * nozzle_coeff * T[i]
 
         conv_T = -(flux_e - flux_w) / dx
-        source_T = mass_source[i] * T_flame
+        source_T = thermal_source[i]
 
         T_new[i] = T[i] + dt / rhoA * (conv_T + source_T) * A_port[i]
         T_new[i] = max(T_new[i], 300.0)

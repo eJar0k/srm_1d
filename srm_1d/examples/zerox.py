@@ -45,10 +45,9 @@ def main():
         # v0.6.0 LHS rank-1 fit (MSE 0.071 MPa² vs experimental).
         roughness=20e-6,
         kappa=0.3286,
-        igniter_mass=0.003278,
-        igniter_tau=0.0365,
-        ignition_ramp_tau=0.01104,
-        P_ignition=0.0994e6,
+        pyrogen='bpnv',
+        pyrogen_mass=None,
+        T_ignition=850.0,
         P_cutoff=0.01e6,
         snapshot_interval=0.2,
         print_interval=0.2,

@@ -8,9 +8,8 @@ where one parameter is held at its current (Hasegawa-A inherited)
 value while the other five are LHS-sampled — useful for assessing
 whether each knob is essential or optional for a good fit.
 
-History: the first v0.6.0 run used 7 vars; that LHS revealed
-`P_ignition` was inert (pinning it barely changed MSE), so it's now
-locked at the rank-1 value (0.099 MPa) and dropped from the sweep.
+History: v0.7.0 replaced the v0.6.0 ignition knobs with pyrogen mass,
+pyrogen throat area, and surface ignition temperature.
 
 Bounds are informed by the prior `zerox_a_sweep` (a near 1.0 once
 throat erosion is corrected) and `zerox_erosion_sweep` (sweet spot
@@ -48,7 +47,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import qmc
 
-from srm_1d.openmotor_adapter import load_ric, load_transport, ric_to_sim_args
+from srm_1d.openmotor_adapter import (
+    build_pyrogen_chamber,
+    load_pyrogen,
+    load_ric,
+    load_transport,
+    ric_to_sim_args,
+)
 from srm_1d.simulation import run_simulation
 from srm_1d.plotting import ZEROX_EXPERIMENTAL
 
@@ -60,22 +65,19 @@ TRANSPORT_PATH = MOTOR_PATH.with_name('zerox.transport.yaml')
 CURRENT = {
     'erosion_coeff_scale': 1.0,
     'a_scale': 1.0,
-    'igniter_mass': 0.0024,
-    'igniter_tau': 0.1269,
-    'ignition_ramp_tau': 0.0136,
+    'pyrogen_mass': 0.0024,
+    'pyrogen_throat_area': 2.0e-5,
+    'T_ignition': 850.0,
     'kappa': 0.45,
 }
 
-# Bounds for the 6-D LHS. P_ignition was a 7th variable in the first
-# v0.6.0 LHS run but pinning it at the prior value barely worsened the
-# fit (1.06× MSE), so it's locked at 0.099 MPa (the rank-1 value) and
-# the search is now 6-D.
+# Bounds for the pyrogen-based LHS.
 BOUNDS = {
     'erosion_coeff_scale': (1.5, 3.5),
     'a_scale':             (0.85, 1.10),
-    'igniter_mass':        (1e-4, 5e-3),
-    'igniter_tau':         (0.01, 0.20),
-    'ignition_ramp_tau':   (0.001, 0.05),
+    'pyrogen_mass':        (1e-4, 5e-3),
+    'pyrogen_throat_area': (1e-6, 5e-5),
+    'T_ignition':          (700.0, 950.0),
     'kappa':               (0.30, 0.60),
 }
 
@@ -86,7 +88,6 @@ SEED = 42
 # Locked simulation kwargs (not swept).
 LOCKED_SIM_KWARGS = dict(
     roughness=20e-6,
-    P_ignition=0.099e6,        # locked (LHS showed it inert)
     cfl_target=0.5,
     dt_max=1e-4,
     t_max=8.0,
@@ -112,16 +113,19 @@ def _run_one_lhs(args):
         gas_props = load_transport(transport_path)
 
         sim_kwargs = dict(locked_kwargs)
-        sim_kwargs['kappa']             = params['kappa']
-        sim_kwargs['igniter_mass']      = params['igniter_mass']
-        sim_kwargs['igniter_tau']       = params['igniter_tau']
-        sim_kwargs['ignition_ramp_tau'] = params['ignition_ramp_tau']
+        sim_kwargs['kappa'] = params['kappa']
+        sim_kwargs['T_ignition'] = params['T_ignition']
 
         sim_args = ric_to_sim_args(motor, gas_props=gas_props, **sim_kwargs)
         # erosion_coeff and a are mutated on the loaded objects.
         sim_args['nozzle'].erosion_coeff *= params['erosion_coeff_scale']
         for tab in sim_args['propellant'].tabs:
             tab.a *= params['a_scale']
+        sim_args['pyrogen_chamber'] = build_pyrogen_chamber(
+            load_pyrogen('bpnv'), sim_args['geo'], sim_args['nozzle'],
+            pyrogen_mass=params['pyrogen_mass'],
+            pyrogen_throat_area=params['pyrogen_throat_area'],
+        )
 
         geo = sim_args.pop('geo')
         propellant = sim_args.pop('propellant')

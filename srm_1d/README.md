@@ -1,11 +1,11 @@
-# 1D SRM Internal Ballistics Simulator (srm_1d v0.6.0)
+# 1D SRM Internal Ballistics Simulator (srm_1d v0.7.0)
 
 A transient 1D finite-volume solver for solid rocket motor internal
 ballistics with the Ma et al. (2020) erosive burning model.
 
 **Performance:** ~45–90k steps/s (compiled time loop with Numba JIT;
 FMM grains run faster than cylindrical due to fewer per-step ops)
-**Tests:** 107 via pytest | **Adapter:** reads openMotor .ric files
+**Tests:** pytest | **Adapter:** reads openMotor .ric files
 including all FMM grain types (Finocyl, Star, Moon, X, C, D, Custom)
 
 ## Quick start
@@ -15,18 +15,19 @@ from srm_1d.openmotor_adapter import run_from_ric
 
 result, perf, nozzle, geo, prop = run_from_ric(
     'srm_1d/motors/hasegawa_a.ric',
-    # v0.6.0 LHS-tuned calibration
     roughness=37.1e-6,
-    igniter_mass=0.0024, igniter_tau=0.1269,
-    ignition_ramp_tau=0.0136,
-    P_ignition=0.05e6, P_cutoff=0.05e6,
+    pyrogen='bpnv',
+    T_ignition=850.0,
+    P_cutoff=0.05e6,
 )
 ```
 
 `run_from_ric` auto-discovers a sibling `<motor>.transport.yaml`
 alongside the .ric file and uses it for combustion gas transport
-properties (mu, k, Cp). For parametric geometry construction without
-a .ric, use `srm_1d.grain_geometry.build_snapped_geometry` directly.
+properties (mu, k, Cp). It also accepts `pyrogen='bpnv'`/`'mtv'` or
+a sibling `<motor>.pyrogen.yaml` for v0.7.0 pyrogen ignition. For
+parametric geometry construction without a .ric, use
+`srm_1d.grain_geometry.build_snapped_geometry` directly.
 
 ## File Structure
 
@@ -111,16 +112,12 @@ Head end: wall (u=0). Nozzle: choked flow BC (ṁ ∝ P·A_t).
   is replaced with a Numba-JIT marching-squares perimeter, so MSVC
   build tools aren't required.
 
-### Igniter Model (v0.6.0 placeholder)
-Single-knob exponential decay distributed full-grain:
-`mdot_igniter(t) = (igniter_mass/igniter_tau) · exp(-t/igniter_tau)`,
-injected uniformly across all N cells. **No pressure feedback.**
-
-The v0.5.x Saint-Robert pyrogen model is gone. The LHS-derived
-`igniter_tau ≈ 127 ms` for Hasegawa Motor A is acting as a numerical
-proxy for FSI/grain-viscoelastic cushioning, not a physical igniter
-timescale — see DEVNOTES. v0.7.0+ replaces this with a hot-gas plenum
-injector model (literature review pending).
+### Igniter Model (v0.7.0)
+Hot-gas pyrogen ignition uses a forward 0D plenum (`PyrogenChamber`)
+venting through a choked/subsonic orifice into cell 0. The main solver
+tracks pyrogen mass flow, plenum pressure/temperature, and per-cell
+Goodman solid heating. Grain cells ignite when `T_surf > T_ignition`
+(default 850 K). The old exponential igniter API is removed.
 
 ### Throat Evolution (in-loop, not post-processing)
 Erosion: rate = erosion_coeff [μm/(s·MPa)] × P [MPa] × 1e-6
@@ -184,12 +181,10 @@ result['summary']    # dict (P_peak, t_peak, mass_balance_error, etc.)
 
 ## Known Issues
 
-1. Igniter exponential-decay model is a placeholder — `igniter_tau`
-   doubles as a numerical FSI-cushioning proxy and a physical timescale
-2. Transport property sensitivity — frozen vs effective k_gas, Cp_gas
-3. Multi-tab burn rate not yet interpolated (selects one tab)
-4. Burnout ramp extends burn time ~30% (asymptotic f_active tail)
-5. The `build_snapped_geometry` ±10mm warning fires on coarse grids
+1. Transport property sensitivity — frozen vs effective k_gas, Cp_gas
+2. Multi-tab burn rate not yet interpolated (selects one tab)
+3. Burnout ramp extends burn time ~30% (asymptotic f_active tail)
+4. The `build_snapped_geometry` ±10mm warning fires on coarse grids
    (target_propellant_cells ≤ 100 with leading_gap=1mm); cosmetic only
 
 ## Validated Parameters (Hasegawa Motor A, v0.6.0 LHS Rank-1)
@@ -198,13 +193,11 @@ Motor: D_bore=40mm, D_outer=80mm, L=1680mm, D_throat=34mm
 Propellant: a=4.821e-5, n=0.3, ρ=1700, T_flame=3041K, γ=1.19, MW=0.0254
 Transport (RPA effective): μ=8.842e-5, k=0.3685, Cp=2060
 Roughness: 37.1 μm, κ=0.45
-Igniter: mass=2.4g, igniter_tau=126.9ms, ignition_ramp_tau=13.6ms
+Igniter: BPNV pyrogen plenum, T_ignition=850K
 
 ## Roadmap
 
-1. **Hot-gas plenum igniter model** (v0.7.0) — replace exponential decay
-   with prescribed P0(t), T0(t) + choked-orifice mass injection.
-   Literature review pending.
-2. Per-step gas thermo (γ, T_flame, MW) for multi-tab propellants
+1. Per-step gas thermo (γ, T_flame, MW) for multi-tab propellants
+2. Squib stage before pyrogen ignition
 3. RodTube grain support (PerforatedGrain extension to from_openmotor)
 4. openMotor front-end integration (CFDSimulation subclass — deferred)

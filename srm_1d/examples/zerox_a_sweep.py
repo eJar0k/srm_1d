@@ -24,7 +24,13 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 
-from srm_1d.openmotor_adapter import load_ric, load_transport, ric_to_sim_args
+from srm_1d.openmotor_adapter import (
+    build_pyrogen_chamber,
+    load_pyrogen,
+    load_ric,
+    load_transport,
+    ric_to_sim_args,
+)
 from srm_1d.simulation import run_simulation
 from srm_1d.plotting import ZEROX_EXPERIMENTAL
 
@@ -37,10 +43,7 @@ A_SCALES = [0.80, 0.85, 0.90, 0.95, 1.00, 1.05]
 SIM_KWARGS = dict(
     roughness=20e-6,
     kappa=0.45,
-    igniter_mass=0.0024,
-    igniter_tau=0.1269,
-    ignition_ramp_tau=0.0136,
-    P_ignition=0.042e6,
+    T_ignition=850.0,
     cfl_target=0.5,
     dt_max=1e-4,
     t_max=8.0,
@@ -56,6 +59,9 @@ def _run_one_a_scale(args):
     motor = load_ric(motor_path)
     gas_props = load_transport(transport_path)
     sim_args = ric_to_sim_args(motor, gas_props=gas_props, **sim_kwargs)
+    sim_args['pyrogen_chamber'] = build_pyrogen_chamber(
+        load_pyrogen('bpnv'), sim_args['geo'], sim_args['nozzle']
+    )
 
     prop = sim_args['propellant']
     for tab in prop.tabs:

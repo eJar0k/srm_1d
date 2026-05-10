@@ -201,16 +201,22 @@ class TestFmmSimulation:
         from srm_1d import run_simulation
         from srm_1d.tests._motor_fixtures import hasegawa_propellant_1
         from srm_1d.nozzle import Nozzle
+        from srm_1d.propellant import Pyrogen
+        from srm_1d.igniter_plenum import PyrogenChamber
 
         geo, _ = self._build_finocyl_motor()
         prop = hasegawa_propellant_1()
         nozzle = Nozzle(D_throat=0.020, D_exit=0.035, efficiency=0.95)
+        pyro = Pyrogen("test", 3.0e-5, 0.5, 1700.0, 2800.0, 0.030, 1.25)
+        chamber = PyrogenChamber(
+            pyro, 0.005, 5.0e-4, 2.0e-5, 3.0e-6, "end_burning"
+        )
 
         result = run_simulation(
-            geo, prop, nozzle,
-            roughness=20e-6, P_ignition=0.05e6, ignition_ramp_tau=0.010,
+            geo, prop, nozzle, chamber,
+            roughness=20e-6, T_ignition=294.0,
             P_cutoff=0.5e6, snapshot_interval=2.0, print_interval=10.0,
-            igniter_mass=0.005, t_max=10.0,
+            t_max=10.0,
         )
 
         # Mass produced through bore should match mass through nozzle

@@ -65,21 +65,15 @@ Higher roughness preferentially boosts nozzle-end erosion (high Re).
 - 35-50 μm: physically reasonable for AP/HTPB/Al (aluminum agglomeration)
 - >50 μm: overpredicts; ignition spike becomes too large
 
-### Igniter (v0.6.0+ exponential-decay model)
-The v0.6.0 igniter is a **single-knob exponential-decay placeholder**:
-`mdot_igniter(t) = (m_init/τ) · exp(-t/τ)` distributed uniformly along
-the full grain length (`n_ign_cells = N`). The Saint-Robert pyrogen
-model (a, n, ρ, A_burn) and flame-front tracking (v_flame, x_flame)
-were deleted.
-- `igniter_tau` is the only decay knob. There is no pressure feedback
-  — chamber-pressure spikes don't change igniter mdot.
-- LHS-tuned `igniter_tau ≈ 127 ms` for Hasegawa Motor A is acting as a
-  numerical proxy for FSI/grain-viscoelastic cushioning, NOT a physical
-  igniter timescale. Don't read physics into the value.
-- Plan for v0.7.0+: replace with a hot-gas plenum injection model
-  (specified P0(t), T0(t), choked sonic orifice into cell 0). The
-  exponential-decay model is documented as a placeholder pending
-  literature review.
+### Igniter (v0.7.0 pyrogen plenum model)
+The v0.7.0 igniter is a forward hot-gas pyrogen plenum. A
+`PyrogenChamber` burns a single-tab `Pyrogen`, vents through a
+choked/subsonic orifice into cell 0, and feeds Goodman per-cell
+solid heating. Grain cells ignite when `T_surf > T_ignition`.
+- The v0.6.0 exponential igniter API was removed.
+- Source coupling is mass plus temperature-weighted enthalpy; igniter
+  momentum is intentionally deferred.
+- Built-in pyrogen datasheets live under `srm_1d/motors/pyrogens/`.
 
 ### Zerox motor (LHS-calibrated, v0.6.0)
 Forward-Finocyl + aft-BATES, ~1.45 kg "Risky Batman V3" propellant.
@@ -95,11 +89,11 @@ significantly off for this firing.
 - `propellant a = 4.634e-6 m/s/Pa^n` — 0.917× the openMotor default
   (5.054e-6). The propellant is ~8% over-rated.
 
-**LHS rank-1 igniter / kappa:**
-- `roughness=20μm, kappa=0.329, igniter_mass=3.28g, igniter_tau=36.5ms,`
-  `ignition_ramp_tau=11.0ms, P_ignition=99.4kPa`
-- LHS rank-1 MSE = 0.071 MPa² (RMS ≈ 0.27 MPa, ~7% of peak).
-- See `srm_1d/examples/zerox.py` for the canonical reproduction.
+**v0.7.0 ignition calibration:**
+- The v0.6.0 igniter knobs are gone. Zerox now uses pyrogen plenum
+  parameters (`pyrogen_mass`, `pyrogen_throat_area`, `T_ignition`) and
+  needs a fresh Phase 4 LHS.
+- See `srm_1d/examples/zerox.py` for the current pyrogen-based run.
 
 **Pinned-variant sensitivity** (LHS where one variable is held at the
 Hasegawa-A inherited value; reveals which knobs are essential):
@@ -109,16 +103,14 @@ Hasegawa-A inherited value; reveals which knobs are essential):
 | Main 6-var (no pin) | 0.071 | reference |
 | `erosion_coeff_scale = 1.0` | 0.357 | **5× worse** — dominant lever |
 | `a_scale = 1.0` | 0.149 | 2× worse — moderate |
-| `igniter_tau` | 0.129 | 1.8× — moderate |
-| `ignition_ramp_tau` | 0.114 | 1.6× — minor |
+| `pyrogen_throat_area` | TBD | v0.7.0 LHS pending |
+| `T_ignition` | TBD | v0.7.0 LHS pending |
 | `kappa = 0.45` | 0.104 | 1.5× — minor |
-| `igniter_mass = 2.4g` | 0.099 | 1.4× — minor |
-| `P_ignition = 0.042 MPa` | 0.075 | 1.06× — **inert; dropped from LHS** |
+| `pyrogen_mass` | TBD | v0.7.0 LHS pending |
 
 **Residual structural artifacts (NOT parametric — cannot be tuned away):**
-- ~25% spike overshoot (sim ~5 MPa peak vs experimental ~4 MPa) —
-  same FSI-cushioning proxy issue Hasegawa A has. v0.7.0 hot-gas
-  plenum is the planned fix.
+- Spike behavior now depends on the pyrogen plenum and Goodman ignition
+  coupling; Phase 4 validation will quantify the remaining residual.
 - Sharp step at t≈1.9s — fin-burnout transition in the FMM finocyl
   model. Real motor has it smoothed/absent. The FMM table is
   axially uniform within each segment (per `fmm_grain.py:329-414`),
@@ -294,11 +286,9 @@ in geometry/burn rate/ignition (called every step or every N steps).
       `break` that used to stop after the first matching segment is
       gone — cells straddling two segments now receive C_burn from
       both, which fixes a silent under-count at narrow gaps.
-    - **Igniter model rewrite**: `igniter_a/n/rho/A_burn` and the
-      `v_flame_*` flame-front tracking are gone. New API:
-      `igniter_mass`, `igniter_tau` (single decay knob). Pyrogen
-      distributed full-grain (`n_ign_cells = N`).
-      `_run_time_loop` signature follows.
+    - **Igniter model rewrite**: legacy Saint-Robert flame-front tracking
+      was removed in v0.6.0, then the v0.6.0 decay placeholder was
+      replaced in v0.7.0 by `PyrogenChamber` + Goodman ignition.
     - **Named motors moved to `srm_1d/motors/*.ric`**:
       `make_hasegawa_motor_A/B/C_geo/_nozzle`,
       `make_hasegawa_propellant_1`, `make_king_propellant_4525`,

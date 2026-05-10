@@ -10,7 +10,7 @@ Quick start (v0.6.0+):
 
     result, perf, nozzle, geo, prop = run_from_ric(
         'srm_1d/motors/hasegawa_a.ric',
-        roughness=37.1e-6, igniter_tau=0.1269, igniter_mass=0.0024,
+        roughness=37.1e-6, pyrogen='bpnv', T_ignition=850.0,
     )
 
 The ``srm_1d/motors/`` directory ships canonical motor specifications
@@ -25,6 +25,9 @@ __version__ = "0.6.0"
 
 # Main entry point
 from .simulation import run_simulation
+
+# Igniter
+from .igniter_plenum import PyrogenChamber
 
 # Geometry (grain side; nozzle is separate — see srm_1d.nozzle)
 from .grain_geometry import (
@@ -71,6 +74,7 @@ try:
     from .openmotor_adapter import (
         load_ric,
         load_transport,
+        load_pyrogen,
         run_from_ric,
         ric_to_sim_args,
         result_to_csv,

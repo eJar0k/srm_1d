@@ -150,14 +150,12 @@ or load named motors from `srm_1d/motors/*.ric`.)
   the Nozzle, calls _run_time_loop, wraps results into dict with time
   histories, snapshots, per-grain data, and structured summary.
 
-### Igniter model (v0.6.0 placeholder)
-Single-knob exponential decay distributed full-grain:
-`mdot_igniter(t) = (igniter_mass/igniter_tau) · exp(-t/igniter_tau)`,
-injected uniformly across all N cells (`n_ign_cells = N`). No pressure
-feedback. The v0.5.x Saint-Robert pyrogen model and `v_flame_*`
-flame-front tracking were deleted. This model is documented as a
-placeholder pending a hot-gas plenum replacement (v0.7.0+); see
-DEVNOTES "Igniter".
+### Igniter model (v0.7.0)
+The main loop integrates a `PyrogenChamber` plenum state each timestep,
+injects the resulting hot-gas mass flow into cell 0, and advances
+Goodman per-cell solid heating until `T_surf > T_ignition`. Igniter
+momentum is deliberately deferred; the source coupling is mass plus
+temperature-weighted enthalpy only.
 
 ## plotting.py (imports matplotlib)
 

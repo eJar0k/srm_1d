@@ -10,7 +10,7 @@ except ImportError:
 
 from srm_1d.openmotor_adapter import (
     convert_propellant, convert_geometry, convert_nozzle,
-    ric_to_sim_args,
+    ric_to_sim_args, load_pyrogen, run_from_ric,
     _INHIBIT_MAP,
 )
 
@@ -58,6 +58,79 @@ SAMPLE_RIC_CONFIG = {
 }
 
 SAMPLE_GAS_PROPS = {'mu': 8.842e-5, 'k': 0.3685, 'Cp': 2060.0}
+
+
+def _write_minimal_ric(path):
+    """Write a small safe_load-compatible .ric for adapter tests."""
+    if not HAS_YAML:
+        pytest.skip("PyYAML not installed")
+    data = {
+        'version': [0, 0, 0],
+        'data': {
+            'propellant': SAMPLE_RIC_PROPELLANT,
+            'grains': [SAMPLE_RIC_GRAINS[0]],
+            'nozzle': SAMPLE_RIC_NOZZLE,
+            'config': SAMPLE_RIC_CONFIG,
+        },
+    }
+    path.write_text(yaml.safe_dump(data), encoding='utf-8')
+
+
+class TestPyrogenLoading:
+    def test_load_builtin_pyrogen(self):
+        pyro = load_pyrogen('bpnv')
+        assert pyro.name == 'BPNV'
+        assert pyro.a > 0.0
+        assert pyro.impetus_W == pytest.approx(5000.0)
+
+    def test_missing_pyrogen_raises_before_run(self):
+        with pytest.raises(ValueError, match="Unknown pyrogen"):
+            load_pyrogen('not-a-real-pyrogen')
+
+    def test_run_from_ric_discovers_sibling_pyrogen(self, tmp_path, monkeypatch):
+        ric_path = tmp_path / 'motor.ric'
+        _write_minimal_ric(ric_path)
+        (tmp_path / 'motor.pyrogen.yaml').write_text(
+            "name: sibling\n"
+            "a: 2.0e-5\n"
+            "n: 0.5\n"
+            "rho: 1700.0\n"
+            "T_flame: 2800.0\n"
+            "M: 0.030\n"
+            "gamma: 1.25\n",
+            encoding='utf-8',
+        )
+
+        captured = {}
+
+        def fake_run_simulation(geo, propellant, **kwargs):
+            captured.update(kwargs)
+            return {'time': np.array([0.0]), 'P_head': np.array([101325.0])}
+
+        monkeypatch.setattr(
+            'srm_1d.openmotor_adapter.run_simulation', fake_run_simulation
+        )
+        monkeypatch.setattr(
+            'srm_1d.openmotor_adapter.compute_motor_performance',
+            lambda result, nozzle, prop, P_ambient=101325.0: {},
+        )
+        monkeypatch.setattr(
+            'srm_1d.openmotor_adapter.print_performance_summary',
+            lambda perf, nozzle: None,
+        )
+
+        run_from_ric(str(ric_path), gas_props=SAMPLE_GAS_PROPS)
+
+        chamber = captured['pyrogen_chamber']
+        assert chamber.pyrogen.name == 'sibling'
+        assert chamber.m_pyrogen_initial > 0.0
+        assert captured['T_ignition'] == pytest.approx(850.0)
+
+    def test_run_from_ric_missing_pyrogen_is_informative(self, tmp_path):
+        ric_path = tmp_path / 'motor.ric'
+        _write_minimal_ric(ric_path)
+        with pytest.raises(ValueError, match="Pass pyrogen='bpnv'"):
+            run_from_ric(str(ric_path), gas_props=SAMPLE_GAS_PROPS)
 
 
 class TestPropellantConversion:

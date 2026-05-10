@@ -1,7 +1,7 @@
 """Tests for the PISO solver numerical building blocks."""
 import numpy as np
 import pytest
-from srm_1d.solver import thomas_solve, compute_dt_cfl
+from srm_1d.solver import thomas_solve, compute_dt_cfl, piso_step
 
 
 class TestThomasSolve:
@@ -61,3 +61,34 @@ class TestCFL:
         dt = compute_dt_cfl(u, 340.0, 0.01, 5, 0.5, 1.0)
         expected = 0.5 * 0.01 / 340.0
         assert dt == pytest.approx(expected, rel=1e-6)
+
+
+class TestPisoSources:
+    def test_thermal_source_controls_injection_temperature(self):
+        """Same mass source with hotter thermal source should heat more."""
+        N = 3
+        rho = np.full(N, 1.0)
+        u = np.zeros(N + 1)
+        P = np.full(N, 101325.0)
+        T = np.full(N, 300.0)
+        A_port = np.full(N, 1.0e-3)
+        D_hyd = np.full(N, 0.035)
+        mass_source = np.zeros(N)
+        mass_source[0] = 0.05
+        f_darcy = np.zeros(N)
+
+        cold_source = mass_source * 500.0
+        hot_source = mass_source * 2500.0
+
+        cold = piso_step(
+            rho.copy(), u.copy(), P.copy(), T.copy(), A_port, D_hyd,
+            mass_source, cold_source, f_darcy,
+            0.01, 1.0e-5, 1.2, 300.0, 3000.0, 2000.0, 1.0e-4, N,
+        )
+        hot = piso_step(
+            rho.copy(), u.copy(), P.copy(), T.copy(), A_port, D_hyd,
+            mass_source, hot_source, f_darcy,
+            0.01, 1.0e-5, 1.2, 300.0, 3000.0, 2000.0, 1.0e-4, N,
+        )
+
+        assert hot[3][0] > cold[3][0]

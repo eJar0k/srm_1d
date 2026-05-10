@@ -7,14 +7,13 @@ not part of the solver — it has no effect on numerics.
 
 Usage:
 
-    from srm_1d import run_simulation
-    from srm_1d.propellant import make_hasegawa_propellant_1
-    from srm_1d.grain_geometry import make_hasegawa_motor_A_geo
+    from srm_1d.openmotor_adapter import run_from_ric
     from srm_1d.nozzle import Nozzle, compute_motor_performance
     from srm_1d.plotting import plot_pressure, plot_thrust, plot_flow_snapshot
 
-    result = run_simulation(make_hasegawa_motor_A_geo(),
-                            make_hasegawa_propellant_1(), roughness=20e-6)
+    result, perf, nozzle, geo, prop = run_from_ric(
+        "srm_1d/motors/hasegawa_a.ric", pyrogen="bpnv"
+    )
 
     # Pressure trace with experimental overlay
     plot_pressure(result, title="Motor A",

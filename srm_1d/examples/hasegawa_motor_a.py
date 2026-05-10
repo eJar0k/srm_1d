@@ -43,13 +43,11 @@ EXPERIMENTAL_TIME_OFFSET = 0.02  # align experimental ignition with sim t=0
 def main():
     result, perf, nozzle, geo, prop = run_from_ric(
         str(MOTOR_PATH),
-        # v0.6.0 LHS-tuned igniter + erosion parameters (Rank 1, MSE 0.24)
         roughness=37.1e-6,
         kappa=0.45,
-        igniter_mass=0.0024,
-        igniter_tau=0.1269,
-        ignition_ramp_tau=0.0136,
-        P_ignition=0.05e6,
+        pyrogen='bpnv',
+        pyrogen_mass=None,
+        T_ignition=850.0,
         P_cutoff=0.05e6,
         snapshot_interval=0.2,
         print_interval=0.2,

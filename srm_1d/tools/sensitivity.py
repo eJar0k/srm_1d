@@ -14,10 +14,10 @@ Usage:
 
     bounds = {
         'roughness':         (5e-6, 50e-6),
-        'igniter_mass':      (0.001, 0.050),
-        'igniter_tau':       (0.001, 0.20),
-        'ignition_ramp_tau': (0.001, 0.10),
-        'P_ignition':        (0.005e6, 0.1e6),
+        'pyrogen_mass':      (0.001, 0.050),
+        'pyrogen_throat_area': (1e-6, 5e-5),
+        'T_ignition':        (700.0, 950.0),
+        'kappa':             (0.30, 0.60),
     }
 
     results = run_lhs(
@@ -170,9 +170,9 @@ def run_lhs(
         Path to a .ric motor file (transport.yaml auto-resolved).
     bounds : dict[str, (low, high)]
         Maps parameter names to ``(min, max)`` ranges. Names must be
-        kwargs accepted by ``run_simulation`` (e.g. ``roughness``,
-        ``igniter_mass``, ``igniter_tau``, ``ignition_ramp_tau``,
-        ``P_ignition``, ``kappa``).
+        kwargs accepted by ``run_from_ric`` (e.g. ``roughness``,
+        ``pyrogen_mass``, ``pyrogen_throat_area``, ``T_ignition``,
+        ``kappa``).
     n_samples : int
         Number of LHS samples to draw and evaluate.
     fitness_fn : callable
@@ -202,6 +202,9 @@ def run_lhs(
     sampler = qmc.LatinHypercube(d=len(keys), seed=seed)
     raw = sampler.random(n=n_samples)
     scaled = qmc.scale(raw, l_bounds, u_bounds)
+
+    sim_kwargs = dict(sim_kwargs)
+    sim_kwargs.setdefault('pyrogen', 'bpnv')
 
     work = [
         (i, dict(zip(keys, row.tolist())), motor_path, sim_kwargs, fitness_fn)

@@ -165,6 +165,7 @@ class Propellant:
     mu_gas: float
     k_gas: float
     Cp_gas: float
+    k_solid: float = 0.3  # Solid conductivity for Goodman ignition [W/(m*K)]
 
     def select_tab(self, P) -> PropellantTab:
         """

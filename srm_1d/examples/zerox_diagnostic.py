@@ -49,10 +49,9 @@ def run_baseline():
         # Borrowed Hasegawa A LHS rank-1 — known-wrong baseline.
         roughness=20e-6,
         kappa=0.45,
-        igniter_mass=0.0024,
-        igniter_tau=0.1269,
-        ignition_ramp_tau=0.0136,
-        P_ignition=0.042e6,
+        pyrogen='bpnv',
+        pyrogen_mass=None,
+        T_ignition=850.0,
         cfl_target=0.5,
         dt_max=1e-4,
         t_max=8.0,

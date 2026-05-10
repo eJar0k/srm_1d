@@ -2,7 +2,7 @@
 hasegawa_a_lhs.py — Hasegawa Motor A Latin Hypercube optimization.
 ==================================================================
 
-5-variable LHS sweep over the Ma erosive-burning + ignition parameters,
+4-variable LHS sweep over the Ma erosive-burning + pyrogen ignition parameters,
 fitting head-end pressure trace MSE against Hasegawa et al. (2006)
 experimental data. The Rank-1 result of an N=500 run of this script
 is the v0.6.0 calibration baseline (see DEVNOTES "Calibration State").
@@ -41,10 +41,9 @@ def main():
 
     bounds = {
         'roughness':         (5e-6, 50e-6),
-        'igniter_mass':      (0.001, 0.050),
-        'ignition_ramp_tau': (0.001, 0.10),
-        'P_ignition':        (0.005e6, 0.1e6),
-        'igniter_tau':       (0.001, 0.20),
+        'pyrogen_mass':      (0.001, 0.050),
+        'pyrogen_throat_area': (1e-6, 5e-5),
+        'T_ignition':        (700.0, 950.0),
     }
 
     rows = run_lhs(
@@ -71,10 +70,9 @@ def main():
     for rank, r in enumerate(sorted_rows[:5], start=1):
         print(f"Rank {rank} (MSE: {r['fitness']:.4f}):")
         print(f"  Roughness    = {r['roughness']*1e6:.1f} μm")
-        print(f"  Ign Mass     = {r['igniter_mass']*1000:.1f} g")
-        print(f"  Ign Ramp Tau = {r['ignition_ramp_tau']*1000:.1f} ms")
-        print(f"  P_ignition   = {r['P_ignition']/1e6:.3f} MPa")
-        print(f"  Ign Tau      = {r['igniter_tau']*1000:.1f} ms")
+        print(f"  Pyro Mass    = {r['pyrogen_mass']*1000:.1f} g")
+        print(f"  Pyro Throat  = {r['pyrogen_throat_area']*1e6:.2f} mm^2")
+        print(f"  T_ignition   = {r['T_ignition']:.0f} K")
         print("-" * 30)
 
     # Re-run the top-5 to recapture full traces (results aren't stored
@@ -89,6 +87,7 @@ def main():
             MOTOR_PATH,
             kappa=0.45, t_max=6.0, P_cutoff=0.05e6,
             snapshot_interval=2.0, print_interval=20.0,
+            pyrogen='bpnv',
             **params,
         )
         plt.plot(result['time'], result['P_head'] / 1e6,

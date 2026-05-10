@@ -44,8 +44,9 @@ try:
 except ImportError:
     HAS_YAML = False
 
-from .propellant import Propellant, PropellantTab
+from .propellant import Propellant, PropellantTab, Pyrogen
 from .grain_geometry import build_snapped_geometry
+from .igniter_plenum import PyrogenChamber, sutton_pyrogen_mass
 from .nozzle import Nozzle, compute_motor_performance, print_performance_summary
 from .simulation import run_simulation
 
@@ -141,6 +142,98 @@ def load_transport(transport_path):
             f"{sorted(missing)}"
         )
     return {'mu': data['mu'], 'k': data['k'], 'Cp': data['Cp']}
+
+
+def _builtin_pyrogen_path(name):
+    return os.path.join(
+        os.path.dirname(__file__), 'motors', 'pyrogens', f'{name}.yaml'
+    )
+
+
+def load_pyrogen(path_or_name):
+    """
+    Load a pyrogen YAML datasheet.
+
+    ``path_or_name`` may be a filesystem path or a built-in pyrogen name
+    such as ``"bpnv"``.
+    """
+    if not HAS_YAML:
+        raise ImportError(
+            "PyYAML is required to read pyrogen YAML files."
+        )
+
+    candidate = path_or_name
+    if isinstance(path_or_name, str) and not os.path.exists(candidate):
+        builtin = _builtin_pyrogen_path(path_or_name.lower())
+        if os.path.exists(builtin):
+            candidate = builtin
+
+    if not os.path.exists(candidate):
+        raise ValueError(
+            f"Unknown pyrogen '{path_or_name}'. Provide a YAML path or one "
+            "of the built-in pyrogen names such as 'bpnv' or 'mtv'."
+        )
+
+    with open(candidate, 'r') as f:
+        data = yaml.safe_load(f)
+
+    required = {'name', 'a', 'n', 'rho', 'T_flame', 'M', 'gamma'}
+    missing = required - set(data.keys())
+    if missing:
+        raise ValueError(
+            f"Pyrogen YAML {candidate} missing required keys: "
+            f"{sorted(missing)}"
+        )
+
+    return Pyrogen(
+        name=str(data['name']),
+        a=float(data['a']),
+        n=float(data['n']),
+        rho=float(data['rho']),
+        T_flame=float(data['T_flame']),
+        M=float(data['M']),
+        gamma=float(data['gamma']),
+        impetus_W=float(data.get('impetus_W', 0.0)),
+    )
+
+
+def build_pyrogen_chamber(
+    pyrogen, geo, nozzle,
+    pyrogen_mass=None,
+    pyrogen_throat_area=None,
+    pyrogen_volume=None,
+    pyrogen_burn_area=None,
+    pyrogen_burn_law='0d',
+):
+    """
+    Build a PyrogenChamber using v0.7.0 default sizing rules.
+    """
+    if pyrogen_mass is None:
+        case_volume = np.pi / 4.0 * geo.D_outer ** 2 * geo.L_motor
+        free_volume_m3 = max(case_volume - geo.total_propellant_volume(), 0.0)
+        free_volume_in3 = free_volume_m3 / (0.0254 ** 3)
+        pyrogen_mass = sutton_pyrogen_mass(free_volume_in3)
+
+    if pyrogen_volume is None:
+        pyrogen_volume = 1.5 * pyrogen_mass / pyrogen.rho
+
+    if pyrogen_burn_area is None:
+        solid_volume = pyrogen_mass / pyrogen.rho
+        radius = (3.0 * solid_volume / (4.0 * np.pi)) ** (1.0 / 3.0)
+        pyrogen_burn_area = 4.0 * np.pi * radius * radius
+
+    if pyrogen_throat_area is None:
+        A_main = np.pi / 4.0 * nozzle.D_throat ** 2
+        pyrogen_throat_area = min(max(0.01 * A_main, 1.0e-6), 5.0e-5)
+
+    return PyrogenChamber(
+        pyrogen=pyrogen,
+        m_pyrogen_initial=pyrogen_mass,
+        A_burn_initial=pyrogen_burn_area,
+        A_throat=pyrogen_throat_area,
+        V_plenum=pyrogen_volume,
+        burn_law=pyrogen_burn_law,
+    )
 
 
 # ================================================================
@@ -421,7 +514,10 @@ def ric_to_sim_args(motor, gas_props=None, target_propellant_cells=100,
 
 
 def run_from_ric(filepath, gas_props=None, transport_path=None,
-                 **sim_overrides):
+                 pyrogen=None, pyrogen_mass=None,
+                 pyrogen_throat_area=None, pyrogen_volume=None,
+                 pyrogen_burn_area=None, pyrogen_burn_law='0d',
+                 T_ignition=850.0, **sim_overrides):
     """
     Load a .ric file, run the 1D simulation, compute performance.
 
@@ -438,6 +534,9 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
     transport_path : str or None
         Explicit transport YAML path. If None, sibling auto-resolution
         is attempted.
+    pyrogen : Pyrogen, str, or None
+        Explicit pyrogen object, built-in name, or YAML path. If None,
+        a sibling ``<stem>.pyrogen.yaml`` must exist.
 
     Returns
     -------
@@ -445,9 +544,10 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
     """
     motor = load_ric(filepath)
 
+    stem, _ = os.path.splitext(filepath)
+
     if gas_props is None:
         if transport_path is None:
-            stem, _ = os.path.splitext(filepath)
             candidate = stem + '.transport.yaml'
             if os.path.exists(candidate):
                 transport_path = candidate
@@ -463,6 +563,31 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
     prop = args.pop('propellant')
     nozzle = args['nozzle']
     P_amb = args.get('P_ambient', 101325.0)
+
+    if pyrogen is None:
+        candidate = stem + '.pyrogen.yaml'
+        if os.path.exists(candidate):
+            pyrogen_obj = load_pyrogen(candidate)
+        else:
+            raise ValueError(
+                f"No pyrogen specified for {filepath}. Pass pyrogen='bpnv', "
+                "pyrogen=<Pyrogen>, or add a sibling <motor>.pyrogen.yaml."
+            )
+    elif isinstance(pyrogen, Pyrogen):
+        pyrogen_obj = pyrogen
+    else:
+        pyrogen_obj = load_pyrogen(pyrogen)
+
+    args['pyrogen_chamber'] = build_pyrogen_chamber(
+        pyrogen_obj, geo, nozzle,
+        pyrogen_mass=pyrogen_mass,
+        pyrogen_throat_area=pyrogen_throat_area,
+        pyrogen_volume=pyrogen_volume,
+        pyrogen_burn_area=pyrogen_burn_area,
+        pyrogen_burn_law=pyrogen_burn_law,
+    )
+    args['T_ignition'] = T_ignition
+
     result = run_simulation(geo, prop, **args)
 
     perf = compute_motor_performance(result, nozzle, prop, P_ambient=P_amb)
