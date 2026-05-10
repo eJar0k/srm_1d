@@ -271,6 +271,31 @@ class TestGeometryConversion:
         second_start = geo.segments[1].x_start
         assert first_end == pytest.approx(second_start)
 
+    def test_bonded_interface_right_cell_maps_to_downstream_segment(self):
+        """Snapped touching interfaces must not create an epsilon gap/overlap."""
+        grains = [
+            {'type': 'BATES', 'properties': {
+                'coreDiameter': 0.0190500381,
+                'diameter': 0.04762509525,
+                'inhibitedEnds': 'Both',
+                'length': 0.381000762,
+            }},
+            {'type': 'Conical', 'properties': {
+                'forwardCoreDiameter': 0.0190500381,
+                'aftCoreDiameter': 0.02857505715,
+                'diameter': 0.04762509525,
+                'inhibitedEnds': 'Both',
+                'length': 0.381000762,
+            }},
+        ]
+        geo = convert_geometry(grains)
+        ga = geo.compile_geometry_arrays()
+        interface = geo.segments[0].x_start + geo.segments[0].length
+        right_idx = int(np.flatnonzero(ga['x_centers'] > interface)[0])
+        left_idx = right_idx - 1
+        assert ga['cell_segment_id'][left_idx] == 0
+        assert ga['cell_segment_id'][right_idx] == 1
+
     def test_uninhibited_interface_keeps_default_gap(self):
         """A burning interface face needs gas access, so keep a gap."""
         grains = [

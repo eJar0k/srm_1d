@@ -173,19 +173,26 @@ class MotorGeometry:
         seg_fwd_regression = np.zeros(N_seg)
         seg_aft_regression = np.zeros(N_seg)
 
-        # Per-cell: which segment does each cell belong to? (-1 = gap)
+        # Per-cell: which segment does each cell belong to? (-1 = gap).
+        # Choose the segment with the largest overlap. At snapped
+        # interfaces, floating-point roundoff can otherwise make the
+        # first cell after a boundary appear to overlap the upstream
+        # segment by ~1e-16 m and get misclassified.
         cell_segment_id = np.full(N, -1, dtype=np.int64)
         for i in range(N):
             x = x_centers[i]
             x_lo = x - 0.5 * dx
             x_hi = x + 0.5 * dx
+            best_overlap = 0.0
             for k in range(N_seg):
                 seg_lo = seg_x_start[k]
                 seg_hi = seg_x_start[k] + seg_length[k]
                 overlap = max(0.0, min(x_hi, seg_hi) - max(x_lo, seg_lo))
-                if overlap > 0.0:
+                if overlap > best_overlap:
+                    best_overlap = overlap
                     cell_segment_id[i] = k
-                    break
+            if best_overlap <= 1e-12 * dx:
+                cell_segment_id[i] = -1
 
         # Per-cell initial bore diameter: interpolated from segment
         # fwd/aft values. This is the fundamental geometry representation
@@ -541,7 +548,7 @@ def update_cell_geometry(
             overlap = max(0.0, min(x_hi, x_aft) - max(x_lo, x_fwd))
             grain_frac = overlap / dx
 
-            if grain_frac > 0.0:
+            if grain_frac > 1e-12:
                 cell_segment_id[i] = k
                 is_grain[i] = True
                 total_grain_frac += grain_frac
