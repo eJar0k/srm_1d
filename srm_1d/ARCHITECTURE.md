@@ -6,8 +6,11 @@ changes to verify nothing is lost or silently modified.
 ## solver.py (pure numerics, no project dependencies)
 
 - `thomas_solve(a, b, c, d, N)` — TDMA tridiagonal solver. O(N).
-- `piso_step(rho, u, P, T, ..., N)` — One PISO time step on staggered
+- `_nozzle_boundary_flow(P_cell, T_cell, A_throat, gamma, R_specific,
+  P_ambient, T_ambient)` -- signed isentropic throat boundary.
+- `piso_step(rho, u, P, T, ..., T_ambient, N)` — One PISO time step on staggered
   grid. Momentum predictor → 2 pressure corrections → energy → EOS.
+  Consumes mass, thermal, and face momentum source arrays.
   Returns updated (rho, u, P, T).
 - `compute_dt_cfl(u, a_sound, dx, N, cfl, dt_max)` — Adaptive CFL step.
 
@@ -34,7 +37,9 @@ changes to verify nothing is lost or silently modified.
   gamma, optional DeMar impetus.
 - `class Propellant` — dataclass: name, tabs (list of PropellantTab),
   rho_propellant, Cps, T_surface, T_initial, mu_gas, k_gas, Cp_gas,
-  k_solid. `k_solid` defaults to 0.3 W/(m*K) for Goodman ignition.
+  k_solid, radiation_emissivity. `k_solid` defaults to 0.3 W/(m*K) for
+  Goodman ignition; `radiation_emissivity` defaults to 0.0 and enables
+  adjacent-cell ignition radiation when positive.
   Methods: `select_tab(P)` (hard-switchover, closest-boundary fallback,
   matches openMotor's `getCombustionProperties`), `representative_tab(P)`,
   `burn_rate_normal(P)` (scalar, uses select_tab),
@@ -158,21 +163,24 @@ or load named motors from `srm_1d/motors/*.ric`.)
 - `_post_piso_update(rho, u, P, T, ..., gamma_R, roughness)` — Fused:
   velocity interpolation + Re + Mach + friction + T_max. One pass over N cells.
 - `_goodman_ignition_sources_and_mass(P, T, T_surf, delta, ...)` --
-  advances Goodman heating for unignited grain cells, triggers ignition
-  when `T_surf > T_ignition`, and assembles per-cell mass and thermal
-  source arrays. Returns n_burning, n_ignited, mass_sum.
+  advances Goodman heating for unignited grain cells, including gas
+  convection, DeMar pyrogen direct surface heating, and adjacent-cell
+  radiation. It triggers ignition when `T_surf > T_ignition`, assembles
+  per-cell mass/thermal source arrays, and returns source totals.
 
 ### Compiled time loop
 - `_run_time_loop` — Single @njit function containing the entire
   while loop. Steps: geometry → burn rates → pyrogen plenum step →
-  Goodman ignition+source assembly → throat evolution → PISO →
-  post-PISO → bookkeeping+snapshots.
+  Goodman ignition+source assembly, including direct surface heating,
+  adjacent radiation, and momentum source → throat evolution → PISO
+  with signed nozzle boundary → post-PISO → bookkeeping+snapshots.
   Returns: n_steps, n_snaps, mass_produced, mass_nozzle, burnthrough_time,
   D_throat_final, termination_code.
 
 ### Public API
 - `run_simulation(geo, propellant, nozzle, pyrogen_chamber,
-  P_ambient=101325, roughness=..., kappa=..., T_ignition=850,
+  P_ambient=101325, ambient_temperature=None, roughness=..., kappa=...,
+  T_ignition=850,
   verbose=True, ...)` — Extracts D_throat / erosion_coeff / slag_coeff
   from the Nozzle, initializes the pyrogen plenum and Goodman fields,
   calls _run_time_loop, wraps results into dict with time histories,
@@ -181,10 +189,32 @@ or load named motors from `srm_1d/motors/*.ric`.)
 ### Igniter model (v0.7.0)
 The main loop integrates a `PyrogenChamber` plenum state each timestep,
 injects the resulting hot-gas mass flow into cell 0, and advances
-Goodman per-cell solid heating until `T_surf > T_ignition`. Igniter
-momentum is deliberately deferred; the source coupling is mass plus
-temperature-weighted enthalpy only. The old exponential igniter kwargs
-are not accepted.
+Goodman per-cell solid heating until `T_surf > T_ignition`. Source
+coupling includes mass, temperature-weighted enthalpy, optional DeMar
+direct surface heating, explicit axial momentum, and adjacent-cell
+radiation. The old exponential igniter kwargs are not accepted.
+
+### Ignition diagnostics (v0.7.0 Phase 4)
+Snapshots include `mass_source`, `thermal_source`, `momentum_source`,
+`pyrogen_surface_heat_flux`, and `radiation_heat_flux`. Histories include
+pyrogen enthalpy/surface-heat power, gas surface-heat sink, radiation
+heat/sink, nozzle enthalpy power, thermal-source power, energy residual,
+and pyrogen momentum expected/deposited/residual.
+
+## tools/ignition_diagnostics.py (startup diagnostics)
+
+- `pressure_landmarks(result, ...)` -- global peak plus separately
+  labeled startup-window peak.
+- `ignition_spread_metrics(result)` -- first ignition, t10/t50/t90/t100,
+  burning fraction, and axial ignition order.
+- `source_timeseries(result, geo, propellant)` -- normal, erosive,
+  end-face, pyrogen, pyrogen surface heat, and adjacent-radiation
+  source estimates at snapshot times.
+- `energy_momentum_timeseries(result)` -- per-step energy and pyrogen
+  momentum audit histories.
+- `analyze_ignition_spike(...)`, `classification_report(...)`,
+  `write_diagnostic_outputs(...)`, `plot_diagnostic_figures(...)` --
+  reducer, text report, CSV artifacts, and overview/x-t plots.
 
 ## plotting.py (imports matplotlib)
 

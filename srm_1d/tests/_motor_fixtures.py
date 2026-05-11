@@ -32,6 +32,7 @@ def hasegawa_propellant_1():
         rho_propellant=1700.0, Cps=1500.0,
         T_surface=1000.0, T_initial=293.0,
         mu_gas=8.842e-5, k_gas=0.3685, Cp_gas=2060.0,
+        radiation_emissivity=0.45,
     )
 
 

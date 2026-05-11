@@ -58,6 +58,14 @@ them:
    (instantaneous full burning surface, propellant at T_flame). v0.7.x
    adds a squib (electric → squib → pyrogen → main).
 
+8. **Robust ignition-transient nozzle boundary**: the aft throat is a
+   signed open boundary, not a permanent choked sink. It supports
+   subsonic outflow, choked outflow, reverse ambient inflow, and
+   un-choking during failed ignition or taildown.
+9. **Energy-audited surface heating and spread**: DeMar pyrogen
+   surface heating and adjacent-burning-cell radiation feed the Goodman
+   surface update and are recorded in energy/momentum diagnostics.
+
 ## Pyrogen chamber model
 
 State: `m_p` (pyrogen propellant remaining mass, kg), `m_ig` (gas mass
@@ -111,12 +119,28 @@ source terms. The implementation uses separate per-cell `mass_source`
 and `thermal_source` arrays: propellant/end-face sources contribute at
 `T_flame`, and pyrogen contributes at `T_ig`.
 
-Igniter momentum (`mdot_choke · v_inject`) is explicitly deferred. This
-differs from the early design sketch and follows the Phase 3 decision to
-avoid adding a poorly constrained startup impulse until validation shows
-it is needed. Multi-cell impingement-region distribution (Cavallini
-SPINBALL) is also deferred to v0.8.0 since it requires axial geometry of
-the igniter jets, which amateur designs typically don't specify.
+Igniter momentum (`mdot_choke · v_inject`) is now an explicit
+face-centered momentum source. The default projects the pyrogen orifice
+momentum into face 1 of the bore as
+`mdot_ig*v_exit/(A_face*dx)`. Diagnostics record expected force,
+deposited force, and residual so the source can be verified without a
+tuning multiplier.
+
+Direct pyrogen-to-propellant surface heating uses DeMar measured heat
+flux for the pyrogen composition. It applies only to the first unignited
+grain cell, feeds Goodman through an equivalent heat-transfer
+coefficient/driver temperature, and subtracts the same delivered power
+from the gas temperature-source ledger.
+
+Adjacent-burning-cell radiation handles post-first-cell spread in the
+ambient-gas model. It is geometry-local: only unignited grain cells
+adjacent to burning cells receive the radiation term. The model uses
+Stefan-Boltzmann heat transfer with `Propellant.radiation_emissivity` as
+a material property, not a fitted `C_hc` multiplier, and subtracts the
+emitted power from the burning-cell gas energy ledger.
+
+Multi-cell impingement-region distribution (Cavallini SPINBALL) remains
+deferred unless a motor provides physical igniter basket/jet geometry.
 
 ## Ignition criterion
 
@@ -213,16 +237,16 @@ we exclude:
 
 - **Multi-species gas transport**. Igniter and main propellant share γ,
   MW, T_flame in the bulk flow. Defer to v0.7.x.
-- **Radiation**. Salita's Mie-correlation requires Al₂O₃ size
-  distribution data not available for amateur APCP. d'Agostino's lumped
-  `C_hc(x/L)` is a per-motor tuning knob masquerading as physics.
-  Defer; document as known limitation.
+- **Full particle-radiation physics**. The Phase 4 adjacent-cell model
+  uses a material emissivity and local burning neighbors. It does not
+  implement Salita's full Mie-correlation or Al₂O₃ size-distribution
+  physics, and it does not use d'Agostino's lumped `C_hc(x/L)` tuning
+  multiplier.
 - **Squib stage** (electric match → pyrogen). Pyrogen ignites instantly
   at t=0 with full burning surface. Squib added in v0.7.x.
-- **Igniter momentum** (Cavallini's `mdot_ig · v_inj`). Effect is
-  small for L/D ≫ 1 motors where the bore axial velocity dominates.
-  Defer; revisit if validation shows residual error.
-- **Impingement-region multi-cell injection**. Deferred to v0.8.0.
+- **Impingement-region multi-cell injection**. Deferred unless tied to
+  physical igniter basket/jet geometry. Do not use cell count as a
+  numerical flow-field fix.
 - **Two-phase flow** (Pardue & Han's Al₂O₃ condensed phase). Only
   matters for highly metallized propellants (>15% Al). Most amateur
   APCP is non-metallized or low-Al.
@@ -242,13 +266,21 @@ v0.7.0 success criterion was:
   pyrogen mass, throat, volume, and T_ignition (all physically grounded)
 - **All tests still pass**
 
-Current Phase 4 pre-work: segmented LHS diagnostics show the Phase 3
-model can tune the post-spike shoulder, plateau, and taildown, but the
-spike segment remains the limiting residual. The main observed issue is
-that all grain cells become active almost immediately after Goodman
-surface ignition. The next structural model target is a finite
-post-ignition burn-establishment/participation factor, not a return to
-the old exponential igniter smoothing knobs.
+Current Phase 4 work added the diagnostic startup workflow, signed
+open-throat boundary, pyrogen surface heating, momentum/energy ledgers,
+and adjacent-cell radiation. Latest Hasegawa A smoke results show:
+
+- `ambient_initial_gas` spreads over a finite window
+  (`t10-t90 = 0.760146 s`) with startup-window peak
+  `0.511 MPa @ 0.348159 s`.
+- Removing either direct pyrogen surface heating or adjacent radiation
+  restores the degenerate/no-spread ambient behavior.
+- Baseline and `no_momentum` traces are nearly identical, so momentum is
+  implemented and auditable but not the Hasegawa driver.
+
+The historical hot-fill baseline still ignites essentially instantly,
+so post-ignition burn establishment may still be needed for calibration.
+Inspect the new energy/momentum audit outputs before adding that model.
 
 Secondary target: Zerox (forward-Finocyl + aft-BATES, *with* erosive
 nozzle — calibrated in v0.6.0 with `erosionCoeff` 2.34× openMotor
@@ -261,9 +293,10 @@ without erosive nozzles** for further validation. Add as available.
 ## Roadmap (post v0.7.0)
 
 - **v0.7.1**: post-ignition burn establishment / participation ramp
-  after Goodman surface ignition
-- **v0.7.2**: optional radiation (lumped `C_hc(x/L)` per d'Agostino,
-  flagged as calibration knob)
+  after Goodman surface ignition, if energy-audit review still shows the
+  hot-fill baseline activates too abruptly
+- **v0.7.2**: radiation refinement if better material data become
+  available; avoid lumped `C_hc(x/L)` as a default calibration knob
 - **v0.7.3**: squib stage (electric → BPNV ramp → pyrogen → main)
 - **v0.7.4**: optional multi-species via passive scalar `Y_ig[i]`
   (Cavallini-style mass-fraction-weighted thermo)
@@ -283,11 +316,12 @@ without erosive nozzles** for further validation. Add as available.
 | New: `srm_1d/solid_thermal.py` | Goodman cubic-polynomial integral solver: `_step_goodman_ode` per-cell + `_compute_T_surf` |
 | New: `srm_1d/motors/pyrogens/bpnv.yaml` | Reference Boron-KNO3-Viton pyrogen |
 | New: `srm_1d/motors/pyrogens/mtv.yaml` | Reference Mg-Teflon-Viton pyrogen |
-| [propellant.py](../../propellant.py) | `Pyrogen` dataclass plus `Propellant.k_solid` for Goodman ignition |
-| [simulation.py](../../simulation.py) | Replaced legacy igniter sim kwargs; integrates plenum step into `_run_time_loop`; adds per-cell `T_surf` and `δ`; switches ignition criterion to per-cell `T_surf > T_ignition`; records `P_ig`, `T_ig`, `mdot_ig`, `m_pyrogen` |
-| [solver.py](../../solver.py) | `piso_step` consumes separate `mass_source` and `thermal_source` arrays |
+| [propellant.py](../../propellant.py) | `Pyrogen` dataclass plus `Propellant.k_solid` for Goodman ignition and `Propellant.radiation_emissivity` for adjacent-cell radiation |
+| [simulation.py](../../simulation.py) | Replaced legacy igniter sim kwargs; integrates plenum step into `_run_time_loop`; adds per-cell `T_surf` and `δ`; switches ignition criterion to per-cell `T_surf > T_ignition`; records pyrogen state plus energy/momentum audit histories |
+| [solver.py](../../solver.py) | `piso_step` consumes separate `mass_source`, `thermal_source`, and momentum-source arrays; nozzle boundary uses signed isentropic throat helper |
 | [openmotor_adapter.py](../../openmotor_adapter.py) | Adds pyrogen loading, sibling `<motor>.pyrogen.yaml` discovery, and default `PyrogenChamber` builder |
 | [tools/sensitivity.py](../../tools/sensitivity.py) | Adds segmented pressure metrics and quiet LHS progress controls for Phase 4 analysis |
+| [tools/ignition_diagnostics.py](../../tools/ignition_diagnostics.py) | Startup reducer/classifier plus source, energy, momentum, ignition-time, overview, and x-t diagnostic artifacts |
 | [DEVNOTES.md](../../DEVNOTES.md) | Current gotchas, validation state, and v0.7.0 breaking-change notes |
 
 See [TASKS.md](TASKS.md) for the concrete file-level task breakdown.

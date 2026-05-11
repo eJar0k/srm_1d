@@ -1,7 +1,16 @@
 """Tests for the PISO solver numerical building blocks."""
 import numpy as np
 import pytest
-from srm_1d.solver import thomas_solve, compute_dt_cfl, piso_step
+from srm_1d.solver import (
+    NOZZLE_STATE_BALANCED,
+    NOZZLE_STATE_CHOKED_OUT,
+    NOZZLE_STATE_SUBSONIC_IN,
+    NOZZLE_STATE_SUBSONIC_OUT,
+    thomas_solve,
+    compute_dt_cfl,
+    piso_step,
+    _nozzle_boundary_flow,
+)
 
 
 class TestThomasSolve:
@@ -75,6 +84,7 @@ class TestPisoSources:
         D_hyd = np.full(N, 0.035)
         mass_source = np.zeros(N)
         mass_source[0] = 0.05
+        momentum_source = np.zeros(N + 1)
         f_darcy = np.zeros(N)
 
         cold_source = mass_source * 500.0
@@ -82,13 +92,137 @@ class TestPisoSources:
 
         cold = piso_step(
             rho.copy(), u.copy(), P.copy(), T.copy(), A_port, D_hyd,
-            mass_source, cold_source, f_darcy,
-            0.01, 1.0e-5, 1.2, 300.0, 3000.0, 2000.0, 1.0e-4, N,
+            mass_source, cold_source, momentum_source, f_darcy,
+            0.01, 1.0e-5, 1.2, 300.0, 3000.0, 2000.0,
+            1.0e-4, 101325.0, 300.0, N,
         )
         hot = piso_step(
             rho.copy(), u.copy(), P.copy(), T.copy(), A_port, D_hyd,
-            mass_source, hot_source, f_darcy,
-            0.01, 1.0e-5, 1.2, 300.0, 3000.0, 2000.0, 1.0e-4, N,
+            mass_source, hot_source, momentum_source, f_darcy,
+            0.01, 1.0e-5, 1.2, 300.0, 3000.0, 2000.0,
+            1.0e-4, 101325.0, 300.0, N,
         )
 
         assert hot[3][0] > cold[3][0]
+
+    def test_momentum_source_accelerates_downstream_face(self):
+        """Positive face momentum source should push flow downstream."""
+        N = 3
+        rho = np.full(N, 1.0)
+        u = np.zeros(N + 1)
+        P = np.full(N, 101325.0)
+        T = np.full(N, 300.0)
+        A_port = np.full(N, 1.0e-3)
+        D_hyd = np.full(N, 0.035)
+        mass_source = np.zeros(N)
+        thermal_source = np.zeros(N)
+        f_darcy = np.zeros(N)
+
+        no_momentum = np.zeros(N + 1)
+        with_momentum = np.zeros(N + 1)
+        with_momentum[1] = 5.0e4
+
+        base = piso_step(
+            rho.copy(), u.copy(), P.copy(), T.copy(), A_port, D_hyd,
+            mass_source, thermal_source, no_momentum, f_darcy,
+            0.01, 1.0e-5, 1.2, 300.0, 3000.0, 2000.0,
+            1.0e-4, 101325.0, 300.0, N,
+        )
+        driven = piso_step(
+            rho.copy(), u.copy(), P.copy(), T.copy(), A_port, D_hyd,
+            mass_source, thermal_source, with_momentum, f_darcy,
+            0.01, 1.0e-5, 1.2, 300.0, 3000.0, 2000.0,
+            1.0e-4, 101325.0, 300.0, N,
+        )
+
+        assert driven[1][1] > base[1][1]
+
+    def test_nozzle_boundary_does_not_drain_ambient_chamber(self):
+        """At ambient pressure with no sources, the nozzle should not create vacuum."""
+        N = 3
+        P_ambient = 101325.0
+        rho = np.full(N, 1.0)
+        u = np.zeros(N + 1)
+        P = np.full(N, P_ambient)
+        T = np.full(N, 300.0)
+        A_port = np.full(N, 1.0e-3)
+        D_hyd = np.full(N, 0.035)
+        mass_source = np.zeros(N)
+        thermal_source = np.zeros(N)
+        momentum_source = np.zeros(N + 1)
+        f_darcy = np.zeros(N)
+
+        rho_new, u_new, P_new, T_new = piso_step(
+            rho.copy(), u.copy(), P.copy(), T.copy(), A_port, D_hyd,
+            mass_source, thermal_source, momentum_source, f_darcy,
+            0.01, 1.0e-5, 1.2, 300.0, 3000.0, 2000.0,
+            1.0e-4, P_ambient, 300.0, N,
+        )
+
+        np.testing.assert_allclose(P_new, P, rtol=1.0e-10, atol=1.0e-6)
+        np.testing.assert_allclose(T_new, T)
+        assert np.all(np.isfinite(rho_new))
+        assert np.allclose(u_new, 0.0)
+
+    def test_subambient_chamber_draws_reverse_nozzle_inflow(self):
+        """Below ambient, the open boundary should add reverse mass flow."""
+        N = 3
+        P_ambient = 101325.0
+        rho = np.full(N, 0.5)
+        u = np.zeros(N + 1)
+        P = np.full(N, 0.8 * P_ambient)
+        T = np.full(N, 293.0)
+        A_port = np.full(N, 1.0e-3)
+        D_hyd = np.full(N, 0.035)
+        mass_source = np.zeros(N)
+        thermal_source = np.zeros(N)
+        momentum_source = np.zeros(N + 1)
+        f_darcy = np.zeros(N)
+
+        rho_new, u_new, P_new, _T_new = piso_step(
+            rho.copy(), u.copy(), P.copy(), T.copy(), A_port, D_hyd,
+            mass_source, thermal_source, momentum_source, f_darcy,
+            0.01, 1.0e-5, 1.2, 300.0, 3000.0, 2000.0,
+            1.0e-4, P_ambient, 293.0, N,
+        )
+
+        assert u_new[-1] < 0.0
+        assert P_new[-1] > P[-1]
+        assert np.all(np.isfinite(rho_new))
+
+
+class TestNozzleBoundary:
+    def test_choked_outflow_matches_ideal_formula(self):
+        gamma = 1.2
+        R = 300.0
+        T = 2500.0
+        P = 2.0e6
+        A = 1.0e-4
+        mdot, dmdp, upstream_T, state = _nozzle_boundary_flow(
+            P, T, A, gamma, R, 101325.0, 293.0,
+        )
+        gamma_fn = np.sqrt(gamma) * (2.0 / (gamma + 1.0)) ** (
+            (gamma + 1.0) / (2.0 * (gamma - 1.0))
+        )
+        assert mdot == pytest.approx(P * A * gamma_fn / np.sqrt(R * T))
+        assert dmdp == pytest.approx(A * gamma_fn / np.sqrt(R * T))
+        assert upstream_T == pytest.approx(T)
+        assert state == NOZZLE_STATE_CHOKED_OUT
+
+    def test_subsonic_outflow_and_reverse_inflow_are_signed(self):
+        gamma = 1.2
+        R = 300.0
+        A = 1.0e-4
+        out = _nozzle_boundary_flow(110000.0, 300.0, A, gamma, R, 101325.0, 293.0)
+        bal = _nozzle_boundary_flow(101325.0, 300.0, A, gamma, R, 101325.0, 293.0)
+        inflow = _nozzle_boundary_flow(90000.0, 300.0, A, gamma, R, 101325.0, 293.0)
+
+        assert out[0] > 0.0
+        assert out[1] > 0.0
+        assert out[3] == NOZZLE_STATE_SUBSONIC_OUT
+        assert bal[0] == pytest.approx(0.0)
+        assert bal[3] == NOZZLE_STATE_BALANCED
+        assert inflow[0] < 0.0
+        assert inflow[1] > 0.0
+        assert inflow[2] == pytest.approx(293.0)
+        assert inflow[3] == NOZZLE_STATE_SUBSONIC_IN

@@ -37,8 +37,17 @@ ARTIFACT_ROOT = Path("artifacts") / "ignition_diagnostics"
 VARIANTS = {
     "baseline": {},
     "ambient_initial_gas": {"initial_gas_temperature": 293.0},
-    "no_erosive": {"diagnostic_disable_erosive": True},
-    "no_endfaces": {"diagnostic_disable_endfaces": True},
+    # "ambient_no_surface_heating": {
+    #     "initial_gas_temperature": 293.0,
+    #     "diagnostic_disable_pyrogen_surface_heating": True,
+    # },
+    # "ambient_no_radiation": {
+    #     "initial_gas_temperature": 293.0,
+    #     "diagnostic_disable_adjacent_radiation": True,
+    # },
+    # "no_erosive": {"diagnostic_disable_erosive": True},
+    # "no_endfaces": {"diagnostic_disable_endfaces": True},
+    # "no_momentum": {"diagnostic_disable_momentum": True},
 }
 
 
@@ -83,11 +92,16 @@ def main():
     parser.add_argument("--motor-path", default=None,
                         help="Explicit .ric path. Overrides --case lookup.")
     parser.add_argument("--variants", nargs="+",
-                        default=["baseline", "ambient_initial_gas", "no_erosive", "no_endfaces"],
+                        default=[
+                            "baseline", "ambient_initial_gas",
+                            "ambient_no_surface_heating",
+                            "ambient_no_radiation", "no_erosive",
+                            "no_endfaces", "no_momentum",
+                        ],
                         choices=sorted(VARIANTS),
                         help="Diagnostic variants to run.")
     parser.add_argument("--pyrogen", default="bpnv")
-    parser.add_argument("--pyrogen-mass", type=float, default=None)
+    parser.add_argument("--pyrogen-mass", type=float, default=0.03)
     parser.add_argument("--pyrogen-throat-area", type=float, default=None)
     parser.add_argument("--roughness", type=float, default=30e-6)
     parser.add_argument("--kappa", type=float, default=0.45)
@@ -120,15 +134,19 @@ def main():
         rows.append({
             "variant": variant,
             "primary_driver": cls["primary_driver"],
-            "peak_time_s": pressure["peak_time_s"],
-            "peak_pressure_mpa": pressure["peak_pressure_mpa"],
+            "startup_window_peak_time_s": pressure["startup_window_peak_time_s"],
+            "startup_window_peak_pressure_mpa": pressure["startup_window_peak_pressure_mpa"],
+            "global_peak_time_s": pressure["global_peak_time_s"],
+            "global_peak_pressure_mpa": pressure["global_peak_pressure_mpa"],
             "spread_10_90_s": spread["spread_10_90_s"],
             "instant_ignition_collapse": spread["instant_ignition_collapse"],
         })
 
     with open(case_dir / f"{args.case}_variant_summary.csv", "w", newline="") as f:
         fieldnames = [
-            "variant", "primary_driver", "peak_time_s", "peak_pressure_mpa",
+            "variant", "primary_driver",
+            "startup_window_peak_time_s", "startup_window_peak_pressure_mpa",
+            "global_peak_time_s", "global_peak_pressure_mpa",
             "spread_10_90_s", "instant_ignition_collapse",
         ]
         writer = csv.DictWriter(f, fieldnames=fieldnames)

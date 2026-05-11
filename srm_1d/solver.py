@@ -49,8 +49,10 @@ GRID LAYOUT:
 
 BOUNDARY CONDITIONS:
     Head end (face 0): Solid wall — u[0] = 0.
-    Nozzle end (face N): Choked outflow — mass flux proportional to
-    local pressure via the isentropic mass flow relation.
+    Nozzle end (face N): Signed open throat boundary. Flow is choked
+    only when the chamber/ambient pressure ratio requires it; otherwise
+    the boundary uses the subsonic isentropic relation and can reverse
+    to ambient inflow during failed ignition or taildown.
 
 TIME STEPPING:
     Adaptive CFL-based: dt = CFL · dx / max(|u| + a_sound)
@@ -155,10 +157,128 @@ def thomas_solve(a, b, c, d, N):
 # PISO Time Step
 # ================================================================
 
+NOZZLE_STATE_CHOKED_IN = -2
+NOZZLE_STATE_SUBSONIC_IN = -1
+NOZZLE_STATE_BALANCED = 0
+NOZZLE_STATE_SUBSONIC_OUT = 1
+NOZZLE_STATE_CHOKED_OUT = 2
+
+
+@njit(cache=True)
+def _critical_pressure_ratio(gamma):
+    return (2.0 / (gamma + 1.0)) ** (gamma / (gamma - 1.0))
+
+
+@njit(cache=True)
+def _critical_flow_function(gamma):
+    return np.sqrt(gamma) * (2.0 / (gamma + 1.0)) ** (
+        (gamma + 1.0) / (2.0 * (gamma - 1.0))
+    )
+
+
+@njit(cache=True)
+def _subsonic_throat_mdot_mag(P0, T0, Pb, A_throat, gamma, R_specific):
+    """Magnitude of isentropic subsonic throat flow from reservoir to back pressure."""
+    if (P0 <= 0.0 or T0 <= 0.0 or Pb <= 0.0 or Pb >= P0 or
+            A_throat <= 0.0 or gamma <= 1.0 or R_specific <= 0.0):
+        return 0.0
+    pr = Pb / P0
+    e1 = 2.0 / gamma
+    e2 = (gamma + 1.0) / gamma
+    f = pr ** e1 - pr ** e2
+    if f <= 0.0:
+        return 0.0
+    coeff = 2.0 * gamma / ((gamma - 1.0) * R_specific * T0)
+    return A_throat * P0 * np.sqrt(coeff * f)
+
+
+@njit(cache=True)
+def _subsonic_outflow_dmdp(P_cell, T_cell, P_ambient, A_throat, gamma, R_specific):
+    """Derivative d(mdot_out)/dP_cell for the subsonic outflow branch."""
+    pr = P_ambient / P_cell
+    e1 = 2.0 / gamma
+    e2 = (gamma + 1.0) / gamma
+    f = pr ** e1 - pr ** e2
+    if f <= 1.0e-16:
+        return 0.0
+    coeff = 2.0 * gamma / ((gamma - 1.0) * R_specific * T_cell)
+    root = np.sqrt(coeff * f)
+    dfdpr = e1 * pr ** (e1 - 1.0) - e2 * pr ** (e2 - 1.0)
+    dmdp = A_throat * (root - 0.5 * coeff * pr * dfdpr / root)
+    if dmdp < 0.0:
+        return 0.0
+    return dmdp
+
+
+@njit(cache=True)
+def _subsonic_inflow_dmdp(P_cell, T_ambient, P_ambient, A_throat, gamma, R_specific):
+    """Derivative d(signed mdot)/dP_cell for the subsonic ambient-inflow branch."""
+    pr = P_cell / P_ambient
+    e1 = 2.0 / gamma
+    e2 = (gamma + 1.0) / gamma
+    f = pr ** e1 - pr ** e2
+    if f <= 1.0e-16:
+        return 0.0
+    coeff = 2.0 * gamma / ((gamma - 1.0) * R_specific * T_ambient)
+    root = np.sqrt(coeff * f)
+    dfdpr = e1 * pr ** (e1 - 1.0) - e2 * pr ** (e2 - 1.0)
+    dmdp = -0.5 * A_throat * coeff * dfdpr / root
+    if dmdp < 0.0:
+        return 0.0
+    return dmdp
+
+
+@njit(cache=True)
+def _nozzle_boundary_flow(
+    P_cell, T_cell, A_throat, gamma, R_specific, P_ambient, T_ambient,
+):
+    """
+    Signed quasi-steady isentropic throat boundary.
+
+    Returns ``(mdot, dmdot_dP_cell, upstream_temperature, state_code)``.
+    Positive ``mdot`` is chamber outflow. Negative ``mdot`` is ambient
+    inflow through the throat.
+    """
+    if A_throat <= 0.0 or gamma <= 1.0 or R_specific <= 0.0:
+        return 0.0, 0.0, T_cell, NOZZLE_STATE_BALANCED
+
+    Pc = max(P_cell, 1.0)
+    Tc = max(T_cell, 1.0)
+    Pa = max(P_ambient, 1.0)
+    Ta = max(T_ambient, 1.0)
+    balance_tol = max(1.0e-6, 1.0e-10 * Pa)
+    if abs(Pc - Pa) <= balance_tol:
+        return 0.0, 0.0, Tc, NOZZLE_STATE_BALANCED
+
+    gamma_fn = _critical_flow_function(gamma)
+    crit_pr = _critical_pressure_ratio(gamma)
+
+    if Pc > Pa:
+        pr = Pa / Pc
+        if pr <= crit_pr:
+            coeff = A_throat * gamma_fn / np.sqrt(R_specific * Tc)
+            return Pc * coeff, coeff, Tc, NOZZLE_STATE_CHOKED_OUT
+
+        mdot = _subsonic_throat_mdot_mag(Pc, Tc, Pa, A_throat, gamma, R_specific)
+        dmdp = _subsonic_outflow_dmdp(Pc, Tc, Pa, A_throat, gamma, R_specific)
+        return mdot, dmdp, Tc, NOZZLE_STATE_SUBSONIC_OUT
+
+    pr = Pc / Pa
+    if pr <= crit_pr:
+        mdot = Pa * A_throat * gamma_fn / np.sqrt(R_specific * Ta)
+        return -mdot, 0.0, Ta, NOZZLE_STATE_CHOKED_IN
+
+    mdot = _subsonic_throat_mdot_mag(Pa, Ta, Pc, A_throat, gamma, R_specific)
+    dmdp = _subsonic_inflow_dmdp(Pc, Ta, Pa, A_throat, gamma, R_specific)
+    return -mdot, dmdp, Ta, NOZZLE_STATE_SUBSONIC_IN
+
+
 @njit(cache=True)
 def piso_step(
-    rho, u, P, T, A_port, D_hyd, mass_source, thermal_source, f_darcy,
-    dx, dt, gamma, R_specific, T_flame, Cp_gas, A_throat, N,
+    rho, u, P, T, A_port, D_hyd,
+    mass_source, thermal_source, momentum_source, f_darcy,
+    dx, dt, gamma, R_specific, T_flame, Cp_gas,
+    A_throat, P_ambient, T_ambient, N,
 ):
     """
     One complete PISO time step on a staggered grid.
@@ -188,6 +308,9 @@ def piso_step(
     thermal_source : ndarray (N,)
         Temperature-weighted mass source per unit length. Each source
         contributes mass_source_component * source_temperature.
+    momentum_source : ndarray (N+1,)
+        Face-centered axial momentum source [N/m^3]. Positive values
+        accelerate flow downstream in the momentum predictor.
     f_darcy : ndarray (N,)
         Darcy friction factor at cell centers [-].
     dx : float
@@ -204,6 +327,10 @@ def piso_step(
         Specific heat at constant pressure [J/(kg·K)].
     A_throat : float
         Nozzle throat area [m²].
+    P_ambient : float
+        Ambient/back pressure [Pa].
+    T_ambient : float
+        Ambient reservoir temperature [K] used for reverse nozzle inflow.
     N : int
         Number of cells.
 
@@ -218,13 +345,6 @@ def piso_step(
     T_new : ndarray (N,)
         Updated temperature.
     """
-    # Choked flow function: Γ = √γ · (2/(γ+1))^((γ+1)/(2(γ-1)))
-    # Computed inline to keep solver.py dependency-free.
-    Gamma_crit = np.sqrt(gamma) * (2.0 / (gamma + 1.0)) ** (
-        (gamma + 1.0) / (2.0 * (gamma - 1.0))
-    )
-    nozzle_coeff = A_throat * Gamma_crit / np.sqrt(R_specific * T[N - 1])
-
     # Face areas (interpolated from cell centers)
     A_face = np.zeros(N + 1)
     A_face[0] = A_port[0]
@@ -288,7 +408,7 @@ def piso_step(
         friction = -f_f / (2.0 * D_f) * rho_f * abs(u[j]) * u[j]
 
         # --- Update ---
-        RHS = pres_force + conv / A_f + friction
+        RHS = pres_force + conv / A_f + friction + momentum_source[j]
         u_star[j] = u[j] + dt / rho_f * RHS
 
     # Nozzle face: extrapolate for now (corrected by pressure step)
@@ -338,7 +458,10 @@ def piso_step(
 
         # Nozzle BC: P' at last cell drives nozzle flow correction
         if i == N - 1:
-            a_diag[i] += nozzle_coeff
+            _mdot_bc, dmdp_bc, _T_bc, _state_bc = _nozzle_boundary_flow(
+                P[i], T[i], A_throat, gamma, R_specific, P_ambient, T_ambient
+            )
+            a_diag[i] += dmdp_bc
 
         # Continuity residual using u*
         if i > 0:
@@ -351,8 +474,9 @@ def piso_step(
             rho_e = 0.5 * (rho[i] + rho[i + 1])
             mdot_star_e = rho_e * u_star[i + 1] * A_face[i + 1]
         else:
-            # Nozzle outflow
-            mdot_star_e = P[i] * nozzle_coeff
+            mdot_star_e, _dmdp, _T_bc, _state = _nozzle_boundary_flow(
+                P[i], T[i], A_throat, gamma, R_specific, P_ambient, T_ambient
+            )
 
         b_rhs[i] = mass_source[i] * dx - (mdot_star_e - mdot_star_w)
 
@@ -397,7 +521,10 @@ def piso_step(
         a_sup[i] = -coeff_e
         a_diag[i] = a_t + coeff_w + coeff_e
         if i == N - 1:
-            a_diag[i] += nozzle_coeff
+            _mdot_bc, dmdp_bc, _T_bc, _state_bc = _nozzle_boundary_flow(
+                P_new[i], T[i], A_throat, gamma, R_specific, P_ambient, T_ambient
+            )
+            a_diag[i] += dmdp_bc
 
         if i > 0:
             rho_w = 0.5 * (rho_new_1[i - 1] + rho_new_1[i])
@@ -409,7 +536,9 @@ def piso_step(
             rho_e = 0.5 * (rho_new_1[i] + rho_new_1[i + 1])
             mdot_e2 = rho_e * u_new[i + 1] * A_face[i + 1]
         else:
-            mdot_e2 = P_new[i] * nozzle_coeff
+            mdot_e2, _dmdp, _T_bc, _state = _nozzle_boundary_flow(
+                P_new[i], T[i], A_throat, gamma, R_specific, P_ambient, T_ambient
+            )
 
         b_rhs[i] = mass_source[i] * dx - (mdot_e2 - mdot_w2)
 
@@ -419,6 +548,15 @@ def piso_step(
     for j in range(1, N):
         u_new[j] = u_new[j] - d_face[j] * (P_prime2[j] - P_prime2[j - 1]) / dx
     u_new[0] = 0.0
+    mdot_boundary, _dmdp, T_boundary, _state = _nozzle_boundary_flow(
+        P_new[N - 1], T[N - 1], A_throat, gamma, R_specific,
+        P_ambient, T_ambient,
+    )
+    if mdot_boundary >= 0.0:
+        rho_boundary = rho_new_1[N - 1]
+    else:
+        rho_boundary = P_ambient / (R_specific * max(T_boundary, 1.0))
+    u_new[N] = mdot_boundary / max(rho_boundary * A_face[N], 1.0e-12)
 
     # -------------------------------------------------------
     # STEP 3b: ENERGY EQUATION
@@ -447,20 +585,25 @@ def piso_step(
             else:
                 flux_e = mdot_e * T[i + 1]
         else:
-            flux_e = P_new[i] * nozzle_coeff * T[i]
+            mdot_e, _dmdp, T_upstream, _state = _nozzle_boundary_flow(
+                P_new[i], T[i], A_throat, gamma, R_specific,
+                P_ambient, T_ambient,
+            )
+            flux_e = mdot_e * T_upstream
 
         conv_T = -(flux_e - flux_w) / dx
         source_T = thermal_source[i]
 
         T_new[i] = T[i] + dt / rhoA * (conv_T + source_T) * A_port[i]
-        T_new[i] = max(T_new[i], 300.0)
+        T_new[i] = max(T_new[i], max(1.0, T_ambient))
         T_new[i] = min(T_new[i], T_flame * 1.01)
 
     # -------------------------------------------------------
     # STEP 4: UPDATE DENSITY
     # -------------------------------------------------------
+    pressure_floor = 1.0e3
     for i in range(N):
-        P_new[i] = max(P_new[i], 1e3)
+        P_new[i] = max(P_new[i], pressure_floor)
     rho_new = np.zeros(N)
     for i in range(N):
         rho_new[i] = P_new[i] / (R_specific * T_new[i])

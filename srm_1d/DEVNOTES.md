@@ -85,21 +85,46 @@ The v0.7.0 igniter is a forward hot-gas pyrogen plenum. A
 choked/subsonic orifice into cell 0, and feeds Goodman per-cell
 solid heating. Grain cells ignite when `T_surf > T_ignition`.
 - The v0.6.0 exponential igniter API was removed.
-- Source coupling is mass plus temperature-weighted enthalpy; igniter
-  momentum is intentionally deferred.
+- Source coupling is mass plus temperature-weighted enthalpy.
+- DeMar direct pyrogen surface heating feeds Goodman through an
+  equivalent heat-transfer coefficient and subtracts the delivered power
+  from the gas temperature-source ledger. Built-in BPNV and MTV carry
+  heat-flux data; custom pyrogens must provide `heat_flux_cal_cm2_s`
+  unless `diagnostic_disable_pyrogen_surface_heating=True`.
+- Pyrogen axial momentum is an explicit face-centered source in the
+  PISO momentum predictor. The result contains a ledger comparing
+  expected `mdot_ig*v_exit` force to deposited force; Hasegawa A latest
+  baseline/no-momentum smoke traces are nearly identical.
 - Built-in pyrogen datasheets live under `srm_1d/motors/pyrogens/`.
 
-### Hasegawa A segmented ignition diagnostics (Phase 4 pre-work)
-The v0.7.0 Phase 3 model removes the old exponential igniter degeneracy,
-but Hasegawa A LHS runs still show a structural startup residual:
-shoulder, plateau, and taildown can be tuned, while the spike segment
-sets the remaining floor. Diagnostics show all grain cells become active
-almost immediately after Goodman ignition.
+### Ignition transient boundary and spread diagnostics (Phase 4)
+The nozzle end now uses a signed isentropic open-throat boundary instead
+of an ambient pressure clamp. The same helper must be used in PISO,
+energy fluxes, mass-flow history, and diagnostics so subsonic outflow,
+choked outflow, reverse ambient inflow, and un-choking remain consistent.
+Do not reintroduce a physical `P_ambient` pressure floor; keep only a
+low numerical floor for invalid states.
 
-Interpretation: the next physical model should separate "surface has
-ignited" from "cell contributes full burning source." Add a per-cell
-post-ignition burn-establishment/participation factor before revisiting
-igniter momentum or adding new igniter smoothing knobs.
+Ambient-gas ignition now depends on two physical heat paths:
+- direct pyrogen surface heating from DeMar heat-flux data, applied only
+  to the first unignited grain cell;
+- adjacent-burning-cell radiation using `Propellant.radiation_emissivity`
+  as a material property, not a global heat-transfer multiplier.
+
+Latest Hasegawa A smoke results:
+- `ambient_initial_gas`: finite spread, `t10-t90 = 0.760146 s`,
+  startup-window peak `0.511 MPa @ 0.348159 s`, global peak
+  `4.23 MPa @ 3.0 s`.
+- `ambient_no_surface_heating`: degenerate/no-spread.
+- `ambient_no_radiation`: degenerate/no-spread.
+- `baseline` and `no_momentum`: nearly identical, so pyrogen momentum is
+  implemented but not the Hasegawa driver.
+
+Interpretation: the old ambient-gas degeneracy was missing surface and
+adjacent-spread heat paths, not primarily a momentum problem. The
+historical hot-fill baseline can still ignite too abruptly; inspect the
+new energy/momentum audit CSVs before deciding whether a post-ignition
+burn-establishment model is still required.
 
 Current local artifacts live under `artifacts/hasegawa_a_lhs/` and are
 intentionally ignored by git.
@@ -150,10 +175,12 @@ Hasegawa-A inherited value; reveals which knobs are essential):
 | `pyrogen_mass` | TBD | v0.7.0 LHS pending |
 
 **Residual structural artifacts (NOT parametric — cannot be tuned away):**
-- Hasegawa ignition spike residual: Phase 3 pyrogen+Goodman coupling
-  removes the old exponential fallback but still activates all grain
-  cells too abruptly. Treat post-ignition burn establishment as the next
-  structural model target.
+- Hasegawa ignition spike residual: Phase 4 ambient-gas diagnostics now
+  spread when direct pyrogen surface heating and adjacent-cell radiation
+  are enabled, but the historical hot-fill baseline still activates too
+  abruptly. Review the energy/momentum audit outputs before deciding
+  whether post-ignition burn establishment remains the next structural
+  model target.
 - Sharp step at t≈1.9s — fin-burnout transition in the FMM finocyl
   model. Real motor has it smoothed/absent. The FMM table is
   axially uniform within each segment (per `fmm_grain.py:329-414`),
@@ -363,7 +390,22 @@ in geometry/burn rate/ignition (called every step or every N steps).
       `T_surf` and `delta`; cells ignite at `T_surf > T_ignition`.
     - **Source coupling**: PISO takes per-cell `mass_source` and
       `thermal_source`, so propellant/end-face sources use `T_flame`
-      and pyrogen source uses `T_ig`. Igniter momentum remains deferred.
+      and pyrogen source uses `T_ig`.
+    - **Phase 4 ignition-transient updates**:
+        * `run_simulation(..., ambient_temperature=None)` supplies the
+          reverse-inflow reservoir temperature for the signed nozzle
+          boundary. `None` uses `propellant.T_initial`.
+        * `diagnostic_disable_momentum`,
+          `diagnostic_disable_pyrogen_surface_heating`, and
+          `diagnostic_disable_adjacent_radiation` isolate ignition
+          physics without changing pyrogen mass/enthalpy plumbing.
+        * `Propellant.radiation_emissivity` controls adjacent-cell
+          ignition radiation. Aluminized `.ric` names default to 0.45;
+          explicit `.ric` `radiation_emissivity` overrides are supported.
+        * Result histories include pyrogen enthalpy/surface-heat powers,
+          gas surface-heat sink, radiation heat/sink, nozzle enthalpy,
+          thermal-source power, energy residual, and pyrogen momentum
+          expected/deposited/residual.
     - **Sensitivity diagnostics**: `run_lhs` supports `metrics_fn`,
       segmented pressure metrics, quiet `progress_mode`, and
       `sim_verbose=False` for large sweeps.

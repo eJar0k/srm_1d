@@ -63,12 +63,33 @@ def _first_time_at_fraction(times: np.ndarray, frac: np.ndarray,
     return float(times[int(idx[0])])
 
 
-def pressure_landmarks(result: dict) -> dict[str, float]:
-    """Pressure peak, takeoff, and post-peak trough timing."""
+def _pyrogen_active_end_from_history(result: dict, active_fraction=0.01) -> float:
+    t = np.asarray(result.get("time", []), dtype=float)
+    mdot = np.asarray(result.get("mdot_ig", []), dtype=float)
+    if t.size == 0 or mdot.size == 0:
+        return float("nan")
+    mdot_peak = float(np.max(mdot))
+    threshold = max(1.0e-9, float(active_fraction) * mdot_peak)
+    active = np.flatnonzero(mdot > threshold)
+    if active.size == 0:
+        return float("nan")
+    return float(t[int(active[-1])])
+
+
+def pressure_landmarks(result: dict, startup_margin_s=0.10,
+                       fallback_startup_window_s=0.25) -> dict[str, float]:
+    """Global pressure peak plus separately labeled startup-window peak."""
     t = np.asarray(result.get("time", []), dtype=float)
     p = np.asarray(result.get("P_head", []), dtype=float)
     if t.size == 0 or p.size == 0:
         return {
+            "global_peak_time_s": float("nan"),
+            "global_peak_pressure_pa": float("nan"),
+            "global_peak_pressure_mpa": float("nan"),
+            "startup_window_end_s": float("nan"),
+            "startup_window_peak_time_s": float("nan"),
+            "startup_window_peak_pressure_pa": float("nan"),
+            "startup_window_peak_pressure_mpa": float("nan"),
             "takeoff_time_s": float("nan"),
             "peak_time_s": float("nan"),
             "peak_pressure_pa": float("nan"),
@@ -77,20 +98,42 @@ def pressure_landmarks(result: dict) -> dict[str, float]:
             "post_peak_trough_pressure_pa": float("nan"),
         }
 
-    peak_idx = int(np.argmax(p))
+    global_peak_idx = int(np.argmax(p))
+    pyrogen_active_end = _pyrogen_active_end_from_history(result)
+    if np.isfinite(pyrogen_active_end):
+        startup_window_end = pyrogen_active_end + float(startup_margin_s)
+    else:
+        startup_window_end = float(fallback_startup_window_s)
+    startup_window_end = min(startup_window_end, float(t[-1]))
+
+    startup_candidates = np.flatnonzero(t <= startup_window_end)
+    if startup_candidates.size == 0:
+        startup_peak_idx = global_peak_idx
+    else:
+        local = int(np.argmax(p[startup_candidates]))
+        startup_peak_idx = int(startup_candidates[local])
+
     ambient = float(result.get("P_ambient", p[0]))
-    threshold = ambient + 0.05 * max(float(p[peak_idx]) - ambient, 0.0)
+    threshold = ambient + 0.05 * max(float(p[startup_peak_idx]) - ambient, 0.0)
     takeoff_candidates = np.flatnonzero(p >= threshold)
     takeoff_time = float(t[int(takeoff_candidates[0])]) if takeoff_candidates.size else float("nan")
 
-    post = p[peak_idx:]
+    post = p[startup_peak_idx:]
     trough_rel = int(np.argmin(post)) if post.size else 0
-    trough_idx = peak_idx + trough_rel
+    trough_idx = startup_peak_idx + trough_rel
     return {
+        "global_peak_time_s": float(t[global_peak_idx]),
+        "global_peak_pressure_pa": float(p[global_peak_idx]),
+        "global_peak_pressure_mpa": float(p[global_peak_idx] / 1.0e6),
+        "startup_window_end_s": float(startup_window_end),
+        "startup_window_peak_time_s": float(t[startup_peak_idx]),
+        "startup_window_peak_pressure_pa": float(p[startup_peak_idx]),
+        "startup_window_peak_pressure_mpa": float(p[startup_peak_idx] / 1.0e6),
+        # Backward-compatible aliases now refer to the startup diagnostic peak.
         "takeoff_time_s": takeoff_time,
-        "peak_time_s": float(t[peak_idx]),
-        "peak_pressure_pa": float(p[peak_idx]),
-        "peak_pressure_mpa": float(p[peak_idx] / 1.0e6),
+        "peak_time_s": float(t[startup_peak_idx]),
+        "peak_pressure_pa": float(p[startup_peak_idx]),
+        "peak_pressure_mpa": float(p[startup_peak_idx] / 1.0e6),
         "post_peak_trough_time_s": float(t[trough_idx]),
         "post_peak_trough_pressure_pa": float(p[trough_idx]),
         "post_peak_trough_pressure_mpa": float(p[trough_idx] / 1.0e6),
@@ -212,6 +255,10 @@ def source_timeseries(result: dict, geo=None, propellant=None) -> dict[str, np.n
             "total_sidewall_kg_s": empty,
             "endface_kg_s": empty,
             "pyrogen_kg_s": empty,
+            "pyrogen_surface_heat_power_w": empty,
+            "pyrogen_surface_heat_flux_w_m2": empty,
+            "radiation_heat_power_w": empty,
+            "radiation_heat_flux_w_m2": empty,
             "total_estimated_kg_s": empty,
             "normal_fraction": empty,
             "erosive_fraction": empty,
@@ -225,12 +272,32 @@ def source_timeseries(result: dict, geo=None, propellant=None) -> dict[str, np.n
     r_total = stack_snapshots(result, "r_total")
     r_erosive = stack_snapshots(result, "r_erosive")
     endface = stack_snapshots(result, "endface_msource")
+    pyrogen_surface_heat_flux = stack_snapshots(result, "pyrogen_surface_heat_flux")
+    radiation_heat_flux = stack_snapshots(result, "radiation_heat_flux")
 
     normal_rate = np.maximum(r_total - r_erosive, 0.0)
     normal = rho_p * np.sum(normal_rate * c_burn, axis=1) * dx
     erosive = rho_p * np.sum(np.maximum(r_erosive, 0.0) * c_burn, axis=1) * dx
     sidewall = rho_p * np.sum(np.maximum(r_total, 0.0) * c_burn, axis=1) * dx
     endface_total = np.sum(np.maximum(endface, 0.0), axis=1) * dx if endface.size else np.zeros_like(times)
+    if pyrogen_surface_heat_flux.size:
+        heat_flux = np.max(np.maximum(pyrogen_surface_heat_flux, 0.0), axis=1)
+        heat_power = np.sum(
+            np.maximum(pyrogen_surface_heat_flux, 0.0) * c_burn,
+            axis=1,
+        ) * dx
+    else:
+        heat_flux = np.zeros_like(times)
+        heat_power = np.zeros_like(times)
+    if radiation_heat_flux.size:
+        rad_flux = np.max(np.maximum(radiation_heat_flux, 0.0), axis=1)
+        rad_power = np.sum(
+            np.maximum(radiation_heat_flux, 0.0) * c_burn,
+            axis=1,
+        ) * dx
+    else:
+        rad_flux = np.zeros_like(times)
+        rad_power = np.zeros_like(times)
 
     hist_t = np.asarray(result.get("time", []), dtype=float)
     mdot = np.asarray(result.get("mdot_ig", []), dtype=float)
@@ -248,12 +315,41 @@ def source_timeseries(result: dict, geo=None, propellant=None) -> dict[str, np.n
         "total_sidewall_kg_s": sidewall,
         "endface_kg_s": endface_total,
         "pyrogen_kg_s": pyrogen,
+        "pyrogen_surface_heat_power_w": heat_power,
+        "pyrogen_surface_heat_flux_w_m2": heat_flux,
+        "radiation_heat_power_w": rad_power,
+        "radiation_heat_flux_w_m2": rad_flux,
         "total_estimated_kg_s": total,
         "normal_fraction": normal / denom,
         "erosive_fraction": erosive / denom,
         "endface_fraction": endface_total / denom,
         "pyrogen_fraction": pyrogen / denom,
     }
+
+
+def energy_momentum_timeseries(result: dict) -> dict[str, np.ndarray]:
+    """Return per-step energy and pyrogen momentum audit histories."""
+    times = np.asarray(result.get("time", []), dtype=float)
+    keys = (
+        "pyrogen_enthalpy_power",
+        "pyrogen_surface_heat_power",
+        "gas_surface_heat_sink_power",
+        "radiation_heat_power",
+        "radiation_sink_power",
+        "nozzle_enthalpy_power",
+        "thermal_source_power",
+        "energy_residual",
+        "pyrogen_momentum_expected",
+        "pyrogen_momentum_deposited",
+        "pyrogen_momentum_residual",
+    )
+    out = {"times_s": times}
+    for key in keys:
+        values = np.asarray(result.get(key, np.zeros_like(times)), dtype=float)
+        if values.size != times.size:
+            values = np.zeros_like(times)
+        out[key] = values
+    return out
 
 
 def _nearest_source_at_peak(sources: dict[str, np.ndarray], peak_time_s: float) -> dict[str, float]:
@@ -320,6 +416,7 @@ def analyze_ignition_spike(result: dict, geo=None, propellant=None) -> dict[str,
     pyrogen = pyrogen_landmarks(result, pressure["peak_time_s"])
     spread = ignition_spread_metrics(result)
     sources = source_timeseries(result, geo=geo, propellant=propellant)
+    energy = energy_momentum_timeseries(result)
     sources_at_peak = _nearest_source_at_peak(sources, pressure["peak_time_s"])
     classification = classify_driver(pressure, pyrogen, spread, sources_at_peak)
     return {
@@ -327,6 +424,7 @@ def analyze_ignition_spike(result: dict, geo=None, propellant=None) -> dict[str,
         "pyrogen": pyrogen,
         "ignition_spread": spread,
         "sources": sources,
+        "energy": energy,
         "sources_at_peak": sources_at_peak,
         "classification": classification,
     }
@@ -347,10 +445,24 @@ def classification_report(diagnostics: dict[str, Any]) -> str:
     pyrogen = diagnostics["pyrogen"]
     spread = diagnostics["ignition_spread"]
     sources = diagnostics["sources_at_peak"]
+    source_series = diagnostics["sources"]
     cls = diagnostics["classification"]
+    heat_flux_peak = float("nan")
+    heat_power_peak = float("nan")
+    rad_flux_peak = float("nan")
+    rad_power_peak = float("nan")
+    if source_series["times_s"].size:
+        heat_flux_peak = float(np.max(source_series["pyrogen_surface_heat_flux_w_m2"]))
+        heat_power_peak = float(np.max(source_series["pyrogen_surface_heat_power_w"]))
+        rad_flux_peak = float(np.max(source_series["radiation_heat_flux_w_m2"]))
+        rad_power_peak = float(np.max(source_series["radiation_heat_power_w"]))
     lines = [
         f"primary_driver: {cls['primary_driver']}",
-        f"pressure_peak: {pressure['peak_pressure_mpa']:.3g} MPa at {pressure['peak_time_s']:.6g} s",
+        f"startup_window_peak: {pressure['startup_window_peak_pressure_mpa']:.3g} MPa "
+        f"at {pressure['startup_window_peak_time_s']:.6g} s "
+        f"(window_end={pressure['startup_window_end_s']:.6g} s)",
+        f"global_peak: {pressure['global_peak_pressure_mpa']:.3g} MPa "
+        f"at {pressure['global_peak_time_s']:.6g} s",
         f"pyrogen_active_at_peak: {pyrogen['pyrogen_active_at_peak']} "
         f"(mdot={pyrogen['mdot_at_pressure_peak_g_s']:.3g} g/s)",
         f"ignition_spread_10_90: {spread['spread_10_90_s']:.6g} s "
@@ -360,6 +472,10 @@ def classification_report(diagnostics: dict[str, Any]) -> str:
         f"erosive={sources['erosive_fraction_at_peak']:.3g}, "
         f"endface={sources['endface_fraction_at_peak']:.3g}, "
         f"pyrogen={sources['pyrogen_fraction_at_peak']:.3g}",
+        f"pyrogen_surface_heat_peak: {heat_flux_peak / 1.0e6:.3g} MW/m^2, "
+        f"{heat_power_peak / 1000.0:.3g} kW",
+        f"adjacent_radiation_heat_peak: {rad_flux_peak / 1.0e6:.3g} MW/m^2, "
+        f"{rad_power_peak / 1000.0:.3g} kW",
     ]
     return "\n".join(lines) + "\n"
 
@@ -395,6 +511,14 @@ def write_diagnostic_outputs(diagnostics: dict[str, Any], output_dir,
         for i, t in enumerate(sources["times_s"]):
             writer.writerow([t] + [sources[k][i] for k in source_keys])
 
+    energy = diagnostics.get("energy", {"times_s": np.array([])})
+    energy_keys = [k for k in energy if k != "times_s"]
+    with open(output_dir / f"{case_name}_energy_momentum.csv", "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["time_s"] + energy_keys)
+        for i, t in enumerate(energy["times_s"]):
+            writer.writerow([t] + [energy[k][i] for k in energy_keys])
+
     first_by_cell = spread["first_burning_time_by_cell_s"]
     with open(output_dir / f"{case_name}_ignition_times.csv", "w", newline="") as f:
         writer = csv.writer(f)
@@ -421,9 +545,17 @@ def plot_diagnostic_figures(result: dict, diagnostics: dict[str, Any],
 
     fig, axes = plt.subplots(4, 1, figsize=(11, 11), sharex=False)
     axes[0].plot(t, p, "b-", linewidth=1.8)
-    axes[0].axvline(diagnostics["pressure"]["peak_time_s"], color="k", linestyle=":", linewidth=1.0)
+    axes[0].axvline(
+        diagnostics["pressure"]["startup_window_peak_time_s"],
+        color="k", linestyle=":", linewidth=1.0, label="startup peak",
+    )
+    axes[0].axvline(
+        diagnostics["pressure"]["global_peak_time_s"],
+        color="0.5", linestyle="--", linewidth=0.8, label="global peak",
+    )
     axes[0].set_ylabel("P_head [MPa]")
     axes[0].set_title(f"{case_name}: pressure and startup drivers")
+    axes[0].legend(loc="best", fontsize=8)
     axes[0].grid(True, alpha=0.3)
 
     axes[1].plot(t, np.asarray(result.get("mdot_ig", [])) * 1000.0,

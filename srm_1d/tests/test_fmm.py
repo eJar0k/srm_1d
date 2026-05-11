@@ -207,7 +207,10 @@ class TestFmmSimulation:
         geo, _ = self._build_finocyl_motor()
         prop = hasegawa_propellant_1()
         nozzle = Nozzle(D_throat=0.020, D_exit=0.035, efficiency=0.95)
-        pyro = Pyrogen("test", 3.0e-5, 0.5, 1700.0, 2800.0, 0.030, 1.25)
+        pyro = Pyrogen(
+            "test", 3.0e-5, 0.5, 1700.0, 2800.0, 0.030, 1.25,
+            heat_flux_cal_cm2_s=69.4,
+        )
         chamber = PyrogenChamber(
             pyro, 0.005, 5.0e-4, 2.0e-5, 3.0e-6, "end_burning"
         )

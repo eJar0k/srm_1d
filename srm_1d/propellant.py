@@ -114,6 +114,7 @@ class Pyrogen:
     M: float             # Product molecular weight [kg/mol]
     gamma: float         # Product gas specific heat ratio [-]
     impetus_W: float = 0.0  # Optional DeMar impetus [psi*in^3/g]
+    heat_flux_cal_cm2_s: Optional[float] = None  # DeMar heat flux [cal/(cm^2*s)]
 
 
 # ================================================================
@@ -151,6 +152,10 @@ class Propellant:
         because srm_1d's heat-transfer model assumes single-tab gas
         transport — gas thermo (gamma, T, MW) varies per-tab but
         transport stays fixed.
+    radiation_emissivity : float
+        Effective particle/flame emissivity for adjacent-cell ignition
+        radiation. This is a material property, not a heat-transfer
+        multiplier; use 0.0 to disable the radiation path.
     """
     name: str
     tabs: List[PropellantTab]
@@ -166,6 +171,7 @@ class Propellant:
     k_gas: float
     Cp_gas: float
     k_solid: float = 0.3  # Solid conductivity for Goodman ignition [W/(m*K)]
+    radiation_emissivity: float = 0.0
 
     def select_tab(self, P) -> PropellantTab:
         """

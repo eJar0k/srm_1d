@@ -14,15 +14,20 @@ Current branch is `v0.7.0-phase3`. Phases 1-3 are committed:
 - `e58657a` -- docs plus segmented LHS diagnostics.
 - `4fc45d1` -- L3035/BALLSstick examples and inhibited-interface gap fix.
 - `883e1fb` -- snapped-interface cell assignment fix.
+- Current working tree adds Phase 4 ignition-transient work: signed
+  nozzle open boundary, DeMar pyrogen surface heating, pyrogen momentum
+  ledger, gas/solid energy ledger, adjacent-cell radiation, and expanded
+  ignition diagnostics.
 
 Workflow: pytest before each commit, never push without approval, never
 force-push, never use `--no-verify`. Clear `srm_1d/__pycache__/` after
 `@njit` edits to prevent stale Numba cache behavior.
 
-Next modeling work is not "more igniter smoothing." Current Hasegawa
-diagnostics point to post-ignition burn establishment: after Goodman
-surface ignition, newly ignited cells likely need a finite participation
-ramp before they contribute full mass and heat source.
+Next modeling work is not "more igniter smoothing." With ambient initial
+gas, Hasegawa A now needs both DeMar pyrogen surface heating and
+adjacent-cell radiation to spread. Review the new energy/momentum audit
+CSVs and x-t plots before deciding whether post-ignition burn
+establishment is still needed for the historical hot-fill baseline.
 
 Keep generated plots, CSVs, and LHS artifacts under `artifacts/`.
 Root-level generated outputs were cleaned on 2026-05-10. Do not touch

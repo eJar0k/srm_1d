@@ -54,7 +54,8 @@ Implemented decisions:
 - Snapshots include `T_surf` and `is_burning`.
 - `piso_step` uses separate `mass_source` and `thermal_source` arrays.
   Propellant/end-face sources use `T_flame`; pyrogen source uses `T_ig`.
-- Igniter momentum is deliberately deferred.
+- Igniter momentum was deliberately deferred in the Phase 3 commit; it
+  was reopened and implemented/audited in the Phase 4 work below.
 
 Tests:
 
@@ -82,21 +83,62 @@ Completed pre-work:
 - Fixed snapped-interface cell assignment: setup now assigns cells to
   the segment with the largest axial overlap, avoiding epsilon-overlap
   misclassification at touching segment boundaries.
+- Added ignition-spike diagnostic tooling:
+  - opt-in startup controls for ambient initial gas, erosive disable,
+    end-face disable, momentum disable, pyrogen surface-heating disable,
+    and adjacent-radiation disable.
+  - snapshot channels for mass source, thermal source, momentum source,
+    pyrogen surface heat flux, and adjacent-radiation heat flux.
+  - reducer/classifier plus CLI artifacts under
+    `artifacts/ignition_diagnostics/<case>/<variant>/`.
+
+Completed Phase 4 solver work in the current working tree:
+
+- Replaced the temporary nozzle ambient clamp with a signed isentropic
+  open-throat boundary. The helper supports subsonic outflow, choked
+  outflow, balanced flow, subsonic ambient inflow, and choked ambient
+  inflow, and is shared by PISO, energy fluxes, mass-flow history, and
+  diagnostics.
+- Added `ambient_temperature` to `run_simulation`; `None` defaults to
+  `propellant.T_initial` for reverse-flow nozzle inflow.
+- Added DeMar pyrogen direct surface heating. Built-in BPNV and MTV
+  include heat-flux data; custom pyrogens hard-fault unless surface
+  heating is explicitly disabled.
+- Added pyrogen axial momentum as an explicit face source plus a
+  momentum ledger comparing expected `mdot_ig*v_exit` force to deposited
+  force. Hasegawa A baseline and no-momentum runs remain nearly
+  identical, so momentum is not the current Hasegawa driver.
+- Added gas/solid energy audit histories for pyrogen enthalpy, direct
+  surface heat, gas sink, adjacent-radiation heat, nozzle enthalpy,
+  thermal-source power, and per-step residual.
+- Added adjacent-burning-cell radiation for ignition spread using
+  `Propellant.radiation_emissivity` as a material property. Aluminized
+  `.ric` propellants default to 0.45; explicit
+  `radiation_emissivity` overrides are supported.
 
 Current finding:
 
-- Hasegawa A LHS runs can tune shoulder, plateau, and taildown, but the
-  spike segment remains the limiting residual.
-- All grain cells become active almost immediately after Goodman surface
-  ignition.
-- The next model should add post-ignition burn establishment /
-  participation before full propellant mass and thermal source are
-  applied per cell.
+- Historical hot-fill baseline still ignites essentially instantly and
+  retains the spike/erosive-snap behavior.
+- Ambient initial gas now shows finite Hasegawa A ignition spread when
+  both pyrogen direct surface heating and adjacent-cell radiation are
+  enabled. The latest smoke run gave `t10-t90 = 0.760146 s`,
+  startup-window peak `0.511 MPa` at `0.348159 s`, and global peak
+  `4.23 MPa` at `3.0 s`.
+- `ambient_no_surface_heating` and `ambient_no_radiation` remain
+  degenerate/no-spread cases, confirming both paths are active in the
+  ambient-gas model.
+- Baseline and `no_momentum` Hasegawa A traces are nearly identical in
+  the latest smoke run, so momentum is implemented and audited but not a
+  dominant effect for this case.
 
 Pending:
 
-- Implement and validate post-ignition burn establishment.
-- Re-run segmented Hasegawa A LHS after that model change.
+- Inspect the new energy/momentum audit CSVs and pressure/x-t plots for
+  Hasegawa A before deciding whether a post-ignition burn-establishment
+  model is still needed for hot-fill baseline calibration.
+- Re-run segmented Hasegawa A LHS after the boundary, direct-heating,
+  and adjacent-radiation model changes.
 - Re-run Zerox LHS with v0.7.0 pyrogen parameters.
 - Update Hasegawa and Zerox calibration tables in `DEVNOTES.md`.
 - Revisit L3035/BALLSstick after any geometry or ignition-model change;
@@ -131,9 +173,10 @@ requested.
 
 ## Deferred Beyond v0.7.0
 
-- Igniter momentum source terms, unless validation shows they are needed.
 - Squib stage (electric match to pyrogen).
-- Lumped radiation.
+- Tuned lumped `C_hc` radiation/heat-transfer multipliers.
+- Physical igniter impingement regions unless tied to actual igniter
+  basket/jet geometry.
 - Multi-species/passive-scalar igniter gas transport.
 - Head-end primary motor architecture.
 - Cavallini-style multi-species Godunov solver.

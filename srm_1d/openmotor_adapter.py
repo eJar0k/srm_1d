@@ -35,6 +35,7 @@ Unit conversions from openMotor internal units:
 """
 
 import os
+import re
 import warnings
 import numpy as np
 
@@ -194,6 +195,10 @@ def load_pyrogen(path_or_name):
         M=float(data['M']),
         gamma=float(data['gamma']),
         impetus_W=float(data.get('impetus_W', 0.0)),
+        heat_flux_cal_cm2_s=(
+            None if data.get('heat_flux_cal_cm2_s') is None
+            else float(data['heat_flux_cal_cm2_s'])
+        ),
     )
 
 
@@ -271,6 +276,14 @@ def _representative_ric_tab(tabs):
                key=lambda t: t.get('maxPressure', 0) - t.get('minPressure', 0))
 
 
+def _default_radiation_emissivity(propellant_name):
+    """Return the adjacent-ignition radiation emissivity default."""
+    name = str(propellant_name).lower()
+    if 'aluminum' in name or re.search(r'\b\d+(?:\.\d+)?\s*al\b', name):
+        return 0.45
+    return 0.0
+
+
 def convert_propellant(ric_propellant, gas_props=None):
     """
     Convert an openMotor propellant dict to srm_1d Propellant. All
@@ -321,6 +334,12 @@ def convert_propellant(ric_propellant, gas_props=None):
         mu_gas=mu,
         k_gas=k_gas,
         Cp_gas=Cp,
+        radiation_emissivity=float(
+            ric_propellant.get(
+                'radiation_emissivity',
+                _default_radiation_emissivity(name),
+            )
+        ),
     )
 
 

@@ -9,3 +9,4 @@ T_flame: 2800.0
 M: 0.030
 gamma: 1.25
 impetus_W: 5000.0
+heat_flux_cal_cm2_s: 69.4

@@ -82,6 +82,10 @@ class TestPyrogenLoading:
         assert pyro.name == 'BPNV'
         assert pyro.a > 0.0
         assert pyro.impetus_W == pytest.approx(5000.0)
+        assert pyro.heat_flux_cal_cm2_s == pytest.approx(69.4)
+        mtv = load_pyrogen('mtv')
+        assert mtv.name == 'MTV'
+        assert mtv.heat_flux_cal_cm2_s == pytest.approx(110.0)
 
     def test_missing_pyrogen_raises_before_run(self):
         with pytest.raises(ValueError, match="Unknown pyrogen"):
@@ -123,6 +127,7 @@ class TestPyrogenLoading:
 
         chamber = captured['pyrogen_chamber']
         assert chamber.pyrogen.name == 'sibling'
+        assert chamber.pyrogen.heat_flux_cal_cm2_s is None
         assert chamber.m_pyrogen_initial > 0.0
         assert captured['T_ignition'] == pytest.approx(850.0)
 
@@ -151,6 +156,21 @@ class TestPropellantConversion:
     def test_gamma(self):
         prop = convert_propellant(SAMPLE_RIC_PROPELLANT, SAMPLE_GAS_PROPS)
         assert prop.tabs[0].gamma == pytest.approx(1.19)
+
+    def test_radiation_emissivity_defaults_only_for_aluminized_names(self):
+        prop = convert_propellant(SAMPLE_RIC_PROPELLANT, SAMPLE_GAS_PROPS)
+        assert prop.radiation_emissivity == pytest.approx(0.0)
+
+        aluminized = dict(SAMPLE_RIC_PROPELLANT)
+        aluminized['name'] = 'Hasegawa Propellant 1 (69AP/17HTPB/14Al)'
+        prop_al = convert_propellant(aluminized, SAMPLE_GAS_PROPS)
+        assert prop_al.radiation_emissivity == pytest.approx(0.45)
+
+    def test_radiation_emissivity_explicit_override(self):
+        ric_prop = dict(SAMPLE_RIC_PROPELLANT)
+        ric_prop['radiation_emissivity'] = 0.32
+        prop = convert_propellant(ric_prop, SAMPLE_GAS_PROPS)
+        assert prop.radiation_emissivity == pytest.approx(0.32)
 
     def test_pressure_range(self):
         """min/max pressures should pass through from .ric tab."""
