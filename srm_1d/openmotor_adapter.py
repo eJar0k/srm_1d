@@ -551,7 +551,8 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
                  pyrogen=None, pyrogen_mass=None,
                  pyrogen_throat_area=None, pyrogen_volume=None,
                  pyrogen_burn_area=None, pyrogen_burn_law='0d',
-                 T_ignition=850.0, verbose=True, **sim_overrides):
+                 T_ignition=850.0, k_solid=None,
+                 radiation_emissivity=None, verbose=True, **sim_overrides):
     """
     Load a .ric file, run the 1D simulation, compute performance.
 
@@ -600,6 +601,14 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
     prop = args.pop('propellant')
     nozzle = args['nozzle']
     P_amb = args.get('P_ambient', 101325.0)
+
+    # Propellant attribute overrides for LHS sweeps. None == use the
+    # value from the .ric / propellant_overrides path; passing a number
+    # mutates the propellant in place before the sim runs.
+    if k_solid is not None:
+        prop.k_solid = float(k_solid)
+    if radiation_emissivity is not None:
+        prop.radiation_emissivity = float(radiation_emissivity)
 
     if pyrogen is None:
         candidate = stem + '.pyrogen.yaml'

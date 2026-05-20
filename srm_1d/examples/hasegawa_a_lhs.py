@@ -198,10 +198,16 @@ def main():
     p_exp = HASEGAWA_MOTOR_A_EXPERIMENTAL['pressure']
 
     bounds = {
-        'roughness':         (5e-6, 50e-6),
-        'pyrogen_mass':      (0.001, 0.050),
+        # Ma erosive-burning knobs
+        'roughness':           (5e-6, 50e-6),
+        'kappa':               (0.30, 0.60),
+        # Pyrogen plenum sizing
+        'pyrogen_mass':        (0.001, 0.050),
         'pyrogen_throat_area': (1e-6, 5e-5),
-        'T_ignition':        (700.0, 950.0),
+        'pyrogen_volume':      (1e-6, 1e-4),
+        # Goodman ignition / surface-conduction
+        'T_ignition':          (700.0, 950.0),
+        'k_solid':             (0.15, 0.60),
     }
 
     metrics_fn = pressure_trace_metrics(
@@ -229,8 +235,9 @@ def main():
         csv_path=f'{OUTPUT_PREFIX}.csv',
         progress_mode=PROGRESS_MODE,
         sim_verbose=SIM_VERBOSE,
-        # Locked sim kwargs
-        kappa=0.45, t_max=6.0, P_cutoff=0.05e6,
+        # Locked sim kwargs (kappa now in the LHS bounds dict above)
+        pyrogen='bpnv',
+        t_max=6.0, P_cutoff=0.05e6,
         snapshot_interval=2.0, print_interval=20.0,
     )
 
@@ -245,9 +252,12 @@ def main():
     for rank, r in enumerate(sorted_rows[:5], start=1):
         print(f"Rank {rank} (fitness: {r['fitness']:.4f}):")
         print(f"  Roughness    = {r['roughness']*1e6:.1f} um")
+        print(f"  Kappa        = {r['kappa']:.3f}")
         print(f"  Pyro Mass    = {r['pyrogen_mass']*1000:.1f} g")
         print(f"  Pyro Throat  = {r['pyrogen_throat_area']*1e6:.2f} mm^2")
+        print(f"  Pyro Volume  = {r['pyrogen_volume']*1e6:.1f} cm^3")
         print(f"  T_ignition   = {r['T_ignition']:.0f} K")
+        print(f"  k_solid      = {r['k_solid']:.3f} W/(m.K)")
         print(f"  MSE segments = spike {r.get('mse_spike', np.nan):.3f}, "
               f"post {r.get('mse_post_spike', np.nan):.3f}, "
               f"plateau {r.get('mse_plateau', np.nan):.3f}, "
@@ -268,7 +278,7 @@ def main():
         params = {k: r[k] for k in bounds.keys()}
         result, *_ = run_from_ric(
             MOTOR_PATH,
-            kappa=0.45, t_max=6.0, P_cutoff=0.05e6,
+            t_max=6.0, P_cutoff=0.05e6,
             snapshot_interval=2.0, print_interval=20.0,
             pyrogen='bpnv',
             verbose=SIM_VERBOSE,
@@ -294,7 +304,7 @@ def main():
         best_params = {k: sorted_rows[0][k] for k in bounds.keys()}
         best_result, *_ = run_from_ric(
             MOTOR_PATH,
-            kappa=0.45, t_max=6.0, P_cutoff=0.05e6,
+            t_max=6.0, P_cutoff=0.05e6,
             snapshot_interval=0.02, print_interval=20.0,
             pyrogen='bpnv',
             verbose=SIM_VERBOSE,
