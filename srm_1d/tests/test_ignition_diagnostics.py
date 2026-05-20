@@ -5,6 +5,15 @@ import numpy as np
 import pytest
 
 from srm_1d import run_simulation
+from srm_1d.examples.ignition_spike_diagnostic import (
+    DEFAULT_VARIANTS,
+    RADIATION_COLLAPSE_DEFAULT_VARIANTS,
+    RADIATION_COLLAPSE_VARIANTS,
+    RADIATION_PROBE_DEFAULT_VARIANTS,
+    RADIATION_PROBE_VARIANTS,
+    VARIANTS,
+    build_parser,
+)
 from srm_1d.igniter_plenum import PyrogenChamber
 from srm_1d.nozzle import Nozzle
 from srm_1d.propellant import Pyrogen
@@ -15,15 +24,19 @@ from srm_1d.tests._motor_fixtures import (
 )
 from srm_1d.tools.ignition_diagnostics import (
     analyze_ignition_spike,
+    collapse_event_trace,
+    early_time_diagnostics,
     energy_momentum_timeseries,
     ignition_spread_metrics,
     pressure_landmarks,
+    step_diagnostics_timeseries,
     source_timeseries,
 )
 
 
 def _snap(t, burning, r_total=None, r_erosive=None, endface=None,
-          pyrogen_surface_heat_flux=None, radiation_heat_flux=None):
+          pyrogen_surface_heat_flux=None, radiation_heat_flux=None,
+          mach=None, mass_source=None, thermal_source=None):
     burning = np.asarray(burning, dtype=bool)
     n = len(burning)
     if r_total is None:
@@ -36,6 +49,12 @@ def _snap(t, burning, r_total=None, r_erosive=None, endface=None,
         pyrogen_surface_heat_flux = np.zeros(n)
     if radiation_heat_flux is None:
         radiation_heat_flux = np.zeros(n)
+    if mach is None:
+        mach = np.zeros(n)
+    if mass_source is None:
+        mass_source = np.zeros(n)
+    if thermal_source is None:
+        thermal_source = np.zeros(n)
     return {
         "t": float(t),
         "x": np.arange(n, dtype=float),
@@ -50,6 +69,9 @@ def _snap(t, burning, r_total=None, r_erosive=None, endface=None,
         "endface_msource": np.asarray(endface, dtype=float),
         "pyrogen_surface_heat_flux": np.asarray(pyrogen_surface_heat_flux, dtype=float),
         "radiation_heat_flux": np.asarray(radiation_heat_flux, dtype=float),
+        "Mach": np.asarray(mach, dtype=float),
+        "mass_source": np.asarray(mass_source, dtype=float),
+        "thermal_source": np.asarray(thermal_source, dtype=float),
     }
 
 
@@ -66,6 +88,81 @@ def _synthetic_result(time, pressure, mdot, snapshots=()):
         "P_ambient": 101325.0,
         "summary": {},
     }
+
+
+def _synthetic_probe_result(**overrides):
+    time = np.asarray(overrides.pop("time", [0.0, 0.001, 0.002]), dtype=float)
+    n = time.size
+    result = _synthetic_result(
+        time,
+        overrides.pop("pressure", np.linspace(101325.0, 2.0e6, n)),
+        overrides.pop("mdot", np.zeros(n)),
+    )
+    result.update({
+        "dt": np.asarray(overrides.pop("dt", np.full(n, 0.001)), dtype=float),
+        "massflow": np.asarray(overrides.pop("massflow", np.zeros(n)), dtype=float),
+        "n_burning": np.asarray(overrides.pop("n_burning", np.ones(n)), dtype=float),
+        "n_ignited": np.asarray(overrides.pop("n_ignited", np.ones(n)), dtype=float),
+        "radiation_emitter_count": np.asarray(
+            overrides.pop("radiation_emitter_count", np.zeros(n)), dtype=float
+        ),
+        "radiation_receiver_count": np.asarray(
+            overrides.pop("radiation_receiver_count", np.zeros(n)), dtype=float
+        ),
+        "radiation_heat_power": np.asarray(
+            overrides.pop("radiation_heat_power", np.zeros(n)), dtype=float
+        ),
+        "radiation_sink_power": np.asarray(
+            overrides.pop("radiation_sink_power", np.zeros(n)), dtype=float
+        ),
+        "clipping_correction_power": np.asarray(
+            overrides.pop("clipping_correction_power", np.zeros(n)), dtype=float
+        ),
+        "thermal_source_power": np.asarray(
+            overrides.pop("thermal_source_power", np.ones(n)), dtype=float
+        ),
+        "convective_scalar_flux_power": np.asarray(
+            overrides.pop("convective_scalar_flux_power", np.ones(n)), dtype=float
+        ),
+        "erosive_sidewall_thermal_power": np.asarray(
+            overrides.pop("erosive_sidewall_thermal_power", np.zeros(n)), dtype=float
+        ),
+        "min_gas_temperature": np.asarray(
+            overrides.pop("min_gas_temperature", np.full(n, 293.0)), dtype=float
+        ),
+        "max_gas_temperature": np.asarray(
+            overrides.pop("max_gas_temperature", np.full(n, 900.0)), dtype=float
+        ),
+        "min_surface_temperature": np.asarray(
+            overrides.pop("min_surface_temperature", np.full(n, 293.0)), dtype=float
+        ),
+        "max_surface_temperature": np.asarray(
+            overrides.pop("max_surface_temperature", np.full(n, 500.0)), dtype=float
+        ),
+        "min_pressure": np.asarray(
+            overrides.pop("min_pressure", np.full(n, 101325.0)), dtype=float
+        ),
+        "max_pressure": np.asarray(
+            overrides.pop("max_pressure", np.linspace(101325.0, 2.0e6, n)),
+            dtype=float,
+        ),
+        "max_mach": np.asarray(overrides.pop("max_mach", np.zeros(n)), dtype=float),
+        "ignition_time_by_cell": np.asarray(
+            overrides.pop("ignition_time_by_cell", [0.001, 1.0e10]), dtype=float
+        ),
+        "summary": {
+            "termination": overrides.pop("termination", "t_max reached"),
+            "termination_code": overrides.pop("termination_code", 0),
+            "history_cap_reached": overrides.pop("history_cap_reached", False),
+            "history_capacity": overrides.pop("history_capacity", 100),
+            "steps": n,
+            "active_radiation_emissivity": overrides.pop(
+                "active_radiation_emissivity", 0.0
+            ),
+        },
+    })
+    result.update(overrides)
+    return result
 
 
 def _test_chamber(**pyrogen_overrides):
@@ -132,6 +229,180 @@ def test_classifies_pyrogen_driven_spike_when_peak_overlaps_mdot():
     assert diagnostics["classification"]["primary_driver"] == "pyrogen_combustion"
     assert diagnostics["classification"]["pyrogen_combustion"]
     assert "energy" in diagnostics
+
+
+def test_diagnostic_cli_default_variants_are_registered():
+    args = build_parser().parse_args([])
+    assert args.variants == DEFAULT_VARIANTS
+    assert set(args.variants).issubset(VARIANTS)
+
+
+def test_radiation_probe_default_variants_are_registered():
+    args = build_parser().parse_args(["--mode", "radiation-probe"])
+    assert args.variants == DEFAULT_VARIANTS
+    assert set(RADIATION_PROBE_DEFAULT_VARIANTS).issubset(RADIATION_PROBE_VARIANTS)
+
+
+def test_radiation_collapse_default_variants_are_registered():
+    args = build_parser().parse_args(["--mode", "radiation-collapse"])
+    assert args.variants == DEFAULT_VARIANTS
+    assert set(RADIATION_COLLAPSE_DEFAULT_VARIANTS).issubset(
+        RADIATION_COLLAPSE_VARIANTS
+    )
+
+
+def test_step_diagnostics_timeseries_preserves_probe_histories():
+    result = _synthetic_probe_result(
+        dt=[1.0e-4, 2.0e-4],
+        time=[0.0, 1.0e-4],
+        n_burning=[0, 1],
+        radiation_receiver_count=[0, 1],
+        max_mach=[0.0, 0.25],
+    )
+    step = step_diagnostics_timeseries(result)
+    np.testing.assert_allclose(step["dt"], [1.0e-4, 2.0e-4])
+    np.testing.assert_allclose(step["n_burning"], [0, 1])
+    np.testing.assert_allclose(step["radiation_receiver_count"], [0, 1])
+    np.testing.assert_allclose(step["max_mach"], [0.0, 0.25])
+
+
+def test_early_diagnostics_classifies_normal_completed_run():
+    result = _synthetic_probe_result()
+    early = early_time_diagnostics(result)
+    assert early["diagnostic_failure_mode"] == "normal_completed"
+    assert not early["history_cap_reached"]
+    assert not early["radiation_enabled_zero_activity"]
+
+
+def test_early_diagnostics_flags_history_cap_or_step_limit():
+    result = _synthetic_probe_result(
+        termination="history array full",
+        termination_code=3,
+        history_cap_reached=True,
+        history_capacity=3,
+    )
+    early = early_time_diagnostics(result)
+    assert early["history_cap_reached"]
+    assert early["diagnostic_failure_mode"] == "history_cap_or_step_limit"
+
+
+def test_early_diagnostics_flags_radiation_enabled_zero_activity():
+    result = _synthetic_probe_result(
+        active_radiation_emissivity=0.45,
+        n_burning=[0, 0, 0],
+        n_ignited=[0, 0, 0],
+        ignition_time_by_cell=[1.0e10, 1.0e10],
+    )
+    early = early_time_diagnostics(result)
+    assert early["radiation_enabled_zero_activity"]
+    assert early["diagnostic_failure_mode"] == "radiation_enabled_zero_activity"
+
+
+def test_early_diagnostics_flags_clipping_dominated_energy():
+    result = _synthetic_probe_result(
+        clipping_correction_power=[-100.0, -100.0, -100.0],
+        thermal_source_power=[1.0, 1.0, 1.0],
+        convective_scalar_flux_power=[1.0, 1.0, 1.0],
+    )
+    early = early_time_diagnostics(result)
+    assert early["clipping_dominated_energy"]
+    assert early["diagnostic_failure_mode"] == "timestep_front_numerical_pathology"
+    assert early["collapse_class"] == "collapse"
+
+
+def test_exact_ignition_spread_uses_ignition_time_by_cell():
+    result = _synthetic_result(
+        [0.0, 0.001, 0.002],
+        [101325.0, 2.0e6, 3.0e6],
+        [0.0, 0.0, 0.0],
+        snapshots=[_snap(0.0, [False] * 10)],
+    )
+    result["ignition_time_by_cell"] = np.array([
+        0.001, 0.002, 0.003, 0.004, 0.005,
+        0.006, 0.007, 0.008, 0.009, 0.010,
+    ])
+
+    spread = ignition_spread_metrics(result)
+
+    assert spread["exact_spread_metrics"]
+    assert spread["spread_metric_source"] == "ignition_time_by_cell"
+    assert spread["first_ignition_time_s"] == pytest.approx(0.001)
+    assert spread["t10_s"] == pytest.approx(0.001)
+    assert spread["t50_s"] == pytest.approx(0.005)
+    assert spread["t90_s"] == pytest.approx(0.009)
+    assert spread["t100_s"] == pytest.approx(0.010)
+
+
+def test_collapse_detector_reports_threshold_events():
+    result = _synthetic_probe_result(
+        time=[0.0, 1.0e-4, 2.0e-4, 3.0e-4],
+        dt=[1.0e-4, 5.0e-9, 5.0e-9, 5.0e-9],
+        max_pressure=[101325.0, 2.0e6, 150.0e6, 150.0e6],
+        max_mach=[0.0, 10.0, 20.0, 2000.0],
+        clipping_correction_power=[0.0, 0.0, -100.0, -100.0],
+        thermal_source_power=[1.0, 1.0, 1.0, 1.0],
+        convective_scalar_flux_power=[1.0, 1.0, 1.0, 1.0],
+        active_radiation_emissivity=0.45,
+        erosive_sidewall_thermal_power=[0.0, 1.0, 1.0, 1.0],
+    )
+
+    early = early_time_diagnostics(result)
+
+    assert early["collapse_detected"]
+    assert early["collapse_class"] == "collapse"
+    assert early["first_dt_collapse_time_s"] == pytest.approx(1.0e-4)
+    assert early["first_pressure_collapse_time_s"] == pytest.approx(2.0e-4)
+    assert early["first_mach_collapse_time_s"] == pytest.approx(3.0e-4)
+    assert early["first_clipping_dominated_time_s"] == pytest.approx(2.0e-4)
+    assert early["first_collapse_time_s"] == pytest.approx(1.0e-4)
+    assert (
+        early["collapse_branch_suspect"]
+        == "piso_nozzle_front_numerical_instability"
+    )
+
+
+def test_collapse_event_trace_records_local_cells_and_limiter_flags():
+    snap = _snap(
+        0.001,
+        [True, True, True, True, True],
+        r_total=[0.1, 0.2, 0.3, 0.4, 0.5],
+        r_erosive=[0.0, 0.1, 0.2, 0.3, 0.4],
+        radiation_heat_flux=[0.0, 0.0, 50.0, 0.0, 0.0],
+        mach=[1.0, 2.0, 5.0, 3.0, 2.0],
+        mass_source=[10.0, 20.0, 30.0, 40.0, 50.0],
+        thermal_source=[100.0, 200.0, 300.0, 400.0, 500.0],
+    )
+    result = _synthetic_probe_result(
+        time=[0.0, 0.001, 0.002],
+        dt=[1.0e-4, 1.0e-9, 1.0e-9],
+        snapshots=[snap],
+        max_pressure=[101325.0, 150.0e6, 150.0e6],
+        max_mach=[0.0, 2000.0, 2000.0],
+        radiation_heat_power=[0.0, 1.0, 1.0],
+        radiation_receiver_count=[0.0, 1.0, 1.0],
+        clipping_correction_power=[0.0, -100.0, -100.0],
+        thermal_source_power=[1.0, 1.0, 1.0],
+        convective_scalar_flux_power=[1.0, 1.0, 1.0],
+        ignition_time_by_cell=[0.001, 0.001, 0.001, 0.001, 0.001],
+        active_radiation_emissivity=0.45,
+    )
+    spread = ignition_spread_metrics(result)
+    early = early_time_diagnostics(result, spread=spread)
+
+    rows = collapse_event_trace(result, early, spread)
+
+    radiation_rows = [row for row in rows if row["event"] == "first_radiation"]
+    assert radiation_rows
+    assert {row["cell"] for row in radiation_rows} == {0, 1, 2, 3, 4}
+    assert all(row["event_cell"] == 2 for row in radiation_rows)
+    center = next(row for row in radiation_rows if row["cell"] == 2)
+    assert center["radiation_heat_flux_w_m2"] == pytest.approx(50.0)
+    assert center["mass_source_kg_m_s"] == pytest.approx(30.0)
+    assert center["thermal_source_k_kg_m_s"] == pytest.approx(300.0)
+    assert center["dt_below_1e_8"]
+    assert center["pressure_above_100mpa"]
+    assert center["mach_above_1e3"]
+    assert center["clipping_dominated_step"]
 
 
 def test_classifies_erosive_snap_on_after_pyrogen_burnout():
@@ -266,9 +537,19 @@ def test_energy_momentum_timeseries_preserves_result_ledgers():
         [0.0, 1.0],
     )
     result["pyrogen_enthalpy_power"] = np.array([10.0, 20.0])
+    result["normal_sidewall_thermal_power"] = np.array([1.0, 2.0])
+    result["convective_scalar_flux_power"] = np.array([-3.0, -4.0])
+    result["clipping_correction_power"] = np.array([0.0, -5.0])
+    result["gas_sensible_energy"] = np.array([100.0, 140.0])
+    result["gas_sensible_dE_dt"] = np.array([0.0, 400.0])
     result["pyrogen_momentum_residual"] = np.array([0.0, 1.0e-12])
     audit = energy_momentum_timeseries(result)
     np.testing.assert_allclose(audit["pyrogen_enthalpy_power"], [10.0, 20.0])
+    np.testing.assert_allclose(audit["normal_sidewall_thermal_power"], [1.0, 2.0])
+    np.testing.assert_allclose(audit["convective_scalar_flux_power"], [-3.0, -4.0])
+    np.testing.assert_allclose(audit["clipping_correction_power"], [0.0, -5.0])
+    np.testing.assert_allclose(audit["gas_sensible_energy"], [100.0, 140.0])
+    np.testing.assert_allclose(audit["gas_sensible_dE_dt"], [0.0, 400.0])
     np.testing.assert_allclose(audit["pyrogen_momentum_residual"], [0.0, 1.0e-12])
     np.testing.assert_allclose(audit["energy_residual"], [0.0, 0.0])
 
