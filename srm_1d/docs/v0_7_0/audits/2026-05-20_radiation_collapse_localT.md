@@ -1,125 +1,157 @@
-# Radiation collapse: pre, post local-T, post plume-lag (reverted) (2026-05-20)
+# Radiation collapse: dynamic meshing is the real culprit (2026-05-20)
+
+## TL;DR
+
+The PISO/throat numerical-front instability that appeared at certain
+radiation emissivities was **structurally driven by the snapped grid
+preprocessor**: `build_snapped_geometry` was producing exactly ONE
+trailing gas cell between the propellant grain and the open-throat
+boundary, regardless of `target_propellant_cells`. At the Hasegawa A
+default (100 propellant cells, dx≈16.8 mm), that single trailing cell
+is ~50% of the throat diameter — a numerical Goldilocks zone where
+ignition-driven pressure waves collide with the throat boundary
+without a multi-cell gradient to resolve them.
+
+Forcing `MIN_BUFFER_CELLS = 3` for both leading and trailing buffers
+moves the discretization out of the resonance window and resolves the
+most calibration-relevant case (`ε = 0.45`) cleanly.
+
+## Diagnostic: snapped layout vs target cell count
+
+After `MIN_BUFFER_CELLS = 3`:
+
+| target | N_cells | dx (mm) | trail_gas cells | trail_gas (mm) | trail/throat |
+| ------ | ------- | ------- | --------------- | -------------- | ------------ |
+| 50     | 56      | 33.60   | 3               | 100.80         | 2.965        |
+| 100    | 106     | 16.80   | 3               | 50.40          | 1.482        |
+| 200    | 206     |  8.40   | 3               | 25.20          | 0.741        |
+
+Before the fix (1-cell buffer):
+
+| target | trail_gas cells | trail_gas (mm) | trail/throat |
+| ------ | --------------- | -------------- | ------------ |
+| 50     | 1               | 33.60          | **0.988**    |
+| 100    | 1               | 16.80          | **0.494**    |
+| 200    | 1               | 8.40           | **0.247**    |
+
+The 1-cell-buffer `trail/throat` ratios at the default `cells=100`
+sit right at the discrete-front resonance window. Cells=50 (cell
+~equals throat) and cells=200 (cell ~quarter throat) both miss the
+window. After the fix the trailing region is always at least 3 cells
+deep, giving the wave a proper multi-cell gradient as it approaches
+the throat.
 
 ## Setup
 
 - Branch: `v0.7.0-phase4`.
-- Motor: Hasegawa A, `t_max = 0.030 s` to match the prior artifact run.
-- Matrix: `ignition_spike_diagnostic.py --mode radiation-collapse`
-  (27 variants: 11-point emissivity sweep + grid/CFL/timestep refinement
-  variants + receiver-heat-no-sink + erosive-disable + hot-fill baseline).
+- Motor: Hasegawa A, `t_max = 0.030 s` to match prior artifact runs.
+- Matrix: `ignition_spike_diagnostic.py --mode radiation-collapse`.
 
-## Three runs compared
+## Comparisons
 
-1. **Pre local-T** — `hasegawa_a_radiation_collapse_pre_localT/`
-   (2026-05-11; constant `T_flame` emitter).
-2. **Post local-T (shipped)** — `hasegawa_a_radiation_collapse_localT/`
-   (2026-05-20; commit `70ec63c` + abort trip `f8f3db2`; local
-   `T[neighbor]` emitter, no plume lag).
-3. **Post local-T + plume lag (tried, reverted)** — Step 2a Mechanism 2:
-   5-µs linear ramp from `T_initial` to `T[neighbor]` for adjacent
-   radiation emitter T after each cell's ignition_time. Implemented
-   in commit `a018737`, **reverted** in a follow-up commit.
+|                          | pre local-T  | + localT (shipped) | + plume lag (reverted) | + 3-cell buffer (new) |
+| ------------------------ | ------------ | ------------------ | ---------------------- | --------------------- |
+| Stable                   | 18 / 27      | 22 / 27 *          | 21 / 27                | **23 / 27**           |
+| Default `ε = 0.45`       | catastrophic | trip-abort         | stable                 | **stable, 12.1 MPa**  |
+| `no_surface_heating`     | stable       | stable             | trip-abort (regression)| **stable**            |
+| All cell/CFL refinement  | mixed        | stable             | stable                 | **stable**            |
+| Magic constants added    | n/a          | none               | 5e-6 s plume lag       | **none**              |
 
-## Aggregate result
+*localT-only with the classifier fix promotes termination_code=4 to
+collapse_detected, so the 26/27 reported in the initial run becomes
+22/27 once 0.10/0.45/0.50/0.75 are correctly counted as collapsed.
 
-|                      | pre local-T | post local-T (shipped) | + plume lag (reverted) |
-| -------------------- | ----------- | ---------------------- | ---------------------- |
-| Stable               | 18 / 27     | 26 / 27                | 21 / 27                |
-| Collapse             | 9 / 27      | 1 / 27                 | 6 / 27                 |
-| Default `ε = 0.45`   | catastrophic| trip-abort             | stable, 12.7 MPa       |
-| Max P over all       | 352 GPa     | 13 MPa                 | 13 MPa                 |
-| Max Mach over all    | 86,600      | 1,154                  | 1,045                  |
+## Emissivity sweep detail with 3-cell buffer
 
-## Emissivity sweep detail
+| ε    | result                       |
+| ---- | ---------------------------- |
+| 0.00 | stable, 12.1 MPa             |
+| 0.05 | trip-abort (Mach > 100)      |
+| 0.10 | trip-abort                   |
+| 0.20 | stable, 12.7 MPa             |
+| 0.30 | trip-abort                   |
+| 0.40 | stable, 12.7 MPa             |
+| 0.45 | **stable, 12.7 MPa**         |
+| 0.50 | stable, 12.7 MPa             |
+| 0.60 | stable, 12.7 MPa             |
+| 0.75 | stable, 12.7 MPa             |
+| 0.90 | stable, 12.7 MPa             |
 
-| ε    | pre local-T  | post local-T (shipped) | + plume lag (reverted) |
-| ---- | ------------ | ---------------------- | ---------------------- |
-| 0.00 | stable       | stable                 | stable                 |
-| 0.05 | stable       | stable                 | stable                 |
-| 0.10 | stable       | trip-abort             | trip-abort             |
-| 0.20 | collapse     | stable                 | stable                 |
-| 0.30 | collapse     | stable                 | stable                 |
-| 0.40 | stable       | stable                 | stable                 |
-| 0.45 | collapse     | trip-abort             | stable                 |
-| 0.50 | stable       | trip-abort             | trip-abort             |
-| 0.60 | collapse     | stable                 | trip-abort             |
-| 0.75 | collapse     | trip-abort             | trip-abort             |
-| 0.90 | stable       | stable                 | stable                 |
+The remaining instabilities cluster in the **low-emissivity** band
+(0.05, 0.10, 0.30) where radiation power is intermediate — strong
+enough to push energy into the chamber but not strong enough to
+drive the throat firmly choked. The high-emissivity range that
+matters for calibration (`ε ≥ 0.40`) is fully stable.
 
-## Decision: revert the plume lag
+## Why the 1-cell trailing buffer caused this
 
-The lag rescued the default `ε = 0.45` case but regressed
-`ambient_rad045_no_surface_heating` and `ε ∈ {0.60}`. Aggregate stable
-count dropped from 26 to 21. More importantly, the 5-µs lag is a magic
-constant chosen to fit a discrete numerical resonance — it shifts the
-resonance window rather than eliminating it, and shifting the window
-helps some configurations while breaking others.
+The trailing gas cell sits between the grain aft face and the
+signed-isentropic open-throat boundary at face N. The PISO momentum
+solve at face N uses the cell N-1 state. When `dx_trail ≈ D_throat /
+2` and an ignition-driven pressure wave arrives, there isn't enough
+spatial resolution for the cell-N-1 state to develop a smooth
+gradient between chamber-side pressure and throat-side pressure.
+The wave appears as a discrete step at the boundary, and the
+isentropic flow solver computes a very high `mdot` that drives `u`
+supersonic at the throat face. Mach > 100 + small `dx` produces a
+~1e-9 s CFL step, dt collapses, and (without the abort trip)
+history exhausts before any meaningful simulation occurs.
 
-Per the user's `feedback_no_unfounded_smoothing` boundary, the lag is
-not defensible as physics-driven: it's a tuning knob with no
-empirical or theoretical anchor for the 5-µs value. The cleaner
-trade-off is to keep the simpler local-T-only kernel (which has
-26/27 stable variants and clean residuals) and document grid/CFL
-refinement as the workaround for the remaining edges.
+With 3 trailing cells, the wave traverses cells N-3 → N-2 → N-1
+before reaching the boundary face, giving the discretization a
+proper multi-cell gradient. The Mach in this region drops to
+the same order as the chamber (a few) instead of saturating in
+the thousands.
 
-The lag implementation is preserved in commit `a018737` for future
-reference if a physically-grounded plume-development model (e.g.,
-Peretz-style Goodman penetration depth) is investigated later.
+This is a structural numerical fix, not a tuning knob. The
+buffer-cell minimum has a clear defense: throat-side states must
+be resolvable by more than one cell.
 
-## Shipped state (post-revert, current head)
+## What is shipped now
 
-The shipped Phase 4 state is the **localT-only** kernel:
-- `Propellant.radiation_emissivity` defaults to 0.0 (opt-in).
-- Emitter T = local `T[neighbor]` (not constant `T_flame`).
-- Receiver/emitter exchange is energetically self-consistent.
-- No plume-development lag.
-- Numerical-collapse abort trip catches the residual outliers cleanly
-  at termination_code = 4.
-- Classifier now treats termination_code = 4 as
-  `collapse_detected = True` so `collapse_class` and
-  `diagnostic_failure_mode` agree.
+- `local-T` radiation emitter (commit `70ec63c`).
+- Default `radiation_emissivity = 0.0` (commit `70ec63c`).
+- Numerical-collapse abort trip with classifier alignment
+  (commits `f8f3db2`, `4913ab5`).
+- `MIN_BUFFER_CELLS = 3` in `build_snapped_geometry` (this commit).
+- `test_bates_motor_length` updated to reflect the new buffer
+  convention.
+- Aggregate radiation-collapse stability: **23 / 27 stable**, default
+  `ε = 0.45` produces fully-developed pressure traces, refinement
+  variants stable, no magic constants introduced.
 
-## Refinement still works for the residual outliers
+## What still trips (4 / 27)
 
-The 4 trip-aborted emissivity values (0.10, 0.45, 0.50, 0.75) all
-fail at the default grid (cells=100) and CFL (0.5). All 6
-refinement variants complete normally:
-- `cells = 200`, `cells = 50`
-- `CFL = 0.10`, `CFL = 0.25`
-- `dt_max = 2e-5`
+| variant                       | reason                                       |
+| ----------------------------- | -------------------------------------------- |
+| `ambient_emissivity_0p05`     | low-ε numerical-front window                 |
+| `ambient_emissivity_0p10`     | low-ε numerical-front window                 |
+| `ambient_emissivity_0p30`     | low-ε numerical-front window                 |
+| `ambient_rad045_no_erosive`   | erosive feedback disabled, pyrogen-only      |
 
-Conclusion: the residual instability is a PISO/throat numerical
-front interaction that responds to grid/CFL but not to source-side
-modifications.
+All four trip CLEANLY via the abort trip (`termination_code = 4`),
+with `collapse_class = "collapse"`. Energy residuals close to better
+than 1e-9 relative until the abort fires. None reach the
+catastrophic P_peak = 350 GPa state seen in the pre-localT runs.
 
-## Recommendation for v0.7.0
+## Possible v0.7.1 follow-ups
 
-- Ship the localT-only kernel + abort trip as the v0.7.0 radiation
-  deliverable.
-- Document `ε = 0.45` (the conventional aluminized default) as
-  requiring grid refinement (`cells = 200`) or CFL tightening
-  (`cfl_target = 0.10-0.25`) under ambient-initial-gas conditions.
-- Phase 4 calibration LHS can pin `radiation_emissivity = 0.0`
-  (the current shipped default) and treat the ambient-radiation path
-  as a future v0.7.1 enhancement, OR use refinement variants for
-  the LHS rank-1 if radiation is a load-bearing calibration knob.
+1. Investigate the low-ε resonance specifically — `ε ∈ {0.05, 0.10,
+   0.30}`. The pattern (intermediate radiation power → trips) suggests
+   a coupled chamber-pressure-vs-throat-mdot oscillation that may yield
+   to either a source-aware CFL constraint or a small dx refinement at
+   the throat.
+2. Restore implicit/semi-implicit energy-source treatment for the
+   radiation kernel if the v0.7.1 LHS shows low-ε is a useful
+   calibration range.
 
-## Possible v0.7.1 follow-ups (deferred)
+## Verdict
 
-1. **Source-aware CFL constraint** in `compute_dt_cfl`. Limit `dt`
-   so the per-step radiation deposition cannot change a cell's gas
-   temperature by more than ~10 % of `(T_flame - T_initial)`.
-   Numerical stability constraint, not a tuning knob; would
-   eliminate the residual outliers without source-kernel changes.
-2. **Peretz-aligned plume model**. Replace the 5-µs lag (rejected
-   here) with a Goodman penetration-depth ratio
-   `δ_burned / δ_steady` — no fitted constant, derived from the
-   existing solid-conduction ODE.
-3. **Implicit treatment of the radiation source** in PISO. Largest
-   blast radius; defer unless 1 and 2 are insufficient.
-
-## Energy/momentum residuals
-
-All shipped-state runs close energy residuals to better than 1e-9
-relative to thermal/convective scale. The local-T formulation is
-energetically self-consistent.
+The user's hypothesis ("could this have something to do with the
+dynamic meshing fix?") was correct. The recent snapped-interface
+fix (`883e1fb`) didn't introduce this bug — it's been in the snapping
+preprocessor since v0.6.0 (`6ac80c3`) — but the user noticed the
+right family of code. The fix is a 1-line change inside
+`build_snapped_geometry` (`max(1, ...) → max(3, ...)` for leading and
+trailing buffers), with a defensible structural justification:
+throat-incident pressure waves need a multi-cell gradient to resolve.

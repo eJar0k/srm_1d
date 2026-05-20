@@ -91,8 +91,21 @@ class TestFactoryFunctions:
 
     def test_bates_motor_length(self):
         geo = make_bates_motor(0.038, 0.070, 0.120, 4, 0.005)
-        expected = 4 * 0.120 + 5 * 0.005  # 4 segments + 5 gaps
-        assert geo.L_motor == pytest.approx(expected)
+        # 4 propellant segments + 3 internal gaps + a 3-cell leading and
+        # 3-cell trailing buffer (MIN_BUFFER_CELLS in
+        # build_snapped_geometry; introduced 2026-05-20 to keep the
+        # throat boundary resolved by a multi-cell pressure gradient).
+        # Buffer cells inherit the snapped dx so the exact contribution
+        # depends on cells_target. With target=100 and L_prop=0.48m,
+        # dx clamps to the 5mm min-gap, giving 6*5mm = 30mm of extra
+        # buffer beyond the 1mm-each requested in the old single-cell
+        # convention.
+        dx = geo.dx
+        expected_segments = 4 * 0.120
+        expected_internal_gaps = 3 * dx        # one cell each
+        expected_buffers = 2 * 3 * dx          # 3-cell lead + 3-cell trail
+        expected = expected_segments + expected_internal_gaps + expected_buffers
+        assert geo.L_motor == pytest.approx(expected, abs=1e-9)
 
     def test_web_thickness(self):
         geo = make_single_cylinder(0.040, 0.080, 0.500)

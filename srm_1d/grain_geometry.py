@@ -842,12 +842,26 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float, target_pro
             dx = max_allowed_dx
         
     # 4. Reconstruct geometry using Integer-Snapping
+    #
+    # Leading/trailing gas buffers default to >=MIN_BUFFER_CELLS cells so
+    # the head-end and throat boundaries are always resolved by a
+    # multi-cell pressure gradient. A single-cell trailing buffer
+    # collides ignition-driven pressure waves directly with the open-
+    # throat boundary and provokes a discrete numerical front
+    # instability (Mach > 100) when the trailing cell width is
+    # comparable to the throat diameter. The 2026-05-20
+    # radiation_collapse audit showed cells=100 (~17mm trailing cell vs
+    # 34mm throat) trips at certain emissivities while cells=50 (33mm
+    # cell) and cells=200 (8mm cell) are both stable -- a 1-cell
+    # numerical Goldilocks zone, not a physical effect.
+    MIN_BUFFER_CELLS = 3
+
     segments = []
     x_cursor = 0.0
     total_cells = 0
-    
+
     # Snap leading gap
-    n_leading = max(1, int(round(leading_gap / dx)))
+    n_leading = max(MIN_BUFFER_CELLS, int(round(leading_gap / dx)))
     x_cursor += n_leading * dx
     total_cells += n_leading
 
@@ -878,8 +892,8 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float, target_pro
             x_cursor += snapped_gap
             total_cells += n_gap
             
-    # Trailing motor spacer
-    n_trailing = max(1, int(round(0.001 / dx)))
+    # Trailing motor spacer. See MIN_BUFFER_CELLS comment above.
+    n_trailing = max(MIN_BUFFER_CELLS, int(round(0.001 / dx)))
     x_cursor += n_trailing * dx
     total_cells += n_trailing
     
