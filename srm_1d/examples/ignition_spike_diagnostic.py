@@ -193,6 +193,48 @@ RADIATION_COLLAPSE_VARIANTS = {
 RADIATION_COLLAPSE_DEFAULT_VARIANTS = list(RADIATION_COLLAPSE_VARIANTS)
 
 
+# ---------------------------------------------------------------------------
+# Ignition-tuning Cartesian sweep (Step 4 of
+# continue-with-the-numerical-zippy-dawn.md). Sweep T_ignition and k_solid
+# at two radiation_emissivity values to determine whether existing
+# ignition-timing knobs can match the Hasegawa A experimental trace
+# without introducing a burn-establishment ramp model.
+# ---------------------------------------------------------------------------
+
+def _ignition_tuning_variant(T_ignition: float, k_solid: float,
+                             emissivity: float, **overrides) -> dict:
+    """Cartesian ignition-tuning variant. T_ignition [K], k_solid [W/m/K]."""
+    variant = {
+        "T_ignition": float(T_ignition),
+        "propellant_k_solid": float(k_solid),
+        "propellant_radiation_emissivity": float(emissivity),
+        "dt_max": 1.0e-4,
+    }
+    variant.update(overrides)
+    return variant
+
+
+def _ignition_tuning_name(T_ignition: float, k_solid: float,
+                          emissivity: float) -> str:
+    k_str = f"{k_solid:.1f}".replace(".", "p")
+    eps_str = f"{emissivity:.2f}".replace(".", "p")
+    return f"T{int(T_ignition)}_k{k_str}_eps{eps_str}"
+
+
+IGNITION_TUNING_T_IGNITION = (650.0, 750.0, 850.0)
+IGNITION_TUNING_K_SOLID = (0.2, 0.3, 0.5)
+IGNITION_TUNING_EMISSIVITY = (0.0, 0.45)
+
+IGNITION_TUNING_VARIANTS = {
+    _ignition_tuning_name(T, k, e): _ignition_tuning_variant(T, k, e)
+    for T in IGNITION_TUNING_T_IGNITION
+    for k in IGNITION_TUNING_K_SOLID
+    for e in IGNITION_TUNING_EMISSIVITY
+}
+
+IGNITION_TUNING_DEFAULT_VARIANTS = list(IGNITION_TUNING_VARIANTS)
+
+
 def _motor_path(case: str, explicit: str | None) -> Path:
     if explicit:
         return Path(explicit)
@@ -271,6 +313,10 @@ def _run_variant(args, motor_path: Path, variant: str, overrides: dict):
         propellant_overrides["radiation_emissivity"] = float(
             overrides.pop("propellant_radiation_emissivity")
         )
+    if "propellant_k_solid" in overrides:
+        propellant_overrides["k_solid"] = float(
+            overrides.pop("propellant_k_solid")
+        )
 
     sim_kwargs = {
         "roughness": args.roughness,
@@ -311,10 +357,19 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Case name. Defaults to srm_1d/motors/<case>.ric")
     parser.add_argument("--motor-path", default=None,
                         help="Explicit .ric path. Overrides --case lookup.")
-    all_variants = set(VARIANTS) | set(RADIATION_PROBE_VARIANTS) | set(RADIATION_COLLAPSE_VARIANTS)
-    parser.add_argument("--mode", choices=["standard", "radiation-probe", "radiation-collapse"],
-                        default="standard",
-                        help="Diagnostic matrix to run.")
+    all_variants = (
+        set(VARIANTS)
+        | set(RADIATION_PROBE_VARIANTS)
+        | set(RADIATION_COLLAPSE_VARIANTS)
+        | set(IGNITION_TUNING_VARIANTS)
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["standard", "radiation-probe", "radiation-collapse",
+                 "ignition-tuning"],
+        default="standard",
+        help="Diagnostic matrix to run.",
+    )
     parser.add_argument("--variants", nargs="+",
                         default=DEFAULT_VARIANTS,
                         choices=sorted(all_variants),
@@ -360,6 +415,11 @@ def main():
         args.output_case = f"{args.case}_radiation_collapse"
         if variants == DEFAULT_VARIANTS:
             variants = list(RADIATION_COLLAPSE_DEFAULT_VARIANTS)
+    elif args.mode == "ignition-tuning":
+        variant_map = IGNITION_TUNING_VARIANTS
+        args.output_case = f"{args.case}_ignition_tuning"
+        if variants == DEFAULT_VARIANTS:
+            variants = list(IGNITION_TUNING_DEFAULT_VARIANTS)
 
     unknown = [variant for variant in variants if variant not in variant_map]
     if unknown:
@@ -369,6 +429,18 @@ def main():
 
     case_dir = ARTIFACT_ROOT / args.output_case
     case_dir.mkdir(parents=True, exist_ok=True)
+
+    # Optional MSE-vs-experimental for ignition-tuning mode. The plan's
+    # Step 4 pass criterion is MSE < 0.15 MPa^2 vs the Hasegawa A
+    # experimental trace; pre-compute the target so per-variant MSE is
+    # cheap.
+    experimental_target = None
+    if args.case == "hasegawa_a" and args.mode == "ignition-tuning":
+        try:
+            from srm_1d.plotting import HASEGAWA_MOTOR_A_EXPERIMENTAL as _hex
+            experimental_target = (_hex["time"], _hex["pressure"])
+        except Exception:  # noqa: BLE001 -- plotting module is optional
+            experimental_target = None
 
     rows = []
     for variant in variants:
@@ -381,8 +453,22 @@ def main():
         pressure = diagnostics["pressure"]
         spread = diagnostics["ignition_spread"]
         early = diagnostics["early"]
+        mse_vs_exp = float("nan")
+        if experimental_target is not None:
+            import numpy as _np
+            t_sim = _np.asarray(_result["time"])
+            p_sim_mpa = _np.asarray(_result["P_head"]) / 1.0e6
+            t_exp, p_exp_mpa = experimental_target
+            # Compare only over the experimental support window
+            mask = (t_exp >= max(t_sim.min(), 0.01)) & (t_exp <= t_sim.max())
+            if mask.any():
+                p_at_exp = _np.interp(t_exp[mask], t_sim, p_sim_mpa)
+                mse_vs_exp = float(
+                    _np.mean((p_at_exp - p_exp_mpa[mask]) ** 2)
+                )
         rows.append({
             "variant": variant,
+            "mse_vs_experimental_mpa2": mse_vs_exp,
             "primary_driver": cls["primary_driver"],
             "startup_window_peak_time_s": pressure["startup_window_peak_time_s"],
             "startup_window_peak_pressure_mpa": pressure["startup_window_peak_pressure_mpa"],
