@@ -132,12 +132,25 @@ grain cell, feeds Goodman through an equivalent heat-transfer
 coefficient/driver temperature, and subtracts the same delivered power
 from the gas temperature-source ledger.
 
-Adjacent-burning-cell radiation handles post-first-cell spread in the
-ambient-gas model. It is geometry-local: only unignited grain cells
-adjacent to burning cells receive the radiation term. The model uses
-Stefan-Boltzmann heat transfer with `Propellant.radiation_emissivity` as
-a material property, not a fitted `C_hc` multiplier, and subtracts the
-emitted power from the burning-cell gas energy ledger.
+Adjacent-burning-cell radiation is implemented as a geometry-local
+opt-in: only unignited grain cells adjacent to burning cells receive
+the radiation term, and the emitter temperature is the local gas
+`T[neighbor]` (not the constant adiabatic `T_flame`, which overstated
+the cold-start transient). The model uses Stefan-Boltzmann transfer
+with `Propellant.radiation_emissivity` as a material property and
+debits the same emitted power from the burning-cell gas energy ledger.
+
+The default `radiation_emissivity` is `0.0` for all propellants
+(adapter no longer auto-defaults aluminized .ric files to 0.45). A
+2026-05-14 sweep on Hasegawa A showed that turning radiation on under
+ambient initial gas drives an unphysical ignition chain (~1 ms/cell)
+that pushes interior flow supersonic before the signed-throat PISO
+boundary can vent, producing a non-monotonic discrete resonance over
+both `radiation_emissivity` and any `tau_establishment` ramp meant to
+slow it. Sutton 9e Section 15.3 also documents pyrogen ignition as
+primarily convective. Set `radiation_emissivity` explicitly in the
+.ric (or on `Propellant`) to opt back in once the spread-rate /
+PISO-stability interaction is understood.
 
 Multi-cell impingement-region distribution (Cavallini SPINBALL) remains
 deferred unless a motor provides physical igniter basket/jet geometry.

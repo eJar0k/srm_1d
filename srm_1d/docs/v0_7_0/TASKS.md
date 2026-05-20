@@ -112,25 +112,31 @@ Completed Phase 4 solver work in the current working tree:
   surface heat, gas sink, adjacent-radiation heat, nozzle enthalpy,
   thermal-source power, and per-step residual.
 - Added adjacent-burning-cell radiation for ignition spread using
-  `Propellant.radiation_emissivity` as a material property. Aluminized
-  `.ric` propellants default to 0.45; explicit
-  `radiation_emissivity` overrides are supported.
+  `Propellant.radiation_emissivity` as a material property. The default
+  is now 0.0 (opt-in) for all propellants; aluminized `.ric` files no
+  longer auto-default to 0.45. Explicit `radiation_emissivity` overrides
+  in the .ric (or directly on `Propellant`) are honored.
 
 Current finding:
 
 - Historical hot-fill baseline still ignites essentially instantly and
   retains the spike/erosive-snap behavior.
-- Ambient initial gas now shows finite Hasegawa A ignition spread when
-  both pyrogen direct surface heating and adjacent-cell radiation are
-  enabled. The latest smoke run gave `t10-t90 = 0.760146 s`,
-  startup-window peak `0.511 MPa` at `0.348159 s`, and global peak
-  `4.23 MPa` at `3.0 s`.
-- `ambient_no_surface_heating` and `ambient_no_radiation` remain
-  degenerate/no-spread cases, confirming both paths are active in the
-  ambient-gas model.
+- The earlier `ambient_initial_gas` + adjacent-radiation combination
+  blew up: a `tau_establishment` ramp sweep (2026-05-14) showed
+  non-monotonic stability (`tau = 0`, `1 ms` crash to `Mach ~1.9e+05`;
+  `0.1`, `0.5`, `5`, `10 ms` "stable" but with interior `Mach 9-50`
+  and `P_peak ~14-15 MPa`) -- a discrete PISO/throat resonance, not a
+  physical ramp. With radiation now opt-in, the ambient case reduces
+  to the previously-stable convective-only spread (~40 ms, ~6.4 MPa)
+  observed earlier in `ambient_no_radiation`.
+- `ambient_no_surface_heating` remains a no-spread degenerate case,
+  confirming the pyrogen-surface-heating path is active.
 - Baseline and `no_momentum` Hasegawa A traces are nearly identical in
   the latest smoke run, so momentum is implemented and audited but not a
   dominant effect for this case.
+- `tau_establishment` is left in `run_simulation` as an opt-in kwarg
+  (default `0.0`, no physical ramp) for diagnostics, but is not used
+  for calibration (per `feedback_no_unfounded_smoothing`).
 
 Pending:
 

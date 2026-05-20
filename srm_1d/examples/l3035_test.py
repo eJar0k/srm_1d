@@ -29,7 +29,7 @@ def main():
 
     result, perf, nozzle, geo, prop = run_from_ric(
         str(MOTOR_PATH),
-        roughness=50e-6,
+        roughness=30e-6,
         kappa=0.45,
         pyrogen='bpnv',
         pyrogen_mass=None,
@@ -37,7 +37,8 @@ def main():
         P_cutoff=0.01e6,
         snapshot_interval=0.2,
         print_interval=0.2,
-        verbose=False,
+        t_max=2.0,
+        verbose=True,
     )
 
     summary = result['summary']
@@ -56,7 +57,7 @@ def main():
 
     plot_flow_snapshot(
         result,
-        t_target=0.2,
+        t_target=0.1,
         save_path=OUTPUT_DIR / "l3035_flow.png",
     )
 

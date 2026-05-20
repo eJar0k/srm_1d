@@ -35,7 +35,7 @@ def main():
 
     result, perf, nozzle, geo, prop = run_from_ric(
         str(MOTOR_PATH),
-        roughness=50e-6,
+        roughness=30e-6,
         kappa=0.45,
         pyrogen='bpnv',
         pyrogen_mass=None,
@@ -44,7 +44,7 @@ def main():
         t_max=3.0,
         snapshot_interval=0.5,
         print_interval=1.0,
-        verbose=False,
+        verbose=True,
     )
 
     summary = result['summary']
