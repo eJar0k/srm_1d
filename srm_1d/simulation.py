@@ -494,9 +494,20 @@ def _run_time_loop(
     D_throat_final : float
     termination_code : int
         0 = t_max reached, 1 = complete burnout, 2 = pressure cutoff,
-        3 = history array full.
+        3 = history array full, 4 = numerical collapse aborted.
     """
     PI = 3.141592653589793
+
+    # Numerical-collapse trip: any one of (dt < 1e-9 s, max Mach > 100,
+    # max pressure > 1 GPa) for N consecutive steps aborts the loop with
+    # termination_code = 4. Chamber Mach should not approach 1, so >100 is
+    # already pathology; 1 GPa is ~20x any physical motor; dt collapse to
+    # ~1e-10 was the documented signature in 2026-05-11 radiation runs.
+    COLLAPSE_DT_THRESHOLD = 1.0e-9
+    COLLAPSE_MACH_THRESHOLD = 100.0
+    COLLAPSE_PRESSURE_THRESHOLD = 1.0e9
+    COLLAPSE_CONSECUTIVE_STEPS = 3
+    collapse_consecutive = 0
 
     t = 0.0
     step = 0
@@ -763,6 +774,16 @@ def _run_time_loop(
             if mach_abs > max_mach_abs:
                 max_mach_abs = mach_abs
 
+        step_collapsed = (
+            dt < COLLAPSE_DT_THRESHOLD
+            or max_mach_abs > COLLAPSE_MACH_THRESHOLD
+            or max_pressure > COLLAPSE_PRESSURE_THRESHOLD
+        )
+        if step_collapsed:
+            collapse_consecutive += 1
+        else:
+            collapse_consecutive = 0
+
         time_hist[hist_idx] = t
         P_head_hist[hist_idx] = P[0]
         P_exit_hist[hist_idx] = P[N - 1]
@@ -833,6 +854,13 @@ def _run_time_loop(
         # Pressure cutoff (only after pyrogen is consumed and vented)
         if n_ignited > 0 and pyrogen_done and P[0] < P_cutoff:
             termination_code = 2
+            break
+
+        # Numerical-collapse trip: classified abort to avoid burning the
+        # full history budget on a doomed run. Records the collapse step
+        # in history (so the user sees the trip in diagnostics) and exits.
+        if collapse_consecutive >= COLLAPSE_CONSECUTIVE_STEPS:
+            termination_code = 4
             break
 
         t += dt
@@ -1347,6 +1375,7 @@ def run_simulation(
     termination_names = {
         0: "t_max reached", 1: "complete burnout",
         2: "pressure cutoff", 3: "history array full",
+        4: "numerical collapse aborted",
     }
     term_str = termination_names.get(termination_code, "unknown")
 

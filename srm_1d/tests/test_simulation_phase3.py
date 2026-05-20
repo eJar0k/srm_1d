@@ -190,6 +190,40 @@ def test_adjacent_radiation_sink_can_be_disabled_for_diagnostics():
     assert np.max(radiation_sink_power) == pytest.approx(0.0)
 
 
+def test_numerical_collapse_trip_aborts_with_termination_code_4():
+    """A forced dt-floor regime trips the classified collapse abort.
+
+    Set dt_max below the trip threshold (1e-9 s) so every step satisfies
+    ``dt < 1e-9``. After three consecutive collapsed steps the loop must
+    exit with termination_code == 4 instead of running until ``t_max``,
+    history-cap, or pressure-cutoff. The classifier should then label
+    the run ``numerical_collapse_aborted``.
+    """
+    from srm_1d.tools.ignition_diagnostics import early_time_diagnostics
+
+    geo, prop, nozzle = _small_motor()
+    result = run_simulation(
+        geo, prop, nozzle, _test_chamber(),
+        T_ignition=850.0,
+        t_max=0.001,
+        P_cutoff=1.0,
+        dt_max=5.0e-10,
+        burn_update_interval=1,
+        snapshot_interval=0.001,
+        cfl_target=0.5,
+        verbose=False,
+    )
+
+    summary = result['summary']
+    assert summary['termination_code'] == 4
+    assert summary['termination'] == 'numerical collapse aborted'
+    assert summary['steps'] >= 3
+
+    early = early_time_diagnostics(result, window_s=summary['steps'] * 1.0e-9)
+    assert early['diagnostic_failure_mode'] == 'numerical_collapse_aborted'
+    assert early['termination_code'] == 4
+
+
 def test_pyrogen_driven_run_reports_ignition_and_pyrogen_state():
     geo, prop, nozzle = _small_motor()
     result = run_simulation(

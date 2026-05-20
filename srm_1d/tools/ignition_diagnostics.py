@@ -766,7 +766,10 @@ def early_time_diagnostics(result: dict, window_s: float = 0.030,
     elif collapse_detected:
         collapse_branch_suspect = "grid_or_timestep_sensitivity"
 
-    if history_cap_reached and clipping_dominated:
+    termination_code_value = int(summary.get("termination_code", -1))
+    if termination_code_value == 4:
+        failure_mode = "numerical_collapse_aborted"
+    elif history_cap_reached and clipping_dominated:
         failure_mode = "timestep_front_numerical_pathology"
     elif history_cap_reached:
         failure_mode = "history_cap_or_step_limit"
