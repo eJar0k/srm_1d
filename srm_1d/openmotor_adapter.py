@@ -35,7 +35,6 @@ Unit conversions from openMotor internal units:
 """
 
 import os
-import re
 import warnings
 import numpy as np
 
@@ -277,10 +276,17 @@ def _representative_ric_tab(tabs):
 
 
 def _default_radiation_emissivity(propellant_name):
-    """Return the adjacent-ignition radiation emissivity default."""
-    name = str(propellant_name).lower()
-    if 'aluminum' in name or re.search(r'\b\d+(?:\.\d+)?\s*al\b', name):
-        return 0.45
+    """Return the adjacent-ignition radiation emissivity default.
+
+    Always returns 0.0 -- adjacent-cell radiation is opt-in. The Phase 4
+    radiation sweep on Hasegawa A showed the constant-T_flame -> T[neighbor]
+    chain drives ignition spread at ~1 ms/cell, pushing interior flow
+    supersonic faster than the signed-throat PISO boundary can vent.
+    Sutton 9e Section 15.3 also documents pyrogen ignition as primarily
+    convective rather than radiative. Set ``radiation_emissivity`` in the
+    .ric file (or override on the Propellant) to opt back in once the
+    spread-rate / numerical-stability interaction is understood.
+    """
     return 0.0
 
 

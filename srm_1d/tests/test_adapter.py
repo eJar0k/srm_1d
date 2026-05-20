@@ -157,14 +157,14 @@ class TestPropellantConversion:
         prop = convert_propellant(SAMPLE_RIC_PROPELLANT, SAMPLE_GAS_PROPS)
         assert prop.tabs[0].gamma == pytest.approx(1.19)
 
-    def test_radiation_emissivity_defaults_only_for_aluminized_names(self):
+    def test_radiation_emissivity_default_is_opt_in(self):
         prop = convert_propellant(SAMPLE_RIC_PROPELLANT, SAMPLE_GAS_PROPS)
         assert prop.radiation_emissivity == pytest.approx(0.0)
 
         aluminized = dict(SAMPLE_RIC_PROPELLANT)
         aluminized['name'] = 'Hasegawa Propellant 1 (69AP/17HTPB/14Al)'
         prop_al = convert_propellant(aluminized, SAMPLE_GAS_PROPS)
-        assert prop_al.radiation_emissivity == pytest.approx(0.45)
+        assert prop_al.radiation_emissivity == pytest.approx(0.0)
 
     def test_radiation_emissivity_explicit_override(self):
         ric_prop = dict(SAMPLE_RIC_PROPELLANT)

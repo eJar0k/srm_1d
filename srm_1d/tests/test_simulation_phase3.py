@@ -130,17 +130,64 @@ def test_adjacent_radiation_heats_only_neighbors_and_conserves_sink():
         0.0, 1.0e-6, 1700.0, 3041.0, 293.0,
         0.5, 0.3685, 50e-6, 0.45, 1.0e-7, 0.3,
         10000.0, N, dx, 0.0, 300.0, 2060.0,
-        0.0, 0.45,
+        0.0, 0.45, False, 0.0,
     )
 
     radiation_heat_power = out[4]
+    radiation_sink_total_power = out[5]
     assert radiation_flux[0] > 0.0
     assert radiation_flux[1] == pytest.approx(0.0)
     assert radiation_flux[2] > 0.0
     assert radiation_sink_power[1] == pytest.approx(radiation_heat_power)
+    assert radiation_sink_total_power == pytest.approx(radiation_heat_power)
     assert radiation_sink_power[0] == pytest.approx(0.0)
     assert radiation_sink_power[2] == pytest.approx(0.0)
     assert thermal_source[1] < 1700.0 * r_total[1] * C_burn[1] * 3041.0
+
+
+def test_adjacent_radiation_sink_can_be_disabled_for_diagnostics():
+    N = 3
+    dx = 0.01
+    P = np.full(N, 101325.0)
+    T = np.full(N, 300.0)
+    T_surf = np.full(N, 293.0)
+    delta = np.full(N, 1.0e-6)
+    has_ignited = np.array([False, True, False])
+    is_burning = np.array([False, True, False])
+    is_grain = np.array([True, True, True])
+    ignition_time = np.full(N, 1.0e10)
+    r_total = np.array([0.0, 0.01, 0.0])
+    r_erosive = np.zeros(N)
+    mass_source = np.zeros(N)
+    thermal_source = np.zeros(N)
+    C_burn = np.ones(N)
+    endface = np.zeros(N)
+    pyrogen_flux = np.zeros(N)
+    radiation_flux = np.zeros(N)
+    radiation_sink_power = np.zeros(N)
+    radiation_emitter = np.zeros(N, dtype=np.bool_)
+    x = np.array([0.005, 0.015, 0.025])
+    Re = np.zeros(N)
+    D_hyd = np.full(N, 0.03)
+    f = np.zeros(N)
+
+    out = _goodman_ignition_sources_and_mass(
+        P, T, T_surf, delta, has_ignited, is_burning, is_grain,
+        ignition_time, r_total, r_erosive,
+        mass_source, thermal_source,
+        C_burn, endface, pyrogen_flux,
+        radiation_flux, radiation_sink_power, radiation_emitter,
+        x, Re, D_hyd, f,
+        0.0, 1.0e-6, 1700.0, 3041.0, 293.0,
+        0.5, 0.3685, 50e-6, 0.45, 1.0e-7, 0.3,
+        10000.0, N, dx, 0.0, 300.0, 2060.0,
+        0.0, 0.45, True, 0.0,
+    )
+
+    assert out[4] > 0.0
+    assert out[5] == pytest.approx(0.0)
+    assert np.max(radiation_flux) > 0.0
+    assert np.max(radiation_sink_power) == pytest.approx(0.0)
 
 
 def test_pyrogen_driven_run_reports_ignition_and_pyrogen_state():
@@ -173,6 +220,29 @@ def test_pyrogen_driven_run_reports_ignition_and_pyrogen_state():
     assert np.max(last['pyrogen_surface_heat_flux']) >= 0.0
     assert result['summary']['radiation_emissivity'] == pytest.approx(prop.radiation_emissivity)
     assert 'pyrogen_enthalpy_power' in result
+    assert 'normal_sidewall_thermal_power' in result
+    assert 'erosive_sidewall_thermal_power' in result
+    assert 'endface_thermal_power' in result
+    assert 'pyrogen_gas_thermal_power' in result
+    assert 'gas_sensible_energy' in result
+    assert 'gas_sensible_dE_dt' in result
+    assert 'convective_scalar_flux_power' in result
+    assert 'nozzle_scalar_flux_power' in result
+    assert 'clipping_correction_power' in result
     assert 'gas_surface_heat_sink_power' in result
     assert 'energy_residual' in result
     assert 'pyrogen_momentum_residual' in result
+    assert 'dt' in result
+    assert 'n_burning' in result
+    assert 'n_ignited' in result
+    assert 'radiation_emitter_count' in result
+    assert 'radiation_receiver_count' in result
+    assert 'max_gas_temperature' in result
+    assert 'max_surface_temperature' in result
+    assert 'max_mach' in result
+    assert len(result['dt']) == len(result['time'])
+    assert summary['termination_code'] >= 0
+    assert summary['history_capacity'] >= summary['steps']
+    assert 'first_ignition_time_s' in summary
+    assert 'first_ignition_cell' in summary
+    assert 'energy_residual_convention' in summary

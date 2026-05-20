@@ -32,7 +32,11 @@ except ImportError:
             return func
         return wrapper
 
-from .solver import piso_step, compute_dt_cfl, _nozzle_boundary_flow
+from .solver import (
+    _piso_step_with_energy_diagnostics,
+    compute_dt_cfl,
+    _nozzle_boundary_flow,
+)
 from .burn_rate import compute_burn_rates, haaland_friction, gnielinski_nusselt
 from .igniter_plenum import (
     _step_plenum_ode,
@@ -220,13 +224,28 @@ def _goodman_ignition_sources_and_mass(
     Pr, k_thermal, roughness, kappa, solid_alpha, k_solid,
     T_ignition, N, dx, mdot_igniter, T_ig, Cp_gas,
     pyrogen_surface_heat_flux_w_m2, radiation_emissivity,
+    diagnostic_disable_radiation_gas_sink,
+    tau_establishment,
 ):
-    """Goodman surface-temperature ignition and propellant source assembly."""
+    """Goodman surface-temperature ignition and propellant source assembly.
+
+    ``tau_establishment`` (seconds) is a post-ignition burn-establishment
+    timescale. If positive, each cell's effective burn rate ramps linearly
+    from 0 to its steady value over ``tau_establishment`` after the cell
+    crosses ``T_ignition``. r_total and r_erosive are scaled in place so
+    the next ``advance_bore_regression`` sees the same effective rate. Set
+    to 0.0 to disable (no ramp; pure step at ignition, matching Peretz/
+    Pardue/Cavallini's instantaneous-ignition convention).
+    """
     n_burning = 0
     n_ignited = 0
     mass_sum = 0.0
     pyrogen_surface_heat_power = 0.0
     radiation_heat_power = 0.0
+    radiation_sink_total_power = 0.0
+    normal_sidewall_thermal_power = 0.0
+    erosive_sidewall_thermal_power = 0.0
+    endface_thermal_power = 0.0
     pyrogen_heat_target = -1
     head_grain_cell = -1
 
@@ -272,27 +291,51 @@ def _goodman_ignition_sources_and_mass(
                         h_driver_num += h_ig * T_ig
 
                 if radiation_emissivity > 0.0 and C_burn[i] > 0.0:
+                    # Adjacent-cell radiation uses the *local* gas
+                    # temperature of each burning neighbor as the emitter
+                    # temperature. Using the constant adiabatic T_flame
+                    # here overstates the flux during a cold-start
+                    # transient (a just-ignited neighbor whose gas is
+                    # still ramping radiates as if fully developed),
+                    # producing an unphysically fast radiative ignition
+                    # chain. The gas-energy sink debits the same cell at
+                    # the same temperature, so the exchange is
+                    # self-consistent.
                     rad_flux = 0.0
-                    if T_flame > T_surf[i]:
-                        rad_single = radiation_emissivity * STEFAN_BOLTZMANN * (
-                            T_flame ** 4 - T_surf[i] ** 4
+                    rad_driver_num = 0.0
+                    if (i > 0 and radiation_emitter[i - 1]
+                            and T[i - 1] > T_surf[i]):
+                        rad_left = radiation_emissivity * STEFAN_BOLTZMANN * (
+                            T[i - 1] ** 4 - T_surf[i] ** 4
                         )
-                        if rad_single < 0.0:
-                            rad_single = 0.0
-                        if i > 0 and radiation_emitter[i - 1]:
-                            rad_flux += rad_single
-                            radiation_sink_power[i - 1] += rad_single * C_burn[i] * dx
-                        if i < N - 1 and radiation_emitter[i + 1]:
-                            rad_flux += rad_single
-                            radiation_sink_power[i + 1] += rad_single * C_burn[i] * dx
+                        if rad_left > 0.0:
+                            rad_flux += rad_left
+                            rad_driver_num += rad_left * T[i - 1]
+                            if not diagnostic_disable_radiation_gas_sink:
+                                sink = rad_left * C_burn[i] * dx
+                                radiation_sink_power[i - 1] += sink
+                                radiation_sink_total_power += sink
+                    if (i < N - 1 and radiation_emitter[i + 1]
+                            and T[i + 1] > T_surf[i]):
+                        rad_right = radiation_emissivity * STEFAN_BOLTZMANN * (
+                            T[i + 1] ** 4 - T_surf[i] ** 4
+                        )
+                        if rad_right > 0.0:
+                            rad_flux += rad_right
+                            rad_driver_num += rad_right * T[i + 1]
+                            if not diagnostic_disable_radiation_gas_sink:
+                                sink = rad_right * C_burn[i] * dx
+                                radiation_sink_power[i + 1] += sink
+                                radiation_sink_total_power += sink
 
                     if rad_flux > 0.0:
                         radiation_heat_flux[i] = rad_flux
                         cell_power = rad_flux * C_burn[i] * dx
                         radiation_heat_power += cell_power
-                        h_rad = rad_flux / max(T_flame - T_surf[i], 1.0e-9)
+                        rad_driver_T = rad_driver_num / rad_flux
+                        h_rad = rad_flux / max(rad_driver_T - T_surf[i], 1.0e-9)
                         h_total += h_rad
-                        h_driver_num += h_rad * T_flame
+                        h_driver_num += h_rad * rad_driver_T
 
                 h_driver = T[i]
                 if h_total > 0.0:
@@ -317,20 +360,45 @@ def _goodman_ignition_sources_and_mass(
                 n_burning += 1
 
         if is_burning[i] and C_burn[i] > 0.0:
+            if tau_establishment > 0.0:
+                dt_since_ign = t - ignition_time[i]
+                if dt_since_ign < 0.0:
+                    phi_est = 0.0
+                elif dt_since_ign < tau_establishment:
+                    phi_est = dt_since_ign / tau_establishment
+                else:
+                    phi_est = 1.0
+                if phi_est < 1.0:
+                    r_total[i] *= phi_est
+                    r_erosive[i] *= phi_est
             prop_source = rho_propellant * r_total[i] * C_burn[i]
+            r_normal = r_total[i] - r_erosive[i]
+            if r_normal < 0.0:
+                r_normal = 0.0
+            normal_source = rho_propellant * r_normal * C_burn[i]
+            erosive_source = prop_source - normal_source
+            if erosive_source < 0.0:
+                erosive_source = 0.0
             mass_source[i] += prop_source
             thermal_source[i] += prop_source * T_flame
+            normal_sidewall_thermal_power += normal_source * T_flame * Cp_gas * dx
+            erosive_sidewall_thermal_power += erosive_source * T_flame * Cp_gas * dx
 
         if endface_msource[i] > 0.0:
             mass_source[i] += endface_msource[i]
             thermal_source[i] += endface_msource[i] * T_flame
+            endface_thermal_power += endface_msource[i] * T_flame * Cp_gas * dx
 
         if radiation_sink_power[i] > 0.0 and Cp_gas > 0.0 and dx > 0.0:
             thermal_source[i] -= radiation_sink_power[i] / (Cp_gas * dx)
 
         mass_sum += mass_source[i]
 
-    return n_burning, n_ignited, mass_sum, pyrogen_surface_heat_power, radiation_heat_power
+    return (n_burning, n_ignited, mass_sum,
+            pyrogen_surface_heat_power, radiation_heat_power,
+            radiation_sink_total_power,
+            normal_sidewall_thermal_power, erosive_sidewall_thermal_power,
+            endface_thermal_power)
 
 
 # ================================================================
@@ -372,8 +440,10 @@ def _run_time_loop(
     diagnostic_disable_erosive, diagnostic_disable_endfaces,
     diagnostic_disable_momentum, diagnostic_disable_pyrogen_surface_heating,
     diagnostic_disable_adjacent_radiation,
+    diagnostic_disable_radiation_gas_sink,
     igniter_axial_momentum_fraction, pyrogen_surface_heat_flux_w_m2,
     radiation_emissivity,
+    tau_establishment,
     t_max, P_cutoff,
     erosion_coeff, slag_coeff, throat_is_evolving,
     snapshot_interval,
@@ -384,13 +454,23 @@ def _run_time_loop(
     # --- Output: time history (pre-allocated) ---
     time_hist, P_head_hist, P_exit_hist, D_throat_hist,
     Kn_hist, massflow_hist, P_ig_hist, T_ig_hist, mdot_ig_hist,
-    m_pyrogen_hist, pyrogen_enthalpy_power_hist,
+    m_pyrogen_hist,
+    gas_sensible_energy_before_hist, gas_sensible_energy_hist,
+    gas_sensible_dE_dt_hist,
+    normal_sidewall_thermal_power_hist, erosive_sidewall_thermal_power_hist,
+    endface_thermal_power_hist, convective_scalar_flux_power_hist,
+    clipping_correction_power_hist, pyrogen_enthalpy_power_hist,
     pyrogen_surface_heat_power_hist, gas_surface_heat_sink_power_hist,
     radiation_heat_power_hist, radiation_sink_power_hist,
     nozzle_enthalpy_power_hist, thermal_source_power_hist,
     energy_residual_hist,
     pyrogen_momentum_expected_hist, pyrogen_momentum_deposited_hist,
     pyrogen_momentum_residual_hist,
+    dt_hist, n_burning_hist, n_ignited_hist,
+    radiation_emitter_count_hist, radiation_receiver_count_hist,
+    min_gas_temperature_hist, max_gas_temperature_hist,
+    min_surface_temperature_hist, max_surface_temperature_hist,
+    min_pressure_hist, max_pressure_hist, max_mach_hist,
     max_hist,
     # --- Output: snapshots (pre-allocated) ---
     snap_data, snap_times, max_snaps,
@@ -558,7 +638,11 @@ def _run_time_loop(
         if diagnostic_disable_pyrogen_surface_heating:
             active_pyrogen_surface_heat_flux_w_m2 = 0.0
 
-        n_burning, n_ignited, mass_sum, pyrogen_surface_heat_power, radiation_heat_power = _goodman_ignition_sources_and_mass(
+        (n_burning, n_ignited, mass_sum,
+         pyrogen_surface_heat_power, radiation_heat_power,
+         radiation_sink_total_power,
+         normal_sidewall_thermal_power, erosive_sidewall_thermal_power,
+         endface_thermal_power) = _goodman_ignition_sources_and_mass(
             P, T, T_surf, delta, has_ignited, is_burning, is_grain,
             ignition_time, r_total, r_erosive,
             mass_source, thermal_source,
@@ -569,6 +653,8 @@ def _run_time_loop(
             Pr, k_thermal, roughness, kappa, solid_alpha, k_solid,
             T_ignition, N, dx, mdot_igniter, T_ig, Cp_gas,
             active_pyrogen_surface_heat_flux_w_m2, radiation_emissivity,
+            diagnostic_disable_radiation_gas_sink,
+            tau_establishment,
         )
 
         pyrogen_enthalpy_power = 0.0
@@ -604,15 +690,16 @@ def _run_time_loop(
         # ============================================
         # STEP 4: PISO
         # ============================================
-        gas_energy_before = _gas_sensible_energy(rho, T, A_port, dx, Cp_gas, N)
-        thermal_power_before_piso = _thermal_source_power(thermal_source, Cp_gas, dx, N)
-        rho, u, P, T = piso_step(
+        (rho, u, P, T,
+         gas_energy_before, gas_energy_after, gas_sensible_dE_dt,
+         convective_scalar_flux_power, nozzle_enthalpy_power,
+         thermal_power_before_piso, clipping_correction_power,
+         energy_residual) = _piso_step_with_energy_diagnostics(
             rho, u, P, T, A_port, D_hyd,
             mass_source, thermal_source, momentum_source, f_darcy,
             dx, dt, gamma, R_specific, T_flame,
             Cp_gas, A_throat, P_ambient, ambient_temperature, N,
         )
-        gas_energy_after = _gas_sensible_energy(rho, T, A_port, dx, Cp_gas, N)
 
         # ============================================
         # STEP 5: POST-PISO
@@ -630,12 +717,6 @@ def _run_time_loop(
             P[N - 1], T[N - 1], A_throat, gamma, R_specific,
             P_ambient, ambient_temperature,
         )
-        nozzle_enthalpy_power = nozzle_mdot * Cp_gas * nozzle_upstream_T
-        energy_residual = (
-            (gas_energy_after - gas_energy_before) / dt
-            + nozzle_enthalpy_power
-            - thermal_power_before_piso
-        )
         total_mass_nozzle += nozzle_mdot * dt
 
         # Kn = total bore burning area / throat area
@@ -652,6 +733,36 @@ def _run_time_loop(
                     break
 
         # Record time history
+        radiation_emitter_count = 0
+        radiation_receiver_count = 0
+        min_gas_temperature = T[0]
+        max_gas_temperature = T[0]
+        min_surface_temperature = T_surf[0]
+        max_surface_temperature = T_surf[0]
+        min_pressure = P[0]
+        max_pressure = P[0]
+        max_mach_abs = abs(Mach[0])
+        for i in range(N):
+            if radiation_emitter[i]:
+                radiation_emitter_count += 1
+            if radiation_heat_flux[i] > 0.0:
+                radiation_receiver_count += 1
+            if T[i] < min_gas_temperature:
+                min_gas_temperature = T[i]
+            if T[i] > max_gas_temperature:
+                max_gas_temperature = T[i]
+            if T_surf[i] < min_surface_temperature:
+                min_surface_temperature = T_surf[i]
+            if T_surf[i] > max_surface_temperature:
+                max_surface_temperature = T_surf[i]
+            if P[i] < min_pressure:
+                min_pressure = P[i]
+            if P[i] > max_pressure:
+                max_pressure = P[i]
+            mach_abs = abs(Mach[i])
+            if mach_abs > max_mach_abs:
+                max_mach_abs = mach_abs
+
         time_hist[hist_idx] = t
         P_head_hist[hist_idx] = P[0]
         P_exit_hist[hist_idx] = P[N - 1]
@@ -662,17 +773,37 @@ def _run_time_loop(
         T_ig_hist[hist_idx] = T_ig
         mdot_ig_hist[hist_idx] = mdot_igniter
         m_pyrogen_hist[hist_idx] = plenum_state[0]
+        gas_sensible_energy_before_hist[hist_idx] = gas_energy_before
+        gas_sensible_energy_hist[hist_idx] = gas_energy_after
+        gas_sensible_dE_dt_hist[hist_idx] = gas_sensible_dE_dt
+        normal_sidewall_thermal_power_hist[hist_idx] = normal_sidewall_thermal_power
+        erosive_sidewall_thermal_power_hist[hist_idx] = erosive_sidewall_thermal_power
+        endface_thermal_power_hist[hist_idx] = endface_thermal_power
+        convective_scalar_flux_power_hist[hist_idx] = convective_scalar_flux_power
+        clipping_correction_power_hist[hist_idx] = clipping_correction_power
         pyrogen_enthalpy_power_hist[hist_idx] = pyrogen_enthalpy_power
         pyrogen_surface_heat_power_hist[hist_idx] = pyrogen_surface_heat_power
         gas_surface_heat_sink_power_hist[hist_idx] = pyrogen_surface_heat_sink_power
         radiation_heat_power_hist[hist_idx] = radiation_heat_power
-        radiation_sink_power_hist[hist_idx] = radiation_heat_power
+        radiation_sink_power_hist[hist_idx] = radiation_sink_total_power
         nozzle_enthalpy_power_hist[hist_idx] = nozzle_enthalpy_power
         thermal_source_power_hist[hist_idx] = thermal_power_before_piso
         energy_residual_hist[hist_idx] = energy_residual
         pyrogen_momentum_expected_hist[hist_idx] = pyrogen_momentum_expected
         pyrogen_momentum_deposited_hist[hist_idx] = pyrogen_momentum_deposited
         pyrogen_momentum_residual_hist[hist_idx] = pyrogen_momentum_expected - pyrogen_momentum_deposited
+        dt_hist[hist_idx] = dt
+        n_burning_hist[hist_idx] = n_burning
+        n_ignited_hist[hist_idx] = n_ignited
+        radiation_emitter_count_hist[hist_idx] = radiation_emitter_count
+        radiation_receiver_count_hist[hist_idx] = radiation_receiver_count
+        min_gas_temperature_hist[hist_idx] = min_gas_temperature
+        max_gas_temperature_hist[hist_idx] = max_gas_temperature
+        min_surface_temperature_hist[hist_idx] = min_surface_temperature
+        max_surface_temperature_hist[hist_idx] = max_surface_temperature
+        min_pressure_hist[hist_idx] = min_pressure
+        max_pressure_hist[hist_idx] = max_pressure
+        max_mach_hist[hist_idx] = max_mach_abs
         hist_idx += 1
 
         # Snapshot
@@ -735,6 +866,7 @@ def run_simulation(
     burn_update_interval=None,
     # --- Ignition ---
     T_ignition=850.0,
+    tau_establishment=0.0,
     # --- Diagnostics ---
     initial_gas_temperature=None,
     diagnostic_disable_erosive=False,
@@ -742,6 +874,8 @@ def run_simulation(
     diagnostic_disable_momentum=False,
     diagnostic_disable_pyrogen_surface_heating=False,
     diagnostic_disable_adjacent_radiation=False,
+    diagnostic_disable_radiation_gas_sink=False,
+    diagnostic_history_capacity=None,
     igniter_axial_momentum_fraction=1.0,
     # --- Termination ---
     t_max=10.0,
@@ -804,6 +938,14 @@ def run_simulation(
     diagnostic_disable_adjacent_radiation : bool
         If True, suppress adjacent-burning-cell radiation while preserving
         the material emissivity setting in the result summary.
+    diagnostic_disable_radiation_gas_sink : bool
+        If True, keep adjacent-radiation Goodman receiver heating but do
+        not debit the emitting gas cell. Diagnostic isolation only.
+    diagnostic_history_capacity : int or None
+        Optional diagnostic-only cap for preallocated history rows. This
+        does not change equations or time stepping; it only allows probe
+        runs to terminate earlier through the normal "history array full"
+        path.
     igniter_axial_momentum_fraction : float
         Fraction of pyrogen orifice momentum projected downstream into
         the bore. Default 1.0 represents a head-end axial jet.
@@ -956,6 +1098,11 @@ def run_simulation(
     # Conservative estimate: dt_min ~ cfl * dx / 1000 m/s
     est_steps = int(t_max / max(cfl_target * dx / 1000.0, 1e-8)) + 1000
     max_hist = max(est_steps, 5_000_000)
+    if diagnostic_history_capacity is not None:
+        diagnostic_history_capacity = int(diagnostic_history_capacity)
+        if diagnostic_history_capacity < 1:
+            raise ValueError("diagnostic_history_capacity must be positive")
+        max_hist = min(max_hist, diagnostic_history_capacity)
     time_hist = np.empty(max_hist)
     P_head_hist = np.empty(max_hist)
     P_exit_hist = np.empty(max_hist)
@@ -966,6 +1113,14 @@ def run_simulation(
     T_ig_hist = np.empty(max_hist)
     mdot_ig_hist = np.empty(max_hist)
     m_pyrogen_hist = np.empty(max_hist)
+    gas_sensible_energy_before_hist = np.empty(max_hist)
+    gas_sensible_energy_hist = np.empty(max_hist)
+    gas_sensible_dE_dt_hist = np.empty(max_hist)
+    normal_sidewall_thermal_power_hist = np.empty(max_hist)
+    erosive_sidewall_thermal_power_hist = np.empty(max_hist)
+    endface_thermal_power_hist = np.empty(max_hist)
+    convective_scalar_flux_power_hist = np.empty(max_hist)
+    clipping_correction_power_hist = np.empty(max_hist)
     pyrogen_enthalpy_power_hist = np.empty(max_hist)
     pyrogen_surface_heat_power_hist = np.empty(max_hist)
     gas_surface_heat_sink_power_hist = np.empty(max_hist)
@@ -977,6 +1132,18 @@ def run_simulation(
     pyrogen_momentum_expected_hist = np.empty(max_hist)
     pyrogen_momentum_deposited_hist = np.empty(max_hist)
     pyrogen_momentum_residual_hist = np.empty(max_hist)
+    dt_hist = np.empty(max_hist)
+    n_burning_hist = np.empty(max_hist)
+    n_ignited_hist = np.empty(max_hist)
+    radiation_emitter_count_hist = np.empty(max_hist)
+    radiation_receiver_count_hist = np.empty(max_hist)
+    min_gas_temperature_hist = np.empty(max_hist)
+    max_gas_temperature_hist = np.empty(max_hist)
+    min_surface_temperature_hist = np.empty(max_hist)
+    max_surface_temperature_hist = np.empty(max_hist)
+    min_pressure_hist = np.empty(max_hist)
+    max_pressure_hist = np.empty(max_hist)
+    max_mach_hist = np.empty(max_hist)
 
     # Pre-allocate snapshot storage
     max_snaps = int(t_max / snapshot_interval) + 10
@@ -1047,9 +1214,11 @@ def run_simulation(
         bool(diagnostic_disable_momentum),
         bool(diagnostic_disable_pyrogen_surface_heating),
         bool(diagnostic_disable_adjacent_radiation),
+        bool(diagnostic_disable_radiation_gas_sink),
         float(igniter_axial_momentum_fraction),
         float(pyrogen_surface_heat_flux_w_m2),
         float(active_radiation_emissivity),
+        float(tau_establishment),
         t_max, P_cutoff,
         erosion_coeff, slag_coeff, throat_is_evolving,
         snapshot_interval,
@@ -1061,6 +1230,13 @@ def run_simulation(
         time_hist, P_head_hist, P_exit_hist, D_throat_hist,
         Kn_hist, massflow_hist, P_ig_hist, T_ig_hist, mdot_ig_hist,
         m_pyrogen_hist,
+        gas_sensible_energy_before_hist,
+        gas_sensible_energy_hist, gas_sensible_dE_dt_hist,
+        normal_sidewall_thermal_power_hist,
+        erosive_sidewall_thermal_power_hist,
+        endface_thermal_power_hist,
+        convective_scalar_flux_power_hist,
+        clipping_correction_power_hist,
         pyrogen_enthalpy_power_hist,
         pyrogen_surface_heat_power_hist, gas_surface_heat_sink_power_hist,
         radiation_heat_power_hist, radiation_sink_power_hist,
@@ -1068,6 +1244,11 @@ def run_simulation(
         energy_residual_hist,
         pyrogen_momentum_expected_hist, pyrogen_momentum_deposited_hist,
         pyrogen_momentum_residual_hist,
+        dt_hist, n_burning_hist, n_ignited_hist,
+        radiation_emitter_count_hist, radiation_receiver_count_hist,
+        min_gas_temperature_hist, max_gas_temperature_hist,
+        min_surface_temperature_hist, max_surface_temperature_hist,
+        min_pressure_hist, max_pressure_hist, max_mach_hist,
         max_hist,
         # Output: snapshots
         snap_data, snap_times, max_snaps,
@@ -1088,6 +1269,14 @@ def run_simulation(
     T_ig_arr = T_ig_hist[:n_steps].copy()
     mdot_ig_arr = mdot_ig_hist[:n_steps].copy()
     m_pyrogen_arr = m_pyrogen_hist[:n_steps].copy()
+    gas_sensible_energy_before_arr = gas_sensible_energy_before_hist[:n_steps].copy()
+    gas_sensible_energy_arr = gas_sensible_energy_hist[:n_steps].copy()
+    gas_sensible_dE_dt_arr = gas_sensible_dE_dt_hist[:n_steps].copy()
+    normal_sidewall_thermal_power_arr = normal_sidewall_thermal_power_hist[:n_steps].copy()
+    erosive_sidewall_thermal_power_arr = erosive_sidewall_thermal_power_hist[:n_steps].copy()
+    endface_thermal_power_arr = endface_thermal_power_hist[:n_steps].copy()
+    convective_scalar_flux_power_arr = convective_scalar_flux_power_hist[:n_steps].copy()
+    clipping_correction_power_arr = clipping_correction_power_hist[:n_steps].copy()
     pyrogen_enthalpy_power_arr = pyrogen_enthalpy_power_hist[:n_steps].copy()
     pyrogen_surface_heat_power_arr = pyrogen_surface_heat_power_hist[:n_steps].copy()
     gas_surface_heat_sink_power_arr = gas_surface_heat_sink_power_hist[:n_steps].copy()
@@ -1099,6 +1288,18 @@ def run_simulation(
     pyrogen_momentum_expected_arr = pyrogen_momentum_expected_hist[:n_steps].copy()
     pyrogen_momentum_deposited_arr = pyrogen_momentum_deposited_hist[:n_steps].copy()
     pyrogen_momentum_residual_arr = pyrogen_momentum_residual_hist[:n_steps].copy()
+    dt_arr = dt_hist[:n_steps].copy()
+    n_burning_arr = n_burning_hist[:n_steps].copy()
+    n_ignited_arr = n_ignited_hist[:n_steps].copy()
+    radiation_emitter_count_arr = radiation_emitter_count_hist[:n_steps].copy()
+    radiation_receiver_count_arr = radiation_receiver_count_hist[:n_steps].copy()
+    min_gas_temperature_arr = min_gas_temperature_hist[:n_steps].copy()
+    max_gas_temperature_arr = max_gas_temperature_hist[:n_steps].copy()
+    min_surface_temperature_arr = min_surface_temperature_hist[:n_steps].copy()
+    max_surface_temperature_arr = max_surface_temperature_hist[:n_steps].copy()
+    min_pressure_arr = min_pressure_hist[:n_steps].copy()
+    max_pressure_arr = max_pressure_hist[:n_steps].copy()
+    max_mach_arr = max_mach_hist[:n_steps].copy()
 
     # Convert snapshot 3D array back to list of dicts for compatibility
     snapshots = []
@@ -1130,6 +1331,15 @@ def run_simulation(
 
     if first_burnthrough_time < 0:
         first_burnthrough_time = None
+
+    finite_ignition_cells = np.flatnonzero(ignition_time < 1.0e9)
+    if finite_ignition_cells.size:
+        first_ignition_local = int(np.argmin(ignition_time[finite_ignition_cells]))
+        first_ignition_cell = int(finite_ignition_cells[first_ignition_local])
+        first_ignition_time = float(ignition_time[first_ignition_cell])
+    else:
+        first_ignition_cell = -1
+        first_ignition_time = float("nan")
 
     # ============================================================
     # SUMMARY
@@ -1192,6 +1402,14 @@ def run_simulation(
         'wall_time': wall_elapsed,
         'steps': n_steps,
         'cells': N,
+        'history_capacity': int(max_hist),
+        'termination_code': int(termination_code),
+        'history_cap_reached': bool(termination_code == 3),
+        'dt_min': float(np.min(dt_arr)) if len(dt_arr) > 0 else float("nan"),
+        'dt_median': float(np.median(dt_arr)) if len(dt_arr) > 0 else float("nan"),
+        'dt_final': float(dt_arr[-1]) if len(dt_arr) > 0 else float("nan"),
+        'first_ignition_time_s': first_ignition_time,
+        'first_ignition_cell': first_ignition_cell,
         'D_throat_initial': nozzle.D_throat,
         'D_throat_final': float(D_throat_final),
         'termination': term_str,
@@ -1208,6 +1426,7 @@ def run_simulation(
         'diagnostic_disable_momentum': bool(diagnostic_disable_momentum),
         'diagnostic_disable_pyrogen_surface_heating': bool(diagnostic_disable_pyrogen_surface_heating),
         'diagnostic_disable_adjacent_radiation': bool(diagnostic_disable_adjacent_radiation),
+        'diagnostic_disable_radiation_gas_sink': bool(diagnostic_disable_radiation_gas_sink),
         'igniter_axial_momentum_fraction': float(igniter_axial_momentum_fraction),
         'pyrogen_heat_flux_cal_cm2_s': (
             None if pyrogen_heat_flux is None else float(pyrogen_heat_flux)
@@ -1215,6 +1434,12 @@ def run_simulation(
         'pyrogen_surface_heat_flux_w_m2': float(pyrogen_surface_heat_flux_w_m2),
         'radiation_emissivity': float(propellant.radiation_emissivity),
         'active_radiation_emissivity': float(active_radiation_emissivity),
+        'tau_establishment': float(tau_establishment),
+        'energy_residual_convention': (
+            'gas_sensible_dE_dt - convective_scalar_flux_power - '
+            'thermal_source_power - clipping_correction_power; '
+            'convective power is positive into the gas'
+        ),
     }
 
     # Per-grain summary from snapshots
@@ -1249,6 +1474,16 @@ def run_simulation(
         'D_throat': D_throat_arr, 'Kn': Kn_arr, 'massflow': massflow_arr,
         'P_ig': P_ig_arr, 'T_ig': T_ig_arr, 'mdot_ig': mdot_ig_arr,
         'm_pyrogen': m_pyrogen_arr,
+        'gas_sensible_energy_before': gas_sensible_energy_before_arr,
+        'gas_sensible_energy': gas_sensible_energy_arr,
+        'gas_sensible_dE_dt': gas_sensible_dE_dt_arr,
+        'normal_sidewall_thermal_power': normal_sidewall_thermal_power_arr,
+        'erosive_sidewall_thermal_power': erosive_sidewall_thermal_power_arr,
+        'endface_thermal_power': endface_thermal_power_arr,
+        'pyrogen_gas_thermal_power': pyrogen_enthalpy_power_arr,
+        'convective_scalar_flux_power': convective_scalar_flux_power_arr,
+        'nozzle_scalar_flux_power': nozzle_enthalpy_power_arr,
+        'clipping_correction_power': clipping_correction_power_arr,
         'pyrogen_enthalpy_power': pyrogen_enthalpy_power_arr,
         'pyrogen_surface_heat_power': pyrogen_surface_heat_power_arr,
         'gas_surface_heat_sink_power': gas_surface_heat_sink_power_arr,
@@ -1260,6 +1495,19 @@ def run_simulation(
         'pyrogen_momentum_expected': pyrogen_momentum_expected_arr,
         'pyrogen_momentum_deposited': pyrogen_momentum_deposited_arr,
         'pyrogen_momentum_residual': pyrogen_momentum_residual_arr,
+        'dt': dt_arr,
+        'n_burning': n_burning_arr,
+        'n_ignited': n_ignited_arr,
+        'radiation_emitter_count': radiation_emitter_count_arr,
+        'radiation_receiver_count': radiation_receiver_count_arr,
+        'min_gas_temperature': min_gas_temperature_arr,
+        'max_gas_temperature': max_gas_temperature_arr,
+        'min_surface_temperature': min_surface_temperature_arr,
+        'max_surface_temperature': max_surface_temperature_arr,
+        'min_pressure': min_pressure_arr,
+        'max_pressure': max_pressure_arr,
+        'max_mach': max_mach_arr,
+        'ignition_time_by_cell': ignition_time.copy(),
         'snapshots': snapshots, 'grains': grain_data,
         'summary': summary,
         'P_ambient': P_ambient,
