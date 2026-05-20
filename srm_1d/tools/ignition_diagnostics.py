@@ -724,8 +724,16 @@ def early_time_diagnostics(result: dict, window_s: float = 0.030,
         max_energy_residual / residual_scale if np.isfinite(max_energy_residual) else float("nan")
     )
 
+    # A runtime termination_code == 4 (numerical-collapse abort) is
+    # authoritative: the trip's per-step thresholds (Mach > 100,
+    # dt < 1e-9, P > 1 GPa) are stricter than the in-window classifier
+    # thresholds (Mach > 1000, dt < 1e-8, P > 100 MPa), so a clean
+    # abort may not trip any in-window signal. Promote to collapse so
+    # collapse_class agrees with diagnostic_failure_mode.
+    trip_aborted = int(summary.get("termination_code", -1)) == 4
     collapse_detected = bool(
         history_cap_reached
+        or trip_aborted
         or np.isfinite(first_dt_collapse_time)
         or np.isfinite(first_pressure_collapse_time)
         or np.isfinite(first_mach_collapse_time)
@@ -766,8 +774,7 @@ def early_time_diagnostics(result: dict, window_s: float = 0.030,
     elif collapse_detected:
         collapse_branch_suspect = "grid_or_timestep_sensitivity"
 
-    termination_code_value = int(summary.get("termination_code", -1))
-    if termination_code_value == 4:
+    if trip_aborted:
         failure_mode = "numerical_collapse_aborted"
     elif history_cap_reached and clipping_dominated:
         failure_mode = "timestep_front_numerical_pathology"
