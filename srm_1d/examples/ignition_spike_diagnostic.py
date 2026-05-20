@@ -524,7 +524,7 @@ def main():
 
     with open(case_dir / f"{args.output_case}_variant_summary.csv", "w", newline="") as f:
         fieldnames = [
-            "variant", "primary_driver",
+            "variant", "mse_vs_experimental_mpa2", "primary_driver",
             "startup_window_peak_time_s", "startup_window_peak_pressure_mpa",
             "global_peak_time_s", "global_peak_pressure_mpa",
             "spread_10_90_s", "spread_metric_source", "exact_spread_metrics",
