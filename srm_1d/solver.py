@@ -709,3 +709,67 @@ def compute_dt_cfl(u, a_sound, dx, N, cfl_target, dt_max):
             max_wave_speed = ws
     dt = cfl_target * dx / max_wave_speed
     return min(dt, dt_max)
+
+
+@njit(cache=True)
+def compute_dt_source_cap(
+    rho, A_port, thermal_source, mass_source, N,
+    Cp_gas, T_flame, T_ambient, source_cfl_factor, dt_floor,
+):
+    """Source-aware CFL: cap dt so per-step per-cell energy injection
+    cannot change a cell's gas temperature by more than
+    ``source_cfl_factor * (T_flame - T_ambient)``.
+
+    Required to break a Hasegawa-A-class numerical resonance documented
+    in srm_1d/docs/v0_7_0/audits/2026-05-20: at certain emissivities,
+    radiation-driven ignition cascades fire 5-50 cells per millisecond,
+    injecting energy faster than the wavespeed-CFL dt can resolve. The
+    resulting Mach-front oscillation at the ignition front trips the
+    numerical-collapse abort.
+
+    The per-cell power is ``thermal_source[i] * dx * Cp_gas`` (W),
+    available thermal capacity is ``rho[i] * A_port[i] * dx * Cp_gas``
+    (J/K). The Cp_gas and dx cancel:
+
+        dt_cap[i] = source_cfl_factor * (T_flame - T_ambient)
+                    * rho[i] * A_port[i] / |thermal_source[i]|
+
+    Take the minimum across all cells with nonzero source. ``dt_floor``
+    prevents an infinite spike from collapsing dt to zero.
+
+    Parameters
+    ----------
+    rho : ndarray (N,)
+        Cell-centered density [kg/m^3].
+    A_port : ndarray (N,)
+        Cell port (gas) cross-sectional area [m^2].
+    thermal_source : ndarray (N,)
+        Per-cell thermal source [kg*K/(s*m)] -- mass-rate-times-T per
+        unit length. Matches solver.py's scalar-transport convention.
+    mass_source : ndarray (N,)
+        Per-cell mass source [kg/(s*m^3)]. Used only to skip cells where
+        the source is purely advective (no propellant injection).
+    Cp_gas : float
+        Gas specific heat [J/(kg*K)].
+    T_flame, T_ambient : float
+        Bounds on the temperature range used for the per-step cap.
+    source_cfl_factor : float
+        Fraction of the (T_flame - T_ambient) range allowed per step.
+        0.10 (10%) is a standard CFL-like default.
+    dt_floor : float
+        Lower bound on the returned dt to keep the loop from stalling.
+    """
+    dT_max = source_cfl_factor * (T_flame - T_ambient)
+    if dT_max <= 0.0:
+        return 1.0e10
+    dt_min = 1.0e10
+    for i in range(N):
+        thermal_abs = abs(thermal_source[i])
+        if thermal_abs > 0.0 and mass_source[i] > 0.0:
+            denom = thermal_abs
+            dt_i = dT_max * rho[i] * A_port[i] / denom
+            if dt_i < dt_min:
+                dt_min = dt_i
+    if dt_min < dt_floor:
+        dt_min = dt_floor
+    return dt_min

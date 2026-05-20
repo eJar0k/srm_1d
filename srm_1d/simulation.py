@@ -35,6 +35,7 @@ except ImportError:
 from .solver import (
     _piso_step_with_energy_diagnostics,
     compute_dt_cfl,
+    compute_dt_source_cap,
     _nozzle_boundary_flow,
 )
 from .burn_rate import compute_burn_rates, haaland_friction, gnielinski_nusselt
@@ -436,6 +437,7 @@ def _run_time_loop(
         # --- Simulation parameters ---
     roughness, kappa,
     cfl_target, dt_max, burn_update_interval,
+    source_cfl_factor,
     T_ignition, P_ambient, ambient_temperature,
     diagnostic_disable_erosive, diagnostic_disable_endfaces,
     diagnostic_disable_momentum, diagnostic_disable_pyrogen_surface_heating,
@@ -509,6 +511,12 @@ def _run_time_loop(
     COLLAPSE_CONSECUTIVE_STEPS = 3
     collapse_consecutive = 0
 
+    # Source-aware CFL cap, refreshed once per step from the prior
+    # step's thermal_source. dt_max bootstrap (no constraint) until the
+    # first source assembly produces a real cap.
+    dt_source_cap = dt_max
+    SOURCE_DT_FLOOR = 1.0e-8
+
     t = 0.0
     step = 0
     n_burning = 0
@@ -552,6 +560,8 @@ def _run_time_loop(
 
         # --- Time step ---
         dt = compute_dt_cfl(u, a_max, dx, N + 1, cfl_target, dt_max)
+        if source_cfl_factor > 0.0 and dt_source_cap < dt:
+            dt = dt_source_cap
 
         # ============================================
         # STEP 1: GEOMETRY
@@ -682,6 +692,18 @@ def _run_time_loop(
             thermal_source[0] -= pyrogen_surface_heat_sink
             pyrogen_surface_heat_sink_power = pyrogen_surface_heat_sink * Cp_gas * dx
             mass_sum += ign_source
+
+        # Refresh the source-aware CFL cap from THIS step's complete
+        # thermal_source. The next iteration's dt will use this as an
+        # upper bound (with a one-step lag, which is fine because
+        # thermal_source magnitudes change smoothly during ignition
+        # cascades on a per-step basis).
+        if source_cfl_factor > 0.0:
+            dt_source_cap = compute_dt_source_cap(
+                rho, A_port, thermal_source, mass_source, N,
+                Cp_gas, T_flame, ambient_temperature, source_cfl_factor,
+                SOURCE_DT_FLOOR,
+            )
 
         # ============================================
         # STEP 3b: THROAT EVOLUTION
@@ -891,6 +913,7 @@ def run_simulation(
     # --- Solver ---
     cfl_target=0.5,
     dt_max=0.002,
+    source_cfl_factor=0.10,
     burn_update_interval=None,
     # --- Ignition ---
     T_ignition=850.0,
@@ -1237,6 +1260,7 @@ def run_simulation(
         # Simulation parameters
         roughness, kappa,
         cfl_target, dt_max, burn_update_interval,
+        source_cfl_factor,
         T_ignition, P_ambient, T_ambient,
         bool(diagnostic_disable_erosive), bool(diagnostic_disable_endfaces),
         bool(diagnostic_disable_momentum),
