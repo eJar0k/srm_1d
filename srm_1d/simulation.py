@@ -80,19 +80,6 @@ N_SNAP_CHANNELS = 17
 CAL_CM2_S_TO_W_M2 = 41840.0
 STEFAN_BOLTZMANN = 5.670374419e-8
 
-# Plume-development lag for adjacent-cell radiation. A freshly-ignited
-# cell's gas plume has not reached its steady-state emission temperature
-# yet -- the gas has finite thermal relaxation time before convective
-# mixing brings it to T_flame. Linearly ramp the effective emitter T
-# from T_initial to T[neighbor] over this many seconds post-ignition.
-# 5e-6 s scales to ~2-5 cell pressure-wave transit times at the default
-# CFL=0.5, cells=100 grid for Hasegawa A. This is a numerical-stability
-# constant chosen to break a discrete PISO/throat resonance that
-# appeared at certain emissivities, NOT a fitted plume timescale.
-# Step 5 of v0.7.0/TASKS.md may replace this with a Peretz-aligned
-# Goodman penetration-depth model if Phase 4 calibration requires it.
-RADIATION_PLUME_LAG_S = 5.0e-6
-
 
 # ================================================================
 # Fused per-step helpers (called from inside _run_time_loop)
@@ -314,63 +301,32 @@ def _goodman_ignition_sources_and_mass(
                     # chain. The gas-energy sink debits the same cell at
                     # the same temperature, so the exchange is
                     # self-consistent.
-                    #
-                    # Additionally apply a plume-development lag: in the
-                    # first RADIATION_PLUME_LAG_S seconds after a neighbor
-                    # ignites, ramp its effective emitter T linearly from
-                    # T_initial to T[neighbor]. The full-T[neighbor] flux
-                    # at t=t_ignition reflects an instantly-developed gas
-                    # plume that doesn't exist physically and provoked a
-                    # discrete PISO/throat resonance at certain
-                    # emissivities (see audits/2026-05-20).
                     rad_flux = 0.0
                     rad_driver_num = 0.0
-                    if (i > 0 and radiation_emitter[i - 1]):
-                        dt_since_left = t - ignition_time[i - 1]
-                        if dt_since_left >= 0.0:
-                            if dt_since_left < RADIATION_PLUME_LAG_S:
-                                phi_left = dt_since_left / RADIATION_PLUME_LAG_S
-                            else:
-                                phi_left = 1.0
-                        else:
-                            phi_left = 0.0
-                        T_emit_left = (
-                            T_initial + (T[i - 1] - T_initial) * phi_left
+                    if (i > 0 and radiation_emitter[i - 1]
+                            and T[i - 1] > T_surf[i]):
+                        rad_left = radiation_emissivity * STEFAN_BOLTZMANN * (
+                            T[i - 1] ** 4 - T_surf[i] ** 4
                         )
-                        if T_emit_left > T_surf[i]:
-                            rad_left = radiation_emissivity * STEFAN_BOLTZMANN * (
-                                T_emit_left ** 4 - T_surf[i] ** 4
-                            )
-                            if rad_left > 0.0:
-                                rad_flux += rad_left
-                                rad_driver_num += rad_left * T_emit_left
-                                if not diagnostic_disable_radiation_gas_sink:
-                                    sink = rad_left * C_burn[i] * dx
-                                    radiation_sink_power[i - 1] += sink
-                                    radiation_sink_total_power += sink
-                    if (i < N - 1 and radiation_emitter[i + 1]):
-                        dt_since_right = t - ignition_time[i + 1]
-                        if dt_since_right >= 0.0:
-                            if dt_since_right < RADIATION_PLUME_LAG_S:
-                                phi_right = dt_since_right / RADIATION_PLUME_LAG_S
-                            else:
-                                phi_right = 1.0
-                        else:
-                            phi_right = 0.0
-                        T_emit_right = (
-                            T_initial + (T[i + 1] - T_initial) * phi_right
+                        if rad_left > 0.0:
+                            rad_flux += rad_left
+                            rad_driver_num += rad_left * T[i - 1]
+                            if not diagnostic_disable_radiation_gas_sink:
+                                sink = rad_left * C_burn[i] * dx
+                                radiation_sink_power[i - 1] += sink
+                                radiation_sink_total_power += sink
+                    if (i < N - 1 and radiation_emitter[i + 1]
+                            and T[i + 1] > T_surf[i]):
+                        rad_right = radiation_emissivity * STEFAN_BOLTZMANN * (
+                            T[i + 1] ** 4 - T_surf[i] ** 4
                         )
-                        if T_emit_right > T_surf[i]:
-                            rad_right = radiation_emissivity * STEFAN_BOLTZMANN * (
-                                T_emit_right ** 4 - T_surf[i] ** 4
-                            )
-                            if rad_right > 0.0:
-                                rad_flux += rad_right
-                                rad_driver_num += rad_right * T_emit_right
-                                if not diagnostic_disable_radiation_gas_sink:
-                                    sink = rad_right * C_burn[i] * dx
-                                    radiation_sink_power[i + 1] += sink
-                                    radiation_sink_total_power += sink
+                        if rad_right > 0.0:
+                            rad_flux += rad_right
+                            rad_driver_num += rad_right * T[i + 1]
+                            if not diagnostic_disable_radiation_gas_sink:
+                                sink = rad_right * C_burn[i] * dx
+                                radiation_sink_power[i + 1] += sink
+                                radiation_sink_total_power += sink
 
                     if rad_flux > 0.0:
                         radiation_heat_flux[i] = rad_flux

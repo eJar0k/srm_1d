@@ -105,10 +105,6 @@ def test_adjacent_radiation_heats_only_neighbors_and_conserves_sink():
     is_burning = np.array([False, True, False])
     is_grain = np.array([True, True, True])
     ignition_time = np.full(N, 1.0e10)
-    # The burning cell ignited well before t=0 so the plume-development
-    # lag has fully completed -- isolate the radiation accounting from
-    # the lag for this test.
-    ignition_time[1] = -1.0
     r_total = np.array([0.0, 0.01, 0.0])
     r_erosive = np.zeros(N)
     mass_source = np.zeros(N)
@@ -160,10 +156,6 @@ def test_adjacent_radiation_sink_can_be_disabled_for_diagnostics():
     is_burning = np.array([False, True, False])
     is_grain = np.array([True, True, True])
     ignition_time = np.full(N, 1.0e10)
-    # The burning cell ignited well before t=0 so the plume-development
-    # lag has fully completed -- isolate the radiation accounting from
-    # the lag for this test.
-    ignition_time[1] = -1.0
     r_total = np.array([0.0, 0.01, 0.0])
     r_erosive = np.zeros(N)
     mass_source = np.zeros(N)
