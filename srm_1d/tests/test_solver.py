@@ -6,6 +6,7 @@ from srm_1d.solver import (
     NOZZLE_STATE_CHOKED_OUT,
     NOZZLE_STATE_SUBSONIC_IN,
     NOZZLE_STATE_SUBSONIC_OUT,
+    _piso_step_with_energy_diagnostics,
     thomas_solve,
     compute_dt_cfl,
     piso_step,
@@ -73,13 +74,86 @@ class TestCFL:
 
 
 class TestPisoSources:
+    def _single_cell_source_step(self, A_port_value, mass_rate, source_temperature,
+                                 dt=1.0e-4, diagnostics=False):
+        """Closed one-cell source step used by conservative energy tests."""
+        N = 1
+        gamma = 1.2
+        R_specific = 300.0
+        T_initial = 300.0
+        rho_initial = 1.0
+        P_initial = rho_initial * R_specific * T_initial
+
+        rho = np.array([rho_initial])
+        u = np.zeros(N + 1)
+        P = np.array([P_initial])
+        T = np.array([T_initial])
+        A_port = np.array([A_port_value])
+        D_hyd = np.array([0.035])
+        mass_source = np.array([mass_rate])
+        thermal_source = mass_source * source_temperature
+        momentum_source = np.zeros(N + 1)
+        f_darcy = np.zeros(N)
+
+        step_func = _piso_step_with_energy_diagnostics if diagnostics else piso_step
+        return step_func(
+            rho, u, P, T, A_port, D_hyd,
+            mass_source, thermal_source, momentum_source, f_darcy,
+            0.01, dt, gamma, R_specific, 3000.0, 2000.0,
+            0.0, P_initial, T_initial, N,
+        )
+
+    def test_single_cell_thermal_source_matches_conservative_temperature(self):
+        """No-flow source update should conserve rho*T scalar content."""
+        A_port = 1.0e-3
+        dx = 0.01
+        dt = 1.0e-4
+        mass_rate = 0.05
+        source_temperature = 1000.0
+        old_mass = 1.0 * A_port * dx
+        added_mass = mass_rate * dx * dt
+        expected = (
+            old_mass * 300.0 + added_mass * source_temperature
+        ) / (old_mass + added_mass)
+
+        _rho_new, _u_new, _P_new, T_new = self._single_cell_source_step(
+            A_port, mass_rate, source_temperature, dt,
+        )
+
+        assert T_new[0] == pytest.approx(expected, rel=1.0e-8)
+
+    def test_same_temperature_mass_source_preserves_temperature(self):
+        """Adding gas at the cell temperature should not heat the cell."""
+        _rho_new, _u_new, _P_new, T_new = self._single_cell_source_step(
+            1.0e-3, 0.05, 300.0,
+        )
+
+        assert T_new[0] == pytest.approx(300.0, rel=1.0e-10, abs=1.0e-10)
+
+    def test_same_per_length_source_heats_smaller_port_faster(self):
+        """For fixed per-length source, lower gas mass heats faster."""
+        small = self._single_cell_source_step(1.0e-3, 0.05, 1000.0)
+        large = self._single_cell_source_step(4.0e-3, 0.05, 1000.0)
+
+        assert small[3][0] > large[3][0]
+
+    def test_single_cell_energy_diagnostics_close_for_source_update(self):
+        """Diagnostic residual should close for an unclipped source update."""
+        out = self._single_cell_source_step(
+            1.0e-3, 0.05, 1000.0, diagnostics=True,
+        )
+
+        assert out[10] == pytest.approx(0.0)
+        assert out[11] == pytest.approx(0.0, abs=1.0e-8)
+
     def test_thermal_source_controls_injection_temperature(self):
         """Same mass source with hotter thermal source should heat more."""
         N = 3
+        R_specific = 300.0
         rho = np.full(N, 1.0)
         u = np.zeros(N + 1)
-        P = np.full(N, 101325.0)
         T = np.full(N, 300.0)
+        P = rho * R_specific * T
         A_port = np.full(N, 1.0e-3)
         D_hyd = np.full(N, 0.035)
         mass_source = np.zeros(N)
@@ -93,13 +167,13 @@ class TestPisoSources:
         cold = piso_step(
             rho.copy(), u.copy(), P.copy(), T.copy(), A_port, D_hyd,
             mass_source, cold_source, momentum_source, f_darcy,
-            0.01, 1.0e-5, 1.2, 300.0, 3000.0, 2000.0,
+            0.01, 1.0e-5, 1.2, R_specific, 3000.0, 2000.0,
             1.0e-4, 101325.0, 300.0, N,
         )
         hot = piso_step(
             rho.copy(), u.copy(), P.copy(), T.copy(), A_port, D_hyd,
             mass_source, hot_source, momentum_source, f_darcy,
-            0.01, 1.0e-5, 1.2, 300.0, 3000.0, 2000.0,
+            0.01, 1.0e-5, 1.2, R_specific, 3000.0, 2000.0,
             1.0e-4, 101325.0, 300.0, N,
         )
 

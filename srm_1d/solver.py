@@ -274,7 +274,7 @@ def _nozzle_boundary_flow(
 
 
 @njit(cache=True)
-def piso_step(
+def _piso_step_with_energy_diagnostics(
     rho, u, P, T, A_port, D_hyd,
     mass_source, thermal_source, momentum_source, f_darcy,
     dx, dt, gamma, R_specific, T_flame, Cp_gas,
@@ -561,9 +561,17 @@ def piso_step(
     # -------------------------------------------------------
     # STEP 3b: ENERGY EQUATION
     # -------------------------------------------------------
+    gas_energy_before = 0.0
+    gas_energy_after = 0.0
+    convective_scalar_flux_power = 0.0
+    nozzle_scalar_flux_power = 0.0
+    thermal_source_power = 0.0
+    clipping_correction_power = 0.0
     T_new = np.zeros(N)
     for i in range(N):
-        rhoA = max(rho_new_1[i] * A_port[i], 1e-10)
+        old_mass = rho[i] * A_port[i] * dx
+        new_mass = max(rho_new_1[i] * A_port[i] * dx, 1e-16)
+        gas_energy_before += old_mass * Cp_gas * T[i]
 
         # West face flux (upwind using staggered face velocity)
         if i == 0:
@@ -590,13 +598,28 @@ def piso_step(
                 P_ambient, T_ambient,
             )
             flux_e = mdot_e * T_upstream
+            nozzle_scalar_flux_power = mdot_e * Cp_gas * T_upstream
 
-        conv_T = -(flux_e - flux_w) / dx
-        source_T = thermal_source[i]
+        convective_scalar_flux = flux_w - flux_e
+        convective_scalar_flux_power += convective_scalar_flux * Cp_gas
+        thermal_source_power += thermal_source[i] * dx * Cp_gas
 
-        T_new[i] = T[i] + dt / rhoA * (conv_T + source_T) * A_port[i]
-        T_new[i] = max(T_new[i], max(1.0, T_ambient))
-        T_new[i] = min(T_new[i], T_flame * 1.01)
+        scalar = old_mass * T[i] + dt * (
+            convective_scalar_flux + thermal_source[i] * dx
+        )
+        T_raw = scalar / new_mass
+        T_floor = max(1.0, T_ambient)
+        T_ceiling = T_flame * 1.01
+        T_clipped = T_raw
+        if T_clipped < T_floor:
+            T_clipped = T_floor
+        if T_clipped > T_ceiling:
+            T_clipped = T_ceiling
+        clipping_correction_power += (
+            (T_clipped - T_raw) * new_mass * Cp_gas / dt
+        )
+        T_new[i] = T_clipped
+        gas_energy_after += new_mass * Cp_gas * T_new[i]
 
     # -------------------------------------------------------
     # STEP 4: UPDATE DENSITY
@@ -608,7 +631,36 @@ def piso_step(
     for i in range(N):
         rho_new[i] = P_new[i] / (R_specific * T_new[i])
 
-    return rho_new, u_new, P_new, T_new
+    gas_sensible_dE_dt = (gas_energy_after - gas_energy_before) / dt
+    energy_residual = (
+        gas_sensible_dE_dt
+        - convective_scalar_flux_power
+        - thermal_source_power
+        - clipping_correction_power
+    )
+
+    return (rho_new, u_new, P_new, T_new,
+            gas_energy_before, gas_energy_after, gas_sensible_dE_dt,
+            convective_scalar_flux_power, nozzle_scalar_flux_power,
+            thermal_source_power, clipping_correction_power,
+            energy_residual)
+
+
+@njit(cache=True)
+def piso_step(
+    rho, u, P, T, A_port, D_hyd,
+    mass_source, thermal_source, momentum_source, f_darcy,
+    dx, dt, gamma, R_specific, T_flame, Cp_gas,
+    A_throat, P_ambient, T_ambient, N,
+):
+    """Public PISO step returning only the updated flow state."""
+    out = _piso_step_with_energy_diagnostics(
+        rho, u, P, T, A_port, D_hyd,
+        mass_source, thermal_source, momentum_source, f_darcy,
+        dx, dt, gamma, R_specific, T_flame, Cp_gas,
+        A_throat, P_ambient, T_ambient, N,
+    )
+    return out[0], out[1], out[2], out[3]
 
 
 # ================================================================
