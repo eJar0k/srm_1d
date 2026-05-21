@@ -115,6 +115,28 @@ class Pyrogen:
     gamma: float         # Product gas specific heat ratio [-]
     impetus_W: float = 0.0  # Optional DeMar impetus [psi*in^3/g]
     heat_flux_cal_cm2_s: Optional[float] = None  # DeMar heat flux [cal/(cm^2*s)]
+    Cp_gas: Optional[float] = None  # Optional explicit product-gas Cp [J/(kg*K)]
+
+    @property
+    def species(self) -> "GasSpecies":
+        """
+        Return this pyrogen's combustion-product gas as a GasSpecies.
+
+        If Cp_gas is not given explicitly, derive it from the ideal-gas
+        identity Cp = gamma * R_specific / (gamma - 1).
+        """
+        if self.Cp_gas is not None:
+            cp = self.Cp_gas
+        else:
+            R_specific = R_UNIVERSAL / self.M
+            cp = self.gamma * R_specific / (self.gamma - 1.0)
+        return GasSpecies(
+            name=f"{self.name}_gas",
+            gamma=self.gamma,
+            Cp=cp,
+            molecular_weight=self.M,
+            T_flame=self.T_flame,
+        )
 
 
 # ================================================================
@@ -232,6 +254,147 @@ class Propellant:
             a_arr[i] = t.a
             n_arr[i] = t.n
         return min_p, max_p, a_arr, n_arr
+
+    def species(self, P_expected: Optional[float] = None) -> "GasSpecies":
+        """
+        Return this propellant's combustion-product gas as a GasSpecies,
+        built from the representative tab. Multi-tab Cp(p) variation is
+        not yet modeled (gas thermo is taken at the representative tab;
+        burn-rate APN coefficients still switch per-tab).
+        """
+        tab = self.representative_tab(P_expected)
+        return GasSpecies(
+            name=f"{self.name}_gas",
+            gamma=tab.gamma,
+            Cp=self.Cp_gas,
+            molecular_weight=tab.molecular_weight,
+            T_flame=tab.T_flame,
+        )
+
+
+# ================================================================
+# Gas Species (per-cell mixture component)
+# ================================================================
+
+@dataclass
+class GasSpecies:
+    """
+    Lightweight bulk-flow thermo for one gas species in an N-species
+    mixture.
+
+    Introduced in v0.7.1 to support per-cell variable gamma/Cp/R via the
+    SPINBALL-style "infinite-gases mixture" formulation (see
+    ``docs/v0_7_1/DESIGN.md``). Each cell carries mass fractions
+    ``Y[i, s]`` for s = 0..S-1; per-cell (gamma, Cp, R, M) derive from
+    these via standard ideal-gas mixing rules.
+
+    A GasSpecies captures only the **bulk-flow** properties (gamma, Cp,
+    M, T_flame). Burn-rate APN coefficients stay on Pyrogen /
+    PropellantTab. Transport properties (k_thermal, mu_gas, Pr) remain
+    scalar / single-source in v0.7.1 and are NOT carried per species;
+    they live at the Propellant level.
+
+    Attributes
+    ----------
+    name : str
+        Human-readable identifier (e.g. "hasegawa_prop1_gas",
+        "bpnv_pyrogen_gas"). Used in diagnostics only.
+    gamma : float
+        Ratio of specific heats [-].
+    Cp : float
+        Specific heat at constant pressure [J/(kg*K)].
+    molecular_weight : float
+        Mean molecular weight [kg/mol].
+    T_flame : float
+        Adiabatic flame temperature [K]. Used only as the source-term
+        injection temperature when this species is added to a cell by
+        combustion; it is NOT a bulk-mixture state variable.
+    """
+    name: str
+    gamma: float
+    Cp: float
+    molecular_weight: float
+    T_flame: float
+
+    @property
+    def R_specific(self) -> float:
+        return R_UNIVERSAL / self.molecular_weight
+
+
+def ambient_air_species(T_ambient: float = 298.15) -> "GasSpecies":
+    """
+    Default ambient-air GasSpecies for bore pre-fill.
+
+    Used as the v0.7.1 default for species index 2 (pre-fill / ambient).
+    The species has no continuing source after t=0: it is an initial
+    condition only, purged through the nozzle during chamber fill.
+
+    Defaults are dry-air values at standard conditions:
+        gamma = 1.40
+        Cp    = 1005 J/(kg*K)
+        M     = 0.02897 kg/mol
+        T_flame = T_ambient (used only as a "source temperature" if this
+                  species were ever re-injected; nominally unused)
+
+    Parameters
+    ----------
+    T_ambient : float
+        Ambient temperature for T_flame assignment [K]. Default 298.15 K.
+
+    Returns
+    -------
+    GasSpecies
+    """
+    return GasSpecies(
+        name="ambient_air",
+        gamma=1.40,
+        Cp=1005.0,
+        molecular_weight=0.02897,
+        T_flame=float(T_ambient),
+    )
+
+
+def species_array(species_list):
+    """
+    Pack a list of GasSpecies into a 2D numpy array suitable for passing
+    into Numba kernels. Column layout:
+        column 0: gamma
+        column 1: Cp
+        column 2: molecular_weight
+        column 3: T_flame
+
+    Parameters
+    ----------
+    species_list : list[GasSpecies]
+        Ordered species. Index 0 conventionally reserved for the igniter
+        species; index 1 for the main grain combustion species; higher
+        indices for future sources (head-end motor, ablation, ...).
+
+    Returns
+    -------
+    np.ndarray[S, 4]
+        Float64 array. Row s carries (gamma, Cp, M, T_flame) for species s.
+    """
+    n = len(species_list)
+    if n == 0:
+        raise ValueError("species_array: at least one species required")
+    arr = np.empty((n, 4), dtype=np.float64)
+    for s, sp in enumerate(species_list):
+        if sp.gamma <= 1.0:
+            raise ValueError(
+                f"species[{s}] '{sp.name}': gamma must be > 1 (got {sp.gamma})")
+        if sp.Cp <= 0.0:
+            raise ValueError(
+                f"species[{s}] '{sp.name}': Cp must be > 0 (got {sp.Cp})")
+        if sp.molecular_weight <= 0.0:
+            raise ValueError(
+                f"species[{s}] '{sp.name}': molecular_weight must be > 0 "
+                f"(got {sp.molecular_weight})")
+        arr[s, 0] = sp.gamma
+        arr[s, 1] = sp.Cp
+        arr[s, 2] = sp.molecular_weight
+        arr[s, 3] = sp.T_flame
+    return arr
 
 
 # ================================================================

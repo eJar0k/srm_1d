@@ -484,3 +484,61 @@ in geometry/burn rate/ignition (called every step or every N steps).
       re-calibration is pending and deferred to v0.7.0.x / v0.7.1.**
       Treat the current Zerox sim as a v0.6.0-style ignition trace
       with v0.7.0 numerics around it.
+- v0.7.1 (in progress): N-species bore gas (SPINBALL-style "infinite-
+  gases mixture") — Phases 1 + 2 complete (2026-05-23); per-cell γ/Cp/R
+  computed each step but solver still consumes scalars pending Phase 3.
+    - **New `GasSpecies` dataclass** in `propellant.py`. Bulk-flow thermo
+      only (`gamma, Cp, molecular_weight, T_flame`). Burn-rate
+      coefficients stay on `Pyrogen` / `PropellantTab`. Pyrogen and
+      Propellant each grow a `.species` property/method; helper
+      `species_array(list[GasSpecies])` packs to a Numba-friendly
+      `np.ndarray[S, 4]`. `ambient_air_species(T)` builds a default
+      pre-fill species (γ=1.40, Cp=1005, M=0.02897).
+    - **3-species registry built in `run_simulation`**: indices
+      `_SPECIES_IGNITER = 0`, `_SPECIES_PROPELLANT = 1`,
+      `_SPECIES_AMBIENT = 2`. Higher indices reserved for v0.8.0
+      head-end motor + ablation.
+    - **`Y_species[N, S]` state array** initialised to 100% ambient.
+      Tracked in every timestep via a new `_advect_species` Numba kernel
+      called after PISO (mass-fraction-conservative upwind, with face
+      density `0.5*(rho_old[j-1] + rho_old[j])` matching PISO, source
+      term `mass_source_by_species[i, s] * dx * dt`, nozzle outflow
+      `nozzle_mdot * dt * Y[N-1, :]`, and per-cell renormalize).
+    - **`mass_source_by_species[N, S]` array** parallels `mass_source`.
+      `_goodman_ignition_sources_and_mass` writes
+      `[i, _SPECIES_PROPELLANT]` for normal + erosive + end-face grain
+      contributions. Pyrogen injection writes `[0, _SPECIES_IGNITER]`.
+    - **Kernel signature changes (internal; no public API break)**:
+      `_goodman_ignition_sources_and_mass` gains a trailing
+      `mass_source_by_species` arg. `_run_time_loop` gains trailing
+      `Y_species, species_params_arr, mass_source_by_species`. Tests
+      that call these kernels directly were updated in
+      `tests/test_simulation_phase3.py`.
+    - **Pre-PISO ρ snapshot**: a new `rho_pre_step[N]` working array is
+      copied each step before PISO so the post-PISO advection has the
+      old density (PISO updates `rho` in place).
+    - **Public API additions** (no break): `run_simulation` result dict
+      gains `Y_species_final`, `species_params`, `species_names`,
+      `rho_final`, `A_port_final`.
+    - **Phase 1 verified**: 5 new tests in `tests/test_yns_transport.py`
+      pass alongside the 180-test baseline (185 total). Kernel-level
+      tests cover pure advection, source-only, FP-drift renormalize,
+      and nozzle outflow. Integration test verifies invariants and
+      sensible species fractions on a 50 ms Hasegawa A run.
+    - **Phase 2 complete (2026-05-23)**: per-cell mixture derivation.
+      `_compute_mixture_cell(Y_row, species_params)` implements the
+      textbook ideal-gas mixing rules (mass-weighted Cp; harmonic
+      molar-fraction MW; gamma = Cp/(Cp-R)). `_refresh_mixture_arrays`
+      loops over cells and refreshes `gamma_mix_arr / Cp_mix_arr /
+      R_mix_arr / M_mix_arr` after each `_advect_species` call. Arrays
+      are exposed in the result dict as `gamma_mix_final`,
+      `Cp_mix_final`, `R_mix_final`, `M_mix_final` but are **not yet
+      consumed by the solver** — the PISO step still uses scalar
+      (gas.gamma, gas.R_specific, gas.Cp) from the representative tab.
+      8 new tests in `tests/test_yns_mixture.py` (193 total).
+    - **Phase 3 still pending**: thread per-cell arrays through
+      `_piso_step`, energy diagnostics (advect Cp·T instead of T), the
+      nozzle BC, the source-CFL cap, and the T_flame·1.01 clip
+      ceiling. Until that lands, the v0.7.1 mixture infrastructure is
+      computed but the simulation behaves identically to v0.7.0. See
+      `srm_1d/docs/v0_7_1/DESIGN.md` and `TASKS.md`.

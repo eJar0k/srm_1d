@@ -120,6 +120,7 @@ def test_adjacent_radiation_heats_only_neighbors_and_conserves_sink():
     D_hyd = np.full(N, 0.03)
     f = np.zeros(N)
 
+    mass_source_by_species = np.zeros((N, 3))  # v0.7.1: 3-species
     out = _goodman_ignition_sources_and_mass(
         P, T, T_surf, delta, has_ignited, is_burning, is_grain,
         ignition_time, r_total, r_erosive,
@@ -131,6 +132,7 @@ def test_adjacent_radiation_heats_only_neighbors_and_conserves_sink():
         0.5, 0.3685, 50e-6, 0.45, 1.0e-7, 0.3,
         10000.0, N, dx, 0.0, 300.0, 2060.0,
         0.0, 0.45, False, 0.0,
+        mass_source_by_species,
     )
 
     radiation_heat_power = out[4]
@@ -171,6 +173,7 @@ def test_adjacent_radiation_sink_can_be_disabled_for_diagnostics():
     D_hyd = np.full(N, 0.03)
     f = np.zeros(N)
 
+    mass_source_by_species = np.zeros((N, 3))  # v0.7.1: 3-species
     out = _goodman_ignition_sources_and_mass(
         P, T, T_surf, delta, has_ignited, is_burning, is_grain,
         ignition_time, r_total, r_erosive,
@@ -182,6 +185,7 @@ def test_adjacent_radiation_sink_can_be_disabled_for_diagnostics():
         0.5, 0.3685, 50e-6, 0.45, 1.0e-7, 0.3,
         10000.0, N, dx, 0.0, 300.0, 2060.0,
         0.0, 0.45, True, 0.0,
+        mass_source_by_species,
     )
 
     assert out[4] > 0.0

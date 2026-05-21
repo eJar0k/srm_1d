@@ -41,8 +41,11 @@ from .propellant import (
     Propellant,
     PropellantTab,
     Pyrogen,
+    GasSpecies,
     GasProperties,
     create_gas_properties,
+    species_array,
+    ambient_air_species,
     critical_flow_function,
     characteristic_velocity,
 )

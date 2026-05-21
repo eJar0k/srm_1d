@@ -81,6 +81,15 @@ N_SNAP_CHANNELS = 17
 CAL_CM2_S_TO_W_M2 = 41840.0
 STEFAN_BOLTZMANN = 5.670374419e-8
 
+# ================================================================
+# v0.7.1 species indices (used inside @njit kernels — Numba resolves
+# module-level constants at compile time). Mirrors the run_simulation
+# species_list ordering.
+# ================================================================
+_SPECIES_IGNITER = 0
+_SPECIES_PROPELLANT = 1
+_SPECIES_AMBIENT = 2
+
 
 # ================================================================
 # Fused per-step helpers (called from inside _run_time_loop)
@@ -215,6 +224,172 @@ def _thermal_source_power(thermal_source, Cp_gas, dx, N):
 
 
 @njit(cache=True)
+def _compute_mixture_cell(Y_row, species_params):
+    """
+    Ideal-gas mass-fraction mixing for one cell.
+
+    Standard textbook formulas (e.g. Kuo, *Principles of Combustion* §1.6;
+    Bird/Stewart/Lightfoot §16.1):
+
+        Cp_mix     = sum_s  Y[s] * Cp[s]                        (mass-weighted)
+        1/M_mix    = sum_s  Y[s] / M[s]                         (harmonic)
+        R_mix      = R_universal / M_mix
+        gamma_mix  = Cp_mix / (Cp_mix - R_mix)                  (ideal gas)
+
+    Parameters
+    ----------
+    Y_row : np.ndarray[S]
+        Mass fractions in this cell. Sum must be ~1; the caller is
+        responsible for renormalization. Each element is in [0, 1].
+    species_params : np.ndarray[S, 4]
+        Row layout: (gamma, Cp, molecular_weight, T_flame). gamma is not
+        used here (it derives from Cp_mix and R_mix); T_flame is not
+        used (it is a source-injection property, not a bulk-mixture
+        property).
+
+    Returns
+    -------
+    (gamma_mix, Cp_mix, R_mix, M_mix) : 4 floats
+    """
+    S = species_params.shape[0]
+    Cp_mix = 0.0
+    inv_M_mix = 0.0
+    for s in range(S):
+        y = Y_row[s]
+        if y <= 0.0:
+            continue
+        Cp_s = species_params[s, 1]
+        M_s = species_params[s, 2]
+        Cp_mix += y * Cp_s
+        inv_M_mix += y / M_s
+    if inv_M_mix <= 0.0 or Cp_mix <= 0.0:
+        # Degenerate: fall back to species 0 to keep the kernel total.
+        gamma0 = species_params[0, 0]
+        Cp0 = species_params[0, 1]
+        M0 = species_params[0, 2]
+        R0 = R_UNIVERSAL / M0
+        return gamma0, Cp0, R0, M0
+    M_mix = 1.0 / inv_M_mix
+    R_mix = R_UNIVERSAL / M_mix
+    denom = Cp_mix - R_mix
+    if denom <= 0.0:
+        # Physically pathological: Cp <= R implies gamma -> infinity.
+        # Clamp to species-0 thermo. (Should not occur for real fuel
+        # combustion products + air.)
+        gamma0 = species_params[0, 0]
+        Cp0 = species_params[0, 1]
+        M0 = species_params[0, 2]
+        R0 = R_UNIVERSAL / M0
+        return gamma0, Cp0, R0, M0
+    gamma_mix = Cp_mix / denom
+    return gamma_mix, Cp_mix, R_mix, M_mix
+
+
+@njit(cache=True)
+def _refresh_mixture_arrays(
+    Y, species_params, gamma_arr, Cp_arr, R_arr, M_arr, N,
+):
+    """
+    Refresh per-cell (gamma, Cp, R, M) arrays from Y[N, S].
+
+    Called every time-step after _advect_species updates Y. The output
+    arrays are then available for the solver to consume (Phase 3 will
+    wire them into _piso_step).
+
+    For Phase 2 this is a "ready but not yet consumed" hook: it runs
+    every step so we can confirm zero-overhead correctness, but the
+    arrays sit unused by the solver until Phase 3 lands.
+    """
+    for i in range(N):
+        gamma_i, Cp_i, R_i, M_i = _compute_mixture_cell(Y[i, :], species_params)
+        gamma_arr[i] = gamma_i
+        Cp_arr[i] = Cp_i
+        R_arr[i] = R_i
+        M_arr[i] = M_i
+
+
+@njit(cache=True)
+def _advect_species(
+    Y, rho_old, rho_new, u, A_port,
+    nozzle_mdot, dx, dt,
+    mass_source_by_species, N, S,
+):
+    """
+    v0.7.1 — mass-fraction-conservative upwind passive-scalar advection.
+
+    Updates ``Y[N, S]`` in-place after the PISO step has produced
+    ``rho_new`` (cell densities) and ``u`` (face velocities). The
+    interior-face density uses central averaging
+    ``0.5 * (rho_old[j-1] + rho_old[j])`` to match the PISO mass balance;
+    face area uses the same arithmetic mean of adjacent ``A_port``; Y at
+    each face is taken from the upwind cell. The nozzle face (j=N)
+    carries ``Y[N-1, :]`` outward at rate ``nozzle_mdot``.
+
+    After flux + source accumulation, each cell's new species mass is
+    divided by the new cell mass ``rho_new[i] * A_port[i] * dx`` to get
+    Y_new; tiny FP drift is clamped via per-cell renormalization so
+    ``sum_s Y[i, s] = 1`` and ``0 <= Y[i, s] <= 1``.
+
+    Notes
+    -----
+    For Phase 1, mass closure with PISO is exact to O(round-off) for
+    interior cells. The nozzle cell's closure depends on the
+    ``nozzle_mdot`` argument matching the value PISO used to update
+    ``rho_new[N-1]``; small inconsistencies (O(dt^2)) are absorbed by
+    the renormalization step.
+    """
+    # Per-face species mass flux (mass-of-species crossing face j, signed).
+    face_species_flux = np.zeros((N + 1, S))
+
+    # Interior faces 1..N-1: rho_face and A_face from central averages
+    # of adjacent cell quantities; upwind on Y per face velocity sign.
+    for j in range(1, N):
+        rho_face = 0.5 * (rho_old[j - 1] + rho_old[j])
+        A_face_local = 0.5 * (A_port[j - 1] + A_port[j])
+        mass_flux_face = rho_face * u[j] * A_face_local * dt
+        if mass_flux_face >= 0.0:
+            upwind = j - 1
+        else:
+            upwind = j
+        for s in range(S):
+            face_species_flux[j, s] = mass_flux_face * Y[upwind, s]
+
+    # Nozzle face N: outflow carries cell N-1 composition.
+    for s in range(S):
+        face_species_flux[N, s] = nozzle_mdot * dt * Y[N - 1, s]
+
+    # Face 0 (head-end wall) — flux remains zero (already initialized).
+
+    # Per-cell update. NOTE on units: mass_source_by_species[i, s] is
+    # a cell rate per unit axial length [kg/(m*s)] (mirrors the existing
+    # mass_source convention used by PISO's continuity residual at
+    # solver.py: b_rhs[i] = mass_source[i] * dx - ...). The mass added
+    # to cell i per step is therefore source * dx * dt, NOT source * V * dt.
+    for i in range(N):
+        V_i = A_port[i] * dx
+        m_old = rho_old[i] * V_i
+        m_new = rho_new[i] * V_i
+        if m_new < 1.0e-12:
+            # Degenerate cell (no mass); leave Y unchanged.
+            continue
+        total = 0.0
+        for s in range(S):
+            new_mass_s = (m_old * Y[i, s]
+                          + face_species_flux[i, s]      # in through west face
+                          - face_species_flux[i + 1, s]  # out through east face
+                          + mass_source_by_species[i, s] * dx * dt)
+            if new_mass_s < 0.0:
+                new_mass_s = 0.0
+            Y[i, s] = new_mass_s / m_new
+            total += Y[i, s]
+        # Renormalize to sum=1; clamps fp drift over thousands of steps.
+        if total > 1.0e-12:
+            inv = 1.0 / total
+            for s in range(S):
+                Y[i, s] *= inv
+
+
+@njit(cache=True)
 def _goodman_ignition_sources_and_mass(
     P, T, T_surf, delta, has_ignited, is_burning, is_grain, ignition_time,
     r_total, r_erosive, mass_source, thermal_source,
@@ -227,6 +402,7 @@ def _goodman_ignition_sources_and_mass(
     pyrogen_surface_heat_flux_w_m2, radiation_emissivity,
     diagnostic_disable_radiation_gas_sink,
     tau_establishment,
+    mass_source_by_species,  # v0.7.1: [N, S] per-species rates [kg/s/m]
 ):
     """Goodman surface-temperature ignition and propellant source assembly.
 
@@ -262,6 +438,14 @@ def _goodman_ignition_sources_and_mass(
             pyrogen_surface_heat_flux_w_m2 > 0.0 and
             (not has_ignited[head_grain_cell])):
         pyrogen_heat_target = head_grain_cell
+
+    # v0.7.1: reset per-species mass source rows. Each step recomputes
+    # contributions from grain (s=1) inside this loop; pyrogen (s=0) is
+    # set after this function returns. Other species remain zero.
+    S_local = mass_source_by_species.shape[1]
+    for i in range(N):
+        for s in range(S_local):
+            mass_source_by_species[i, s] = 0.0
 
     for i in range(N):
         mass_source[i] = 0.0
@@ -381,12 +565,14 @@ def _goodman_ignition_sources_and_mass(
             if erosive_source < 0.0:
                 erosive_source = 0.0
             mass_source[i] += prop_source
+            mass_source_by_species[i, _SPECIES_PROPELLANT] += prop_source
             thermal_source[i] += prop_source * T_flame
             normal_sidewall_thermal_power += normal_source * T_flame * Cp_gas * dx
             erosive_sidewall_thermal_power += erosive_source * T_flame * Cp_gas * dx
 
         if endface_msource[i] > 0.0:
             mass_source[i] += endface_msource[i]
+            mass_source_by_species[i, _SPECIES_PROPELLANT] += endface_msource[i]
             thermal_source[i] += endface_msource[i] * T_flame
             endface_thermal_power += endface_msource[i] * T_flame * Cp_gas * dx
 
@@ -476,6 +662,9 @@ def _run_time_loop(
     max_hist,
     # --- Output: snapshots (pre-allocated) ---
     snap_data, snap_times, max_snaps,
+    # --- v0.7.1: N-species state ---
+    Y_species, species_params_arr, mass_source_by_species,
+    gamma_mix_arr, Cp_mix_arr, R_mix_arr, M_mix_arr,
 ):
     """
     The complete simulation time loop, compiled to native code.
@@ -536,6 +725,13 @@ def _run_time_loop(
     solid_alpha = 0.0
     if k_solid > 0.0 and rho_propellant > 0.0 and Cps > 0.0:
         solid_alpha = k_solid / (rho_propellant * Cps)
+
+    # v0.7.1: workspace for pre-PISO density snapshot. Used by
+    # _advect_species after PISO updates rho in-place. Face areas are
+    # computed inline inside the advection kernel from the per-step
+    # A_port to handle regression-driven area evolution.
+    S_species_local = Y_species.shape[1]
+    rho_pre_step = np.zeros(N)
 
     # Initial a_max for CFL
     T_max = T[0]
@@ -676,6 +872,7 @@ def _run_time_loop(
             active_pyrogen_surface_heat_flux_w_m2, radiation_emissivity,
             diagnostic_disable_radiation_gas_sink,
             tau_establishment,
+            mass_source_by_species,
         )
 
         pyrogen_enthalpy_power = 0.0
@@ -684,6 +881,7 @@ def _run_time_loop(
             ign_source = mdot_igniter / dx
             ign_thermal_source = ign_source * T_ig
             mass_source[0] += ign_source
+            mass_source_by_species[0, _SPECIES_IGNITER] += ign_source
             thermal_source[0] += ign_thermal_source
             pyrogen_enthalpy_power = mdot_igniter * Cp_gas * T_ig
             pyrogen_surface_heat_sink = _pyrogen_surface_thermal_sink(
@@ -720,6 +918,11 @@ def _run_time_loop(
                 D_throat = 1e-6
             A_throat = PI / 4.0 * D_throat * D_throat
 
+        # v0.7.1: snapshot rho before PISO mutates it (needed for
+        # mass-conservative Y advection after PISO).
+        for i in range(N):
+            rho_pre_step[i] = rho[i]
+
         # ============================================
         # STEP 4: PISO
         # ============================================
@@ -751,6 +954,21 @@ def _run_time_loop(
             P_ambient, ambient_temperature,
         )
         total_mass_nozzle += nozzle_mdot * dt
+
+        # v0.7.1: species advection using post-PISO (u, rho) and the
+        # pre-PISO rho snapshot. mass_source_by_species was populated
+        # earlier (pyrogen at cell 0, propellant grain at active cells).
+        _advect_species(
+            Y_species, rho_pre_step, rho, u, A_port,
+            nozzle_mdot, dx, dt,
+            mass_source_by_species, N, S_species_local,
+        )
+        # v0.7.1 Phase 2: refresh per-cell mixture arrays from updated Y.
+        # Available for solver consumption in Phase 3; currently unused.
+        _refresh_mixture_arrays(
+            Y_species, species_params_arr,
+            gamma_mix_arr, Cp_mix_arr, R_mix_arr, M_mix_arr, N,
+        )
 
         # Kn = total bore burning area / throat area
         Kn = 0.0
@@ -1051,6 +1269,29 @@ def run_simulation(
     N = geo.N_cells
     dx = geo.dx
 
+    # v0.7.1: N-species bore-gas registry. Indices:
+    #   s=0  igniter (pyrogen)
+    #   s=1  main grain combustion products
+    #   s=2  ambient (pre-fill, no continuing source)
+    # Higher indices reserved for future sources (v0.8.0 head-end motor,
+    # ablation, ...). See docs/v0_7_1/DESIGN.md.
+    from .propellant import (
+        species_array as _build_species_array,
+        ambient_air_species as _ambient_air_species,
+    )
+    _ambient_T = float(ambient_temperature) if ambient_temperature is not None \
+                 else propellant.T_initial
+    species_list = [
+        pyrogen_chamber.pyrogen.species,           # s=0
+        propellant.species(),                      # s=1
+        _ambient_air_species(T_ambient=_ambient_T),# s=2
+    ]
+    species_params_arr = _build_species_array(species_list)
+    S_species = species_params_arr.shape[0]
+    SPECIES_IGNITER = 0
+    SPECIES_PROPELLANT = 1
+    SPECIES_AMBIENT = 2
+
     if burn_update_interval is None:
         burn_update_interval = max(10, N // 5)
 
@@ -1111,6 +1352,24 @@ def run_simulation(
     u = np.zeros(N + 1)
     T = np.full(N, T_initial_gas)
 
+    # v0.7.1: per-cell species mass fractions. Y_species[i, s] is the
+    # mass fraction of species s in cell i. Invariant: sum_s Y[i, s] = 1.
+    # Initial condition: all cells start as 100% ambient (species 2).
+    # The species composition tracks separately from temperature; the
+    # numerical-stability shortcut of initializing T at the propellant
+    # T_flame is preserved in T_initial_gas above.
+    Y_species = np.zeros((N, S_species))
+    Y_species[:, SPECIES_AMBIENT] = 1.0
+
+    # v0.7.1 Phase 2: per-cell mixture thermophysical arrays derived
+    # from Y each step. Allocated here, refreshed inside the time loop
+    # after _advect_species runs. Phase 3 will wire these into the
+    # solver; for now they are computed-but-unused diagnostics.
+    gamma_mix_arr = np.empty(N)
+    Cp_mix_arr = np.empty(N)
+    R_mix_arr = np.empty(N)
+    M_mix_arr = np.empty(N)
+
     # Ignition state
     is_burning = np.zeros(N, dtype=np.bool_)
     has_ignited = np.zeros(N, dtype=np.bool_)
@@ -1122,6 +1381,12 @@ def run_simulation(
 
     # Working arrays
     mass_source = np.zeros(N)
+    # v0.7.1: per-species mass-source accounting. mass_source_by_species[i, s]
+    # is the mass source rate [kg/s/m] (cell rate, same units as mass_source)
+    # for species s into cell i. Sums across s equal mass_source[i].
+    # Populated by the source-application sites (pyrogen injection,
+    # Goodman grain-mass sources). Used in Phase 1d-e for Y advection.
+    mass_source_by_species = np.zeros((N, S_species))
     thermal_source = np.zeros(N)
     momentum_source = np.zeros(N + 1)
     pyrogen_surface_heat_flux = np.zeros(N)
@@ -1304,6 +1569,9 @@ def run_simulation(
         max_hist,
         # Output: snapshots
         snap_data, snap_times, max_snaps,
+        # v0.7.1: N-species state
+        Y_species, species_params_arr, mass_source_by_species,
+        gamma_mix_arr, Cp_mix_arr, R_mix_arr, M_mix_arr,
     )
 
     wall_elapsed = clock.time() - wall_start
@@ -1564,4 +1832,18 @@ def run_simulation(
         'snapshots': snapshots, 'grains': grain_data,
         'summary': summary,
         'P_ambient': P_ambient,
+        # v0.7.1: N-species final state and species registry
+        'Y_species_final': Y_species.copy(),
+        'species_params': species_params_arr.copy(),
+        'species_names': [sp.name for sp in species_list],
+        'rho_final': rho.copy(),
+        'A_port_final': A_port.copy(),
+        # v0.7.1 Phase 2: per-cell mixture arrays (final state).
+        # Not yet consumed by the solver — solver still uses the rep-tab
+        # scalars (gas.gamma, gas.R_specific, etc.). Phase 3 will wire
+        # these arrays into the PISO step.
+        'gamma_mix_final': gamma_mix_arr.copy(),
+        'Cp_mix_final': Cp_mix_arr.copy(),
+        'R_mix_final': R_mix_arr.copy(),
+        'M_mix_final': M_mix_arr.copy(),
     }

@@ -6,13 +6,21 @@ compiled time loop hits ~45-90k steps/s. v0.7.0 ships a pyrogen-plenum
 igniter + Goodman solid-heating ignition model and is calibrated
 against Hasegawa A at `mse_all = 0.0968 MPa²` (was 0.24 in v0.6.0).
 
+**v0.7.1 in progress on branch `v0.7.0-phase4`** (no tag yet): N-species
+bore-gas refactor (SPINBALL-style "infinite-gases mixture"). Phases 1+2
+complete — `Y[N, 3]` advected per step, per-cell `(γ, Cp, R, M)` derived
+each step. **Solver behavior is unchanged** (the new arrays are computed
+but not yet consumed by PISO). Phase 3 (threading the arrays through
+PISO + energy advection) is the next focused task. See
+`srm_1d/docs/v0_7_1/`.
+
 This file is loaded on every session — keep it tight. Pointers to
 deeper docs at the bottom.
 
 ## Quick start
 
 ```bash
-# Tests (pyenv 3.10.5 -- has numba, pytest, scikit-fmm installed; 180 tests)
+# Tests (pyenv 3.10.5 -- has numba, pytest, scikit-fmm installed; 193 tests)
 "C:/Users/ejarocki/.pyenv/pyenv-win/versions/3.10.5/python.exe" -m pytest srm_1d/tests/
 
 # Hasegawa A example (loads srm_1d/motors/hasegawa_a.ric)
@@ -28,19 +36,19 @@ pyenv 3.10.5 path explicitly.
 srm_1d/
 ├── solver.py            PISO + TDMA + adaptive CFL (pure numerics, no project deps)
 ├── burn_rate.py         Ma 2020: Haaland → Gnielinski → bisection. Multi-tab Saint-Robert lookup.
-├── propellant.py        Propellant + tabs (PropellantTab) + GasProperties + thermo utilities
+├── propellant.py        Propellant + tabs (PropellantTab) + GasProperties + GasSpecies + Pyrogen + thermo utilities
 ├── grain_geometry.py    GrainSegment / MotorGeometry / build_snapped_geometry; per-cell regress[i]
 ├── nozzle.py            openMotor-aligned Nozzle: thrust, Isp, CF, throat erosion. Adjusted-CF formula.
 ├── fmm_grain.py         Bridge to local openMotor checkout; FmmTable extraction + Numba lookup
 ├── igniter_plenum.py    Pyrogen chamber, choked/subsonic venting, Sutton sizing defaults
 ├── solid_thermal.py     Goodman integral solid-heating ignition subsolver
-├── simulation.py        run_simulation wrapper + @njit _run_time_loop (pyrogen + Goodman)
+├── simulation.py        run_simulation wrapper + @njit _run_time_loop (pyrogen + Goodman); v0.7.1: _advect_species, _compute_mixture_cell, _refresh_mixture_arrays
 ├── plotting.py          matplotlib plots (pressure, thrust, flow snapshots, summary)
 ├── openmotor_adapter.py .ric reader, transport YAML loader, convert_propellant/_geometry/_nozzle, CSV export
 ├── motors/              Canonical motor data: <motor>.ric + <motor>.transport.yaml pairs
 ├── tools/sensitivity.py Latin Hypercube parameter sweeps with parallel execution
 ├── examples/            hasegawa_motor_a, bates_4seg, hasegawa_a_lhs, Zerox_test, ZeroxOptimizer
-└── tests/               12 files, 180 tests
+└── tests/               14 files, 193 tests
 ```
 
 ## Dev workflow
@@ -79,12 +87,23 @@ srm_1d/
 4. **Igniter API hard-broke in v0.7.0** -- the exponential knobs
    (`igniter_mass`, `igniter_tau`, `ignition_ramp_tau`, `P_ignition`)
    are gone. Use `pyrogen_chamber` directly or `run_from_ric(...,
-   pyrogen='bpnv')`. The plenum injects mass plus temperature-weighted
-   enthalpy into cell 0; igniter momentum is intentionally deferred.
-5. **Frozen vs effective gas transport** — tunable knob. Frozen
-   (k=0.37, Cp=2060) under-predicts erosive spike; effective
-   (k~0.65, Cp~1800) over-predicts plateau. Hasegawa A is sensitive
-   to this — see calibration memory before tuning.
+   pyrogen='bpnv')`. The plenum injects mass + enthalpy + axial
+   momentum (via `_orifice_exit_velocity`) into cell 0 / face 1.
+   The `igniter_axial_momentum_fraction` kwarg scales the momentum
+   contribution (default 1.0 = pure axial head-end jet).
+5. **Frozen vs effective gas transport** — tunable knob in v0.7.0,
+   addressed structurally in v0.7.1. Frozen (k=0.37, Cp=2060)
+   under-predicts erosive spike; effective (k~0.65, Cp~1800)
+   over-predicts plateau. v0.7.1 Phase 3 will replace this single
+   knob with per-cell γ/Cp/R derived from the Y[N, 3] mixture. Until
+   Phase 3 ships, the calibrated `k_solid = 0.482` compromise stands.
+6. **v0.7.1 mixture arrays are computed but NOT yet consumed** by the
+   solver. `Y_species`, `gamma_mix_arr`, `Cp_mix_arr`, `R_mix_arr`,
+   `M_mix_arr` are populated each step and exposed via the result
+   dict (`Y_species_final`, `gamma_mix_final`, etc.). PISO still uses
+   scalar (gas.gamma, gas.R_specific, gas.Cp) from the representative
+   tab. Phase 3 wires the arrays in; until then the simulation
+   behaves identically to v0.7.0.
 
 ## External deps
 
@@ -107,6 +126,14 @@ srm_1d/
   `DESIGN.md` (implemented architecture), `TASKS.md` (phase status),
   `references/` (extracted papers + Goodman integral derivation +
   Sutton/DeMar summaries).
+- `srm_1d/docs/v0_7_1/` -- v0.7.1 N-species design package:
+  `DESIGN.md` (mixture architecture, Phase plan, ambient species
+  decision), `TASKS.md` (Phase 1+2 complete; Phase 3-5 pending).
+- `srm_1d/docs/post_v0_7_0/references/` -- SPINBALL research that
+  motivated v0.7.1: Cavallini 2009 + DiGiacinto 2008 extractions plus
+  the `spinball_walkthrough.md` decision document (recommends Z-N
+  dynamic burn rate as the spike-taildown candidate; N-species is the
+  prerequisite infrastructure being delivered first).
 - `gemini summary.md` (repo root) -- historical record of the v0.6.0
   development cycle that originated build_snapped_geometry, the new
   end-face kernel, and the exponential-decay igniter
@@ -116,20 +143,26 @@ srm_1d/
 
 ## Open roadmap (priority order)
 
-1. **Zerox v0.7.0 re-calibration** -- the v0.6.0 Zerox LHS calibrated
+1. **v0.7.1 Phase 3** -- thread per-cell γ/R/Cp arrays through the
+   PISO step + energy advection (T → Cp·T sensible enthalpy) + nozzle
+   BC + source-CFL cap + T_flame·1.01 clip ceiling. Estimated 30-40%
+   of a fresh session. Phase 4-5 (validation + Hasegawa A re-LHS)
+   follow. v0.7.1 tags when re-LHS rank-1 mse_all ≤ v0.7.0 (0.0968).
+2. **Z-N dynamic burn rate** -- the spike-taildown candidate identified
+   in the SPINBALL walkthrough. One state per cell + a relaxation ODE
+   on the steady r_b. No fitted constants if `τ_ZN = κ·α/r²`. Slotted
+   as v0.7.2 after v0.7.1 multi-species lands.
+3. **Zerox v0.7.0+ re-calibration** -- the v0.6.0 Zerox LHS calibrated
    roughness, `erosionCoeff`, and `a` against the old exponential-decay
-   igniter. Re-run with the v0.7.0 pyrogen plenum parameters before
-   trusting the Zerox sim for design work.
-2. **ε = 0.05 single-cell ignition spike** (radiation-collapse residual)
+   igniter. Re-run after v0.7.1 ships so calibration uses the new
+   per-cell mixture thermo.
+4. **ε = 0.05 single-cell ignition spike** (radiation-collapse residual)
    -- the only remaining outlier in the 27-variant radiation matrix
    trips on the last-grain-cell ignition transition. Would require
    source sub-stepping (split-operator within one PISO step).
-3. **Per-step gas thermo for multi-tab** (deferred) -- gamma, T_flame, MW
-   varying inside the hot loop. Documented in DEVNOTES; hold off
-   until calibration shows it helps.
-4. **RodTube grain support** -- small extension (PerforatedGrain in
+5. **RodTube grain support** -- small extension (PerforatedGrain in
    addition to FmmGrain in `from_openmotor`).
-5. **Peretz-aligned participation fraction** -- v0.7.0 LHS skipped this
-   (the joint roughness/kappa calibration was sufficient). Stays in
-   the roadmap as a v0.7.1 refinement if future motors with different
-   geometries or aluminum loadings need it.
+6. **Al2O3 two-phase thermal lag** -- Pardue 1992 form, the secondary
+   spike-taildown candidate from the SPINBALL walkthrough. Higher
+   implementation cost than Z-N (full re-cal needed). v0.7.3+ if Z-N
+   alone doesn't close the residual.
