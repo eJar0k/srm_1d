@@ -7,12 +7,15 @@ igniter + Goodman solid-heating ignition model and is calibrated
 against Hasegawa A at `mse_all = 0.0968 MPa²` (was 0.24 in v0.6.0).
 
 **v0.7.1 in progress on branch `v0.7.0-phase4`** (no tag yet): N-species
-bore-gas refactor (SPINBALL-style "infinite-gases mixture"). Phases 1+2
+bore-gas refactor (SPINBALL-style "infinite-gases mixture"). Phases 1+2+3
 complete — `Y[N, 3]` advected per step, per-cell `(γ, Cp, R, M)` derived
-each step. **Solver behavior is unchanged** (the new arrays are computed
-but not yet consumed by PISO). Phase 3 (threading the arrays through
-PISO + energy advection) is the next focused task. See
-`srm_1d/docs/v0_7_1/`.
+each step, AND consumed by PISO. Energy advection switched to sensible-
+enthalpy form (Cp·T), EOS and pressure-correction transient per cell,
+nozzle BC uses cell-N-1 mixture, T_ceiling per cell. Hasegawa A baseline
+runs 1.4M steps without NaN (P_peak 6.26 MPa, mass-balance err 0.1%,
+c* 1543 m/s, O5347 designation — within Phase 3's ±10% target).
+Phase 3.5 (per-species Cp lookups at source sites) + Phase 4 (validation
+tests) + Phase 5 (Hasegawa A re-LHS) remain. See `srm_1d/docs/v0_7_1/`.
 
 This file is loaded on every session — keep it tight. Pointers to
 deeper docs at the bottom.
@@ -94,16 +97,27 @@ srm_1d/
 5. **Frozen vs effective gas transport** — tunable knob in v0.7.0,
    addressed structurally in v0.7.1. Frozen (k=0.37, Cp=2060)
    under-predicts erosive spike; effective (k~0.65, Cp~1800)
-   over-predicts plateau. v0.7.1 Phase 3 will replace this single
-   knob with per-cell γ/Cp/R derived from the Y[N, 3] mixture. Until
-   Phase 3 ships, the calibrated `k_solid = 0.482` compromise stands.
-6. **v0.7.1 mixture arrays are computed but NOT yet consumed** by the
-   solver. `Y_species`, `gamma_mix_arr`, `Cp_mix_arr`, `R_mix_arr`,
-   `M_mix_arr` are populated each step and exposed via the result
-   dict (`Y_species_final`, `gamma_mix_final`, etc.). PISO still uses
-   scalar (gas.gamma, gas.R_specific, gas.Cp) from the representative
-   tab. Phase 3 wires the arrays in; until then the simulation
-   behaves identically to v0.7.0.
+   over-predicts plateau. v0.7.1 Phase 3 now uses per-cell γ/Cp/R
+   derived from the Y[N, 3] mixture; `k_thermal` and `mu_gas` remain
+   scalar (deferred to v0.7.2 if Phase 5 calibration shows benefit).
+   Until Phase 5 re-LHS lands, the v0.7.0 calibrated `k_solid = 0.482`
+   compromise stands.
+6. **v0.7.1 thermal_source units changed to W/m (Phase 3 step 1)**.
+   Previously kg·K/(s·m) — multiply by Cp_gas to convert legacy
+   external builds. Each source site multiplies its mdot·T contribution
+   by Cp_gas; the PISO energy equation now treats the input as direct
+   enthalpy injection per unit length. `_pyrogen_surface_thermal_sink`
+   and `_thermal_source_power` signatures changed accordingly.
+7. **v0.7.1 PISO + post-PISO take per-cell arrays (Phase 3 step 2)**.
+   `_piso_step_with_energy_diagnostics` and `piso_step` now take
+   `gamma_arr / R_arr / Cp_arr / T_ceiling_arr` instead of scalar gas
+   thermo. Energy advection is sensible-enthalpy (Cp·T) — face fluxes
+   carry upwind Cp·T to conserve energy across cells with different Cp.
+   Nozzle BC uses cell-N-1 mixture. T_ceiling is **relaxed** from
+   DESIGN §5: max-over-all-species T_flame * 1.01 (not the strict
+   Y > 0.05 filter), to avoid clipping the v0.7.0 IC (T = T_flame_prop
+   while Y = 100% ambient) on step 0. See
+   `_compute_T_ceiling_arr` docstring.
 
 ## External deps
 

@@ -1,9 +1,11 @@
 # srm_1d v0.7.1 — Multi-Species Bore Gas (N-species)
 
-**Status**: Phases 1 + 2 complete (2026-05-23). Phase 3 (solver
-threading) is the next focused work. 193/193 tests pass; solver
-behavior is unchanged (mixture arrays computed but not yet consumed
-by PISO).
+**Status**: Phases 1 + 2 + 3 complete (2026-05-23). Phase 3.5
+(per-species Cp source lookups) + Phase 4 (validation tests) +
+Phase 5 (Hasegawa A re-LHS) remain. 193/193 tests pass; PISO now
+consumes per-cell `(γ, R, Cp, T_ceiling)` arrays and advects sensible
+enthalpy. Hasegawa A baseline smoke is within ±10% of v0.7.0 without
+re-calibration.
 
 **Target**: Replace the single calorically-perfect gas assumption (v0.7.0
 "must-have" #5 from [v0_7_0/DESIGN.md](../v0_7_0/DESIGN.md) §3) with a

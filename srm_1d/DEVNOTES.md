@@ -485,8 +485,11 @@ in geometry/burn rate/ignition (called every step or every N steps).
       Treat the current Zerox sim as a v0.6.0-style ignition trace
       with v0.7.0 numerics around it.
 - v0.7.1 (in progress): N-species bore gas (SPINBALL-style "infinite-
-  gases mixture") — Phases 1 + 2 complete (2026-05-23); per-cell γ/Cp/R
-  computed each step but solver still consumes scalars pending Phase 3.
+  gases mixture") — Phases 1 + 2 + 3 complete (2026-05-23). PISO and
+  helpers now consume per-cell γ/Cp/R/T_ceiling. Sensible-enthalpy
+  advection. Cell-N-1 nozzle BC. Hasegawa A baseline within ±10% of
+  v0.7.0 trace without re-calibration. Phase 3.5 (per-species Cp source
+  lookups) + Phase 4 (validation tests) + Phase 5 (re-LHS) remain.
     - **New `GasSpecies` dataclass** in `propellant.py`. Bulk-flow thermo
       only (`gamma, Cp, molecular_weight, T_flame`). Burn-rate
       coefficients stay on `Pyrogen` / `PropellantTab`. Pyrogen and
@@ -536,9 +539,64 @@ in geometry/burn rate/ignition (called every step or every N steps).
       consumed by the solver** — the PISO step still uses scalar
       (gas.gamma, gas.R_specific, gas.Cp) from the representative tab.
       8 new tests in `tests/test_yns_mixture.py` (193 total).
-    - **Phase 3 still pending**: thread per-cell arrays through
-      `_piso_step`, energy diagnostics (advect Cp·T instead of T), the
-      nozzle BC, the source-CFL cap, and the T_flame·1.01 clip
-      ceiling. Until that lands, the v0.7.1 mixture infrastructure is
-      computed but the simulation behaves identically to v0.7.0. See
-      `srm_1d/docs/v0_7_1/DESIGN.md` and `TASKS.md`.
+    - **Phase 3 complete (2026-05-23)** in two commits on
+      `v0.7.0-phase4`:
+      - *Step 1*: `thermal_source` units shifted from kg·K/(s·m) to
+        W/m (enthalpy injection per unit length). Each source site
+        multiplies its `mdot * T_source` by scalar `Cp_gas`; the PISO
+        energy equation divides back by `Cp_gas` to recover T-source.
+        `_pyrogen_surface_thermal_sink` returns W/m; signatures drop
+        the `Cp_gas` argument from `_thermal_source_power`.
+        Behavior-preserving — Hasegawa A trace unchanged.
+      - *Step 2*: `_piso_step_with_energy_diagnostics` and `piso_step`
+        signatures changed: `gamma, R_specific, T_flame, Cp_gas` →
+        `gamma_arr, R_arr, Cp_arr, T_ceiling_arr` (all `np.ndarray[N]`).
+        Internally:
+          - Nozzle BC uses cell-N-1 mixture for both pressure
+            corrections, velocity update, and the bookkeeping
+            `_nozzle_boundary_flow` call in the time loop.
+          - Pressure-correction transient term uses `R_arr[i]`.
+          - EOS update is per cell: `rho_new[i] = P_new[i] /
+            (R_arr[i] * T_new[i])`.
+          - **Energy equation advects sensible enthalpy** `Cp·T`.
+            Face flux carries `Cp_upwind * T_upwind`; cell update
+            solves for `T_new = h_new / Cp_arr[i]`. This conserves
+            energy across mixing interfaces between cells with
+            different Cp (DESIGN §7).
+          - T-clip ceiling uses `T_ceiling_arr[i]` (new helper
+            `_compute_T_ceiling_arr`). Ceiling formula is
+            **relaxed** from DESIGN §5 to
+            `max(T_flame[s] for ALL s) * 1.01` rather than the
+            strict `Y > 0.05` filter, because the strict filter would
+            clip the v0.7.0 IC (T = T_flame_prop while Y = 100%
+            ambient) on step 0. The relaxed ceiling collapses to
+            v0.7.0's scalar `T_flame * 1.01` when propellant is the
+            hottest species, preserving the baseline.
+        `_post_piso_update` takes `(gamma_arr, R_arr)` and returns
+        the max local sound speed. `compute_dt_source_cap` takes
+        per-cell `Cp_arr`. `_gas_sensible_energy` takes per-cell
+        `Cp_arr` (dead diagnostic; signature updated for symmetry).
+      - **API breaks** (private kernels): direct callers of
+        `_piso_step_with_energy_diagnostics`, `piso_step`,
+        `_post_piso_update`, `compute_dt_source_cap`,
+        `_thermal_source_power`, `_pyrogen_surface_thermal_sink`, and
+        `_goodman_ignition_sources_and_mass` must rebuild their call
+        sites. Internal tests
+        (`tests/test_solver.py`, `tests/test_simulation_phase3.py`)
+        were updated. No public API break.
+      - **Smoke**: Hasegawa A baseline runs 1.4 M steps without NaN
+        at P_peak 6.26 MPa, mass-balance err 0.1 %, c* 1543 m/s,
+        O5347 designation — within the documented Phase 3 ±10 %
+        target. Full re-calibration is Phase 5.
+    - **Phase 3.5 (pending)**: per-species Cp at source sites
+      (`Cp_propellant` for grain T_flame contributions,
+      `Cp_pyrogen` for pyrogen injection). Phase 3 kept the scalar
+      `Cp_gas` multiplier to ensure the unit shift was behavior-
+      preserving. Phase 3.5 lands before Phase 5 LHS so calibration
+      sees the physically-faithful build.
+    - **Phase 4 (pending)**: pure-pyrogen limit, pure-propellant
+      limit, species mass conservation, Hasegawa A baseline shape
+      match, Y invariants over a full run.
+    - **Phase 5 (pending)**: Hasegawa A re-LHS once Phases 3.5 + 4
+      land. Hypothesis: `k_solid` and `k_thermal` relax once γ/Cp
+      variation absorbs the compromise.

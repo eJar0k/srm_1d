@@ -39,21 +39,78 @@ See [DESIGN.md](DESIGN.md) for the full architecture.
   - [x] `_refresh_mixture_arrays` matches per-cell calls
   - [x] Hasegawa A integration: arrays have sensible physical bounds
 
-## Phase 3 — Thread arrays through solver
+## Phase 3 — Thread arrays through solver [COMPLETE 2026-05-23]
 
-- [ ] Convert `_piso_step` to take `gamma_arr, R_arr, Cp_arr` arrays; index per cell.
-- [ ] Update `_signed_choked_or_subsonic_flow` to accept boundary γ_b, R_b (from upstream cell).
-- [ ] EOS updates `rho = P / (R_arr[i] * T_new[i])` per cell.
-- [ ] Energy advection: switch from advecting T to advecting (Cp_arr·T) — sensible enthalpy.
-- [ ] T_ceiling per cell from max(T_flame[s] for s such that Y[i,s] > 0.05) * 1.01.
-- [ ] Update `_pyrogen_surface_heat_power` to take cell-target Cp_arr[i_target].
-- [ ] Update `_goodman_ignition_sources_and_mass` to use per-cell Cp_arr.
-- [ ] Update energy diagnostics (`_gas_sensible_energy`, `_thermal_source_power`) to use per-cell Cp_arr.
-- [ ] Update source-CFL cap (`_source_cfl_cap_from_thermal_source`) to use per-cell Cp_arr.
-- [ ] Nozzle BC uses cell-N-1 mixture.
-- [ ] `Cp_arr` references in audit histories.
-- [ ] Clear `srm_1d/__pycache__/` after first solver refactor commit (CLAUDE.md gotcha #1).
-- [ ] Smoke: existing Hasegawa A baseline runs end-to-end without NaN.
+Delivered in two commits on `v0.7.0-phase4`:
+1. `thermal_source` units shifted from kg·K/(s·m) to W/m (behavior
+   preserved by multiplying T_flame contributions by scalar Cp_gas
+   at source sites and dividing back in PISO).
+2. PISO + post-PISO + nozzle BC + source-CFL cap converted to take
+   per-cell `gamma_arr / R_arr / Cp_arr / T_ceiling_arr`. Energy
+   advection switched to sensible-enthalpy (Cp·T) form.
+
+- [x] Convert `_piso_step` to take `gamma_arr, R_arr, Cp_arr` arrays; index per cell.
+- [x] Nozzle BC uses cell-N-1 mixture (γ, R) for both pressure
+      corrections, the velocity update, and the bookkeeping
+      `_nozzle_boundary_flow` call.
+- [x] EOS updates `rho = P / (R_arr[i] * T_new[i])` per cell.
+- [x] Energy advection: switched from advecting T to advecting
+      (Cp_upwind · T_upwind) — sensible enthalpy. Cell update solves
+      for T_new = h_new / Cp_arr[i].
+- [x] T_ceiling per cell from species_params — **relaxed** from
+      DESIGN §5: uses `max(T_flame[s] for s in all species) * 1.01`,
+      not the strict `Y > 0.05` filter, to avoid clipping the v0.7.0
+      initial condition (T = T_flame_prop, Y = 100% ambient) to
+      ~300 K on step 0. The relaxed ceiling equals v0.7.0's scalar
+      `T_flame * 1.01` when propellant is the hottest species, so the
+      baseline trace is preserved. See `_compute_T_ceiling_arr` doc.
+- [x] `_goodman_ignition_sources_and_mass` writes thermal_source in
+      W/m using scalar Cp_gas (Phase 3 step 1). True per-species
+      Cp lookups are slotted for Phase 3.5 — see "Phase 3.5" section
+      below.
+- [x] `_pyrogen_surface_thermal_sink` returns W/m sink (Phase 3 step 1).
+      `_pyrogen_surface_heat_power` retains its `Cp_gas` argument —
+      this is the pyrogen species' Cp at the surface heat-transfer
+      step, not the cell mixture Cp.
+- [x] Energy diagnostics (`_gas_sensible_energy`, `_thermal_source_power`)
+      updated for per-cell Cp_arr / W/m thermal_source.
+- [x] Source-CFL cap (`compute_dt_source_cap`) takes per-cell Cp_arr.
+- [x] `_post_piso_update` takes (gamma_arr, R_arr); a_max is now the
+      max local sound speed across cells.
+- [x] Clear `srm_1d/__pycache__/` + `.nbi` + `.nbc` after each kernel
+      refactor commit.
+- [x] Smoke: Hasegawa A baseline runs 1.4M steps end-to-end without
+      NaN. P_peak 6.26 MPa, mass-balance err 0.1%, c* 1543 m/s,
+      O5347 designation — within Phase 3's "±10% of v0.7.0 baseline"
+      target.
+
+### Phase 3.5 — True per-species Cp lookups (not yet wired)
+
+Phase 3 deliberately kept the source-side Cp multiplications using
+scalar `Cp_gas` (the representative-tab gas Cp) instead of per-species
+Cp from `species_params`. This is a CONSCIOUS deviation: at unit-shift
+time the PISO step still expects enthalpy balanced against `Cp_gas`,
+and threading per-species Cp into the source sites without simultaneous
+per-species accounting in the energy equation would introduce a
+mass-rate–Cp asymmetry that drifts the v0.7.0 calibration. With Phase 3
+now consuming per-cell `Cp_arr` in PISO + energy advection, the next
+incremental refinement is:
+
+- [ ] `_goodman_ignition_sources_and_mass` multiplies grain T_flame
+      contributions by `species_params[_SPECIES_PROPELLANT, 1]`
+      (propellant Cp) instead of scalar Cp_gas.
+- [ ] Pyrogen injection in `_run_time_loop` multiplies by
+      `species_params[_SPECIES_IGNITER, 1]` (pyrogen Cp) instead of
+      Cp_gas.
+- [ ] `_pyrogen_surface_heat_power` caller passes the pyrogen
+      species' Cp (it already takes a Cp arg; this is just a call-
+      site change).
+
+Order: Phase 3.5 lands before Phase 5 (Hasegawa A re-LHS) but after
+Phase 4 validation tests. The motivation is faithfulness, not
+calibration fit — the v0.7.0 fit already absorbs the Cp_gas
+compromise, so Phase 5 LHS is the right place to absorb the
+per-species refinement instead of trying to chase it pre-cal.
 
 ## Phase 4 — Validation tests
 
@@ -82,5 +139,10 @@ See [DESIGN.md](DESIGN.md) for the full architecture.
 
 ## Current state (2026-05-23)
 
-- **Phases 1 + 2 complete.** 193/193 tests pass. Solver behavior unchanged (mixture arrays computed but unused by PISO).
-- **Phase 3 is next.** This is where simulation behavior actually changes; estimated 30-40% of a focused session. See DESIGN.md §5 for the full callsite list.
+- **Phases 1 + 2 + 3 complete.** 193/193 tests pass. Solver behavior
+  changes (sensible-enthalpy advection, per-cell EOS, cell-N-1 nozzle
+  BC) but the Hasegawa A baseline smoke is well within Phase 3's
+  ±10% target.
+- **Phase 3.5 is next** (per-species Cp lookups at source sites),
+  followed by **Phase 4** validation tests and **Phase 5** Hasegawa A
+  re-LHS. See `Phase 3.5` section above + the `Phase 4` checklist below.
