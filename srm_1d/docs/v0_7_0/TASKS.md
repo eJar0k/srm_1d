@@ -65,7 +65,10 @@ Tests:
 
 ## Phase 4 -- Validation and Diagnostics
 
-Status: in progress.
+Status: complete. Hasegawa A v0.7.0 calibration LHS produced rank-1
+`mse_all = 0.0968 MPa^2` (beating both v0.6.0 baseline 0.24 and the
+plan target 0.15). See
+`docs/v0_7_0/audits/2026-05-21_hasegawa_a_lhs_v0_7_0.md`.
 
 Completed pre-work:
 
@@ -117,44 +120,66 @@ Completed Phase 4 solver work in the current working tree:
   longer auto-default to 0.45. Explicit `radiation_emissivity` overrides
   in the .ric (or directly on `Propellant`) are honored.
 
-Current finding:
+Final Phase 4 numerical stability fixes (committed):
 
-- Historical hot-fill baseline still ignites essentially instantly and
-  retains the spike/erosive-snap behavior.
-- The earlier `ambient_initial_gas` + adjacent-radiation combination
-  blew up: a `tau_establishment` ramp sweep (2026-05-14) showed
-  non-monotonic stability (`tau = 0`, `1 ms` crash to `Mach ~1.9e+05`;
-  `0.1`, `0.5`, `5`, `10 ms` "stable" but with interior `Mach 9-50`
-  and `P_peak ~14-15 MPa`) -- a discrete PISO/throat resonance, not a
-  physical ramp. With radiation now opt-in, the ambient case reduces
-  to the previously-stable convective-only spread (~40 ms, ~6.4 MPa)
-  observed earlier in `ambient_no_radiation`.
-- `ambient_no_surface_heating` remains a no-spread degenerate case,
-  confirming the pyrogen-surface-heating path is active.
-- Baseline and `no_momentum` Hasegawa A traces are nearly identical in
-  the latest smoke run, so momentum is implemented and audited but not a
-  dominant effect for this case.
-- `tau_establishment` is left in `run_simulation` as an opt-in kwarg
-  (default `0.0`, no physical ramp) for diagnostics, but is not used
-  for calibration (per `feedback_no_unfounded_smoothing`).
+- `local-T` radiation emitter: each adjacent-cell radiation flux uses
+  `T[neighbor]` instead of the constant adiabatic `T_flame`. Eliminated
+  the catastrophic radiative-chain blowup at intermediate emissivities.
+- `MIN_BUFFER_CELLS = 3` in `build_snapped_geometry`: forces a 3-cell
+  leading and trailing gas buffer so throat-incident pressure waves
+  resolve over a multi-cell gradient.
+- Classified numerical-collapse abort (`termination_code = 4`):
+  triggers on `dt < 1e-9 s`, `max Mach > 100`, or `max P > 1 GPa` for
+  3 consecutive steps; classifier promotes it to
+  `collapse_detected = True` so `collapse_class` agrees with
+  `diagnostic_failure_mode`.
+- Source-aware CFL (`source_cfl_factor`, default 0.10): caps `dt` so
+  per-step per-cell thermal-source energy injection cannot change a
+  cell's gas temperature by more than `source_cfl_factor *
+  (T_flame - T_ambient)`. Required to break the ignition-cascade-rate
+  resonance documented in
+  `audits/2026-05-20_radiation_collapse_localT.md`.
+- Net result: 26/27 stable in the radiation-collapse matrix; default
+  conventional `radiation_emissivity = 0.45` produces fully-developed
+  ~12 MPa pressure traces. Residual ε = 0.05 single-cell ignition
+  outlier deferred to v0.7.1.
 
-Pending:
+Validation (committed audits under `docs/v0_7_0/audits/`):
 
-- Inspect the new energy/momentum audit CSVs and pressure/x-t plots for
-  Hasegawa A before deciding whether a post-ignition burn-establishment
-  model is still needed for hot-fill baseline calibration.
-- Re-run segmented Hasegawa A LHS after the boundary, direct-heating,
-  and adjacent-radiation model changes.
-- Re-run Zerox LHS with v0.7.0 pyrogen parameters.
-- Update Hasegawa and Zerox calibration tables in `DEVNOTES.md`.
-- Revisit L3035/BALLSstick after any geometry or ignition-model change;
-  current examples are exploratory and not calibrated predictions.
+- `2026-05-21_hotfill_standard_audit.md` -- hot-fill `n_burning`
+  ramps from 1 to full grain in 0.45 ms with clipping at 0.8% of
+  thermal source. Confirms the Peretz/Pardue/Cavallini
+  instantaneous-ignition convention; the spike-shape question moved
+  to erosive feedback (kappa, roughness), not a burn-establishment
+  ramp.
+- `2026-05-21_ignition_tuning_audit.md` -- Step 4 Cartesian sweep
+  showed `T_ignition` and `k_solid` alone (with kappa locked at 0.45)
+  cannot match the experimental trace. Triggered Step 6 with kappa
+  unlocked.
+- `2026-05-21_hasegawa_a_lhs_v0_7_0.md` -- Step 6 PASS:
+  - rank-1 mse_all = 0.0968 MPa^2 (v0.6.0 was 0.24 with igniter_tau)
+  - peak_error_pct = +1.41% (sim 6.527 MPa vs exp 6.436 MPa)
+  - calibration: roughness=37.5um, kappa=0.429, T_ignition=927K,
+    k_solid=0.482W/(m.K), pyrogen_mass=12.3g,
+    pyrogen_throat_area=38.5mm^2, pyrogen_volume=3.2cm^3
+  - **Step 5 (Peretz participation fraction) NOT needed**.
+
+Deferred to v0.7.0.x / v0.7.1:
+
+- Zerox LHS re-calibration with v0.7.0 pyrogen parameters. Documented
+  as "needs v0.7.0 re-calibration" in DEVNOTES.
+- L3035 / BALLSstick remain exploratory; not calibrated predictions.
+- ε = 0.05 single-cell last-cell-ignition spike (radiation-collapse
+  residual outlier). Discrete event; would require source
+  sub-stepping (split-operator within one PISO step).
+
+`tau_establishment` remains an opt-in diagnostic kwarg in
+`run_simulation` (default 0.0, no physical ramp). It is NOT used for
+calibration per `feedback_no_unfounded_smoothing`.
 
 ## Phase 5 -- Release
 
-Status: not started.
-
-Do not tag `v0.7.0` until Phase 4 is complete and pytest is green.
+Status: ready. Phase 4 closed (above). 180 / 180 pytests pass.
 
 Release checklist:
 

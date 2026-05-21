@@ -2,8 +2,9 @@
 
 A 1D transient finite-volume solid rocket motor internal ballistics
 simulator with the Ma et al. (2020) erosive burning model. Numba-JIT
-compiled time loop hits ~45-90k steps/s. v0.7.0-phase3 adds a
-pyrogen-plenum igniter and Goodman solid-heating ignition model.
+compiled time loop hits ~45-90k steps/s. v0.7.0 ships a pyrogen-plenum
+igniter + Goodman solid-heating ignition model and is calibrated
+against Hasegawa A at `mse_all = 0.0968 MPa²` (was 0.24 in v0.6.0).
 
 This file is loaded on every session — keep it tight. Pointers to
 deeper docs at the bottom.
@@ -11,7 +12,7 @@ deeper docs at the bottom.
 ## Quick start
 
 ```bash
-# Tests (pyenv 3.10.5 -- has numba, pytest, scikit-fmm installed; 133 tests)
+# Tests (pyenv 3.10.5 -- has numba, pytest, scikit-fmm installed; 180 tests)
 "C:/Users/ejarocki/.pyenv/pyenv-win/versions/3.10.5/python.exe" -m pytest srm_1d/tests/
 
 # Hasegawa A example (loads srm_1d/motors/hasegawa_a.ric)
@@ -39,14 +40,14 @@ srm_1d/
 ├── motors/              Canonical motor data: <motor>.ric + <motor>.transport.yaml pairs
 ├── tools/sensitivity.py Latin Hypercube parameter sweeps with parallel execution
 ├── examples/            hasegawa_motor_a, bates_4seg, hasegawa_a_lhs, Zerox_test, ZeroxOptimizer
-└── tests/               11 files, 133 tests
+└── tests/               12 files, 180 tests
 ```
 
 ## Dev workflow
 
 - **Versioning is git tags**, not folder names. Current branch:
-  `v0.7.0-phase3`. Do not tag `v0.7.0` until Phase 4 validation/docs
-  are finished.
+  `v0.7.0-phase4`. Phase 4 is complete and the LHS calibration passes
+  the plan target -- ready to tag `v0.7.0`.
   Bump on hard API breaks; document each break in DEVNOTES "API
   Breaking Changes Log."
 - **Hard API breaks are fine** — refactor cleanly, no backward-compat
@@ -116,15 +117,20 @@ srm_1d/
 
 ## Open roadmap (priority order)
 
-1. **Post-ignition burn establishment** -- Hasegawa segmented LHS shows
-   the current Phase 3 model can tune shoulder/plateau/tail, but the
-   spike residual is dominated by immediate full-cell burn participation.
-   Add a per-cell participation/ramp model after Goodman ignition before
-   revisiting igniter momentum.
-2. **Phase 4 validation** -- update Hasegawa and Zerox calibration tables
-   with pyrogen-based parameters once the burn-establishment model lands.
+1. **Zerox v0.7.0 re-calibration** -- the v0.6.0 Zerox LHS calibrated
+   roughness, `erosionCoeff`, and `a` against the old exponential-decay
+   igniter. Re-run with the v0.7.0 pyrogen plenum parameters before
+   trusting the Zerox sim for design work.
+2. **ε = 0.05 single-cell ignition spike** (radiation-collapse residual)
+   -- the only remaining outlier in the 27-variant radiation matrix
+   trips on the last-grain-cell ignition transition. Would require
+   source sub-stepping (split-operator within one PISO step).
 3. **Per-step gas thermo for multi-tab** (deferred) -- gamma, T_flame, MW
    varying inside the hot loop. Documented in DEVNOTES; hold off
    until calibration shows it helps.
 4. **RodTube grain support** -- small extension (PerforatedGrain in
    addition to FmmGrain in `from_openmotor`).
+5. **Peretz-aligned participation fraction** -- v0.7.0 LHS skipped this
+   (the joint roughness/kappa calibration was sufficient). Stays in
+   the roadmap as a v0.7.1 refinement if future motors with different
+   geometries or aluminum loadings need it.

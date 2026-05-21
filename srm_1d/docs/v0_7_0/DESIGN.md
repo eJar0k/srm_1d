@@ -1,10 +1,15 @@
 # srm_1d v0.7.0 — Hot-gas Plenum Igniter Model
 
-**Status**: implemented through Phase 3 on branch `v0.7.0-phase3`.
-Phase 4 validation is in progress; do not tag `v0.7.0` yet.
+**Status**: Phase 4 complete on branch `v0.7.0-phase4`; ready to tag
+v0.7.0. The Hasegawa A v0.7.0 calibration LHS rank-1 produces
+`mse_all = 0.0968 MPa²` (better than v0.6.0's 0.24 MPa² with the
+now-removed `igniter_tau = 127 ms` FSI proxy). See the per-step
+journey in `audits/2026-05-20_radiation_collapse_localT.md` and
+`audits/2026-05-21_hasegawa_a_lhs_v0_7_0.md`.
+
 **Target**: replace the v0.6.0 single-knob exponential-decay igniter
 with a physically grounded forward model that removes `igniter_tau` as
-an FSI-cushioning calibration knob.
+an FSI-cushioning calibration knob. **Done.**
 
 This document is self-contained. A fresh coding agent should be able to
 check out the repo, read this doc + [TASKS.md](TASKS.md) + the

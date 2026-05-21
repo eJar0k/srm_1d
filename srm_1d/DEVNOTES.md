@@ -111,22 +111,39 @@ Ambient-gas ignition now depends on two physical heat paths:
 - adjacent-burning-cell radiation using `Propellant.radiation_emissivity`
   as a material property, not a global heat-transfer multiplier.
 
-Latest Hasegawa A smoke results:
-- `ambient_initial_gas`: finite spread, `t10-t90 = 0.760146 s`,
-  startup-window peak `0.511 MPa @ 0.348159 s`, global peak
-  `4.23 MPa @ 3.0 s`.
-- `ambient_no_surface_heating`: degenerate/no-spread.
-- `ambient_no_radiation`: degenerate/no-spread.
-- `baseline` and `no_momentum`: nearly identical, so pyrogen momentum is
-  implemented but not the Hasegawa driver.
+Hasegawa A standard-mode results (post-Phase-4-final, t_max=0.05s):
+- `baseline` (hot-fill): 12.12 MPa at 24.5 ms, full grain ignition in
+  0.45 ms (Peretz/Pardue/Cavallini instantaneous-ignition convention).
+  Clipping at 0.8 % of thermal source -- well under the 10 % decision
+  threshold.
+- `ambient_initial_gas` (with default radiation_emissivity=0.0):
+  12.07 MPa at 24.6 ms, full grain ignition in 5.29 ms via convective
+  spread from pyrogen direct surface heating.
+- `ambient_no_surface_heating`: peak shifts to first-ignition cell 4
+  (was cell 3), confirming pyrogen direct surface heating is the
+  load-bearing first-cell trigger.
+- `ambient_no_radiation` ≡ `ambient_initial_gas` byte-for-byte (with
+  emissivity=0.0 default).
+- `baseline` ≡ `no_endfaces` ≡ `no_momentum` to within 1% -- end-face
+  injection and pyrogen momentum are NOT the Hasegawa spike driver.
 
-Interpretation: the old ambient-gas degeneracy was missing surface and
-adjacent-spread heat paths, not primarily a momentum problem. The
-historical hot-fill baseline can still ignite too abruptly; inspect the
-new energy/momentum audit CSVs before deciding whether a post-ignition
-burn-establishment model is still required.
+Hasegawa A v0.7.0 calibration (LHS rank-1, N=500, segmented fitness):
+- mse_all = 0.0968 MPa² (v0.6.0 baseline was 0.24).
+- P_peak sim 6.527 vs experimental 6.436 MPa (+1.41 %).
+- Parameters: roughness 37.5µm, kappa 0.429, T_ignition 927K,
+  k_solid 0.482 W/(m·K), pyrogen_mass 12.3g,
+  pyrogen_throat_area 38.5 mm², pyrogen_volume 3.2 cm³.
+- The 7-var LHS recovers v0.6.0's 37 µm roughness without the
+  igniter_tau FSI proxy. Pyrogen mass is in the Sutton Eq.15-4 range
+  for this motor's free volume.
 
-Current local artifacts live under `artifacts/hasegawa_a_lhs/` and are
+Full per-step audit journey in:
+`docs/v0_7_0/audits/2026-05-20_radiation_collapse_localT.md`,
+`audits/2026-05-21_hotfill_standard_audit.md`,
+`audits/2026-05-21_ignition_tuning_audit.md`,
+`audits/2026-05-21_hasegawa_a_lhs_v0_7_0.md`.
+
+Local LHS artifacts live under `artifacts/hasegawa_a_lhs/` and are
 intentionally ignored by git.
 
 ### Ad-hoc motor examples and artifacts
@@ -413,3 +430,57 @@ in geometry/burn rate/ignition (called every step or every N steps).
       longer receive default gaps, and snapped interface cells are mapped
       by largest axial overlap to avoid epsilon-overlap misclassification.
       Regression coverage lives in `tests/test_adapter.py`.
+    - **Phase 4 numerical-stability fixes (final)**:
+        * `Propellant.radiation_emissivity` default is now `0.0`
+          (opt-in for all propellants). The aluminized-name
+          auto-default to 0.45 was removed -- it provoked a discrete
+          PISO/throat numerical resonance under ambient initial gas at
+          intermediate emissivities. Explicit `.ric` overrides honored.
+        * Radiation kernel: adjacent-cell emitter T = `T[neighbor]`
+          (was constant `T_flame`). Local-T eliminates the cold-start
+          radiative-chain blowup.
+        * `solver.py:compute_dt_source_cap` -- source-aware CFL.
+          `run_simulation(..., source_cfl_factor=0.10)` caps `dt` so
+          per-step per-cell thermal injection cannot change a cell's
+          gas T by more than `source_cfl_factor * (T_flame - T_amb)`.
+          Same family as the existing wavespeed CFL.
+        * `simulation.py` numerical-collapse abort. New
+          `termination_code = 4` (`"numerical collapse aborted"`)
+          fires when ANY of (`dt < 1e-9 s`, `max_mach > 100`,
+          `max_pressure > 1 GPa`) holds for 3 consecutive steps.
+          `tools/ignition_diagnostics.early_time_diagnostics`
+          promotes it to `collapse_detected = True`.
+        * `grain_geometry.build_snapped_geometry`:
+          `MIN_BUFFER_CELLS = 3` enforces a 3-cell leading and
+          trailing gas buffer (was 1 cell). The single-cell trailing
+          buffer collided ignition-driven pressure waves with the
+          open-throat boundary at the default cells=100 / 16.8 mm
+          dx. Net stable count for the radiation-collapse matrix went
+          from 18/27 to 26/27. The single residual outlier
+          (ε = 0.05) is deferred to v0.7.1.
+        * `simulation.py:_goodman_ignition_sources_and_mass` accepts
+          a `tau_establishment` kwarg (default 0.0) -- a linear
+          burn-rate ramp post-ignition. **Diagnostic only; explicitly
+          excluded from calibration** per
+          `feedback_no_unfounded_smoothing`. Also accepts
+          `diagnostic_disable_radiation_gas_sink` for isolation.
+        * `run_simulation` accepts `diagnostic_history_capacity` (cap
+          preallocated history rows for early-termination probes).
+        * `solver.py:_piso_step_with_energy_diagnostics` -- mass-
+          conservative energy update with closed-form per-step energy
+          residual diagnostics. The public `piso_step` wraps it and
+          preserves the 4-tuple shape.
+        * `openmotor_adapter.run_from_ric` accepts `k_solid=` and
+          `radiation_emissivity=` kwargs for LHS sweeps over
+          propellant attributes.
+    - **Hasegawa A v0.7.0 calibration** (LHS rank-1):
+      `roughness = 37.5 µm`, `kappa = 0.429`, `T_ignition = 927 K`,
+      `k_solid = 0.482 W/(m·K)`, `pyrogen_mass = 12.3 g`,
+      `pyrogen_throat_area = 38.5 mm²`, `pyrogen_volume = 3.2 cm³`.
+      `mse_all = 0.0968 MPa²` (v0.6.0 was 0.24 with the now-removed
+      `igniter_tau = 127 ms` FSI proxy). Peak error +1.41 %.
+    - **Zerox**: `srm_1d/motors/zerox_LHS.ric` retains the v0.6.0
+      calibrated `erosionCoeff` and `a` values. **Pyrogen-plenum
+      re-calibration is pending and deferred to v0.7.0.x / v0.7.1.**
+      Treat the current Zerox sim as a v0.6.0-style ignition trace
+      with v0.7.0 numerics around it.
