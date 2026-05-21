@@ -167,7 +167,10 @@ def _pyrogen_surface_heat_power(
     """
     Delivered pyrogen surface heating, capped by available sensible power.
 
-    Returns ``(power_w, heat_flux_w_m2)`` for the target cell.
+    Returns ``(power_w, heat_flux_w_m2)`` for the target cell. ``Cp_gas``
+    is the pyrogen species' Cp (the gas carrying the enthalpy from the
+    plenum to the surface) — this is a property of the injected species,
+    not the cell mixture, so it stays per-species rather than per-cell.
     """
     if (mdot_igniter <= 0.0 or T_ig <= T_surf or C_burn <= 0.0 or
             dx <= 0.0 or Cp_gas <= 0.0 or measured_heat_flux_w_m2 <= 0.0):
@@ -192,34 +195,48 @@ def _pyrogen_surface_heat_power(
 
 @njit(cache=True)
 def _pyrogen_surface_thermal_sink(
-    surface_heat_power_w, Cp_gas, dx, pyrogen_thermal_source,
+    surface_heat_power_w, dx, pyrogen_enthalpy_source_w_per_m,
 ):
-    """Temperature-source sink matching solid heating power."""
-    if surface_heat_power_w <= 0.0 or Cp_gas <= 0.0 or dx <= 0.0:
+    """Enthalpy-source sink matching solid heating power [W/m].
+
+    v0.7.1 (Phase 3): ``thermal_source`` carries W/m (enthalpy injection
+    per unit length), so the sink is ``surface_heat_power_w / dx``. The
+    output is clamped to the available pyrogen enthalpy injection at this
+    cell so we never extract more enthalpy than the pyrogen just added.
+    """
+    if surface_heat_power_w <= 0.0 or dx <= 0.0:
         return 0.0
-    sink = surface_heat_power_w / (Cp_gas * dx)
-    if pyrogen_thermal_source <= 0.0:
+    sink = surface_heat_power_w / dx
+    if pyrogen_enthalpy_source_w_per_m <= 0.0:
         return 0.0
-    if sink > pyrogen_thermal_source:
-        return pyrogen_thermal_source
+    if sink > pyrogen_enthalpy_source_w_per_m:
+        return pyrogen_enthalpy_source_w_per_m
     return sink
 
 
 @njit(cache=True)
-def _gas_sensible_energy(rho, T, A_port, dx, Cp_gas, N):
-    """Discrete gas sensible energy used by diagnostics [J]."""
+def _gas_sensible_energy(rho, T, A_port, dx, Cp_arr, N):
+    """Discrete gas sensible energy used by diagnostics [J].
+
+    v0.7.1 (Phase 3): ``Cp_arr`` is per-cell so cells with different
+    mixtures contribute their own Cp to the total.
+    """
     total = 0.0
     for i in range(N):
-        total += rho[i] * A_port[i] * dx * Cp_gas * T[i]
+        total += rho[i] * A_port[i] * dx * Cp_arr[i] * T[i]
     return total
 
 
 @njit(cache=True)
-def _thermal_source_power(thermal_source, Cp_gas, dx, N):
-    """Convert solver temperature-source units to thermal power [W]."""
+def _thermal_source_power(thermal_source, dx, N):
+    """Sum solver enthalpy-source units to thermal power [W].
+
+    v0.7.1 (Phase 3): ``thermal_source`` is already in W/m units (enthalpy
+    injection per unit length), so the sum is ``thermal_source[i] * dx``.
+    """
     total = 0.0
     for i in range(N):
-        total += thermal_source[i] * Cp_gas * dx
+        total += thermal_source[i] * dx
     return total
 
 
@@ -413,6 +430,15 @@ def _goodman_ignition_sources_and_mass(
     the next ``advance_bore_regression`` sees the same effective rate. Set
     to 0.0 to disable (no ramp; pure step at ignition, matching Peretz/
     Pardue/Cavallini's instantaneous-ignition convention).
+
+    v0.7.1 (Phase 3 — unit shift only): ``thermal_source`` carries
+    enthalpy-per-unit-length [W/m]. Each combustion source multiplies
+    its mdot * T_source by ``Cp_gas`` (the scalar representative gas
+    Cp). Per-cell / per-species Cp lookups arrive in the PISO
+    array-threading pass; for this commit the kernel must remain
+    behavior-preserving — PISO still divides by ``Cp_gas`` to get the
+    temperature source, so multiplying by ``Cp_gas`` here yields the
+    same T_new as the pre-v0.7.1 kg*K/(s*m) convention.
     """
     n_burning = 0
     n_ignited = 0
@@ -566,18 +592,18 @@ def _goodman_ignition_sources_and_mass(
                 erosive_source = 0.0
             mass_source[i] += prop_source
             mass_source_by_species[i, _SPECIES_PROPELLANT] += prop_source
-            thermal_source[i] += prop_source * T_flame
+            thermal_source[i] += prop_source * T_flame * Cp_gas
             normal_sidewall_thermal_power += normal_source * T_flame * Cp_gas * dx
             erosive_sidewall_thermal_power += erosive_source * T_flame * Cp_gas * dx
 
         if endface_msource[i] > 0.0:
             mass_source[i] += endface_msource[i]
             mass_source_by_species[i, _SPECIES_PROPELLANT] += endface_msource[i]
-            thermal_source[i] += endface_msource[i] * T_flame
+            thermal_source[i] += endface_msource[i] * T_flame * Cp_gas
             endface_thermal_power += endface_msource[i] * T_flame * Cp_gas * dx
 
-        if radiation_sink_power[i] > 0.0 and Cp_gas > 0.0 and dx > 0.0:
-            thermal_source[i] -= radiation_sink_power[i] / (Cp_gas * dx)
+        if radiation_sink_power[i] > 0.0 and dx > 0.0:
+            thermal_source[i] -= radiation_sink_power[i] / dx
 
         mass_sum += mass_source[i]
 
@@ -875,20 +901,25 @@ def _run_time_loop(
             mass_source_by_species,
         )
 
+        # v0.7.1 (Phase 3 — unit shift): thermal_source is now W/m
+        # (enthalpy injection per unit length). Pyrogen still uses the
+        # scalar Cp_gas during the unit-shift commit so the PISO temperature
+        # remains identical to v0.7.0. Per-species Cp lookups arrive with
+        # the per-cell Cp_arr threading in the next commit.
         pyrogen_enthalpy_power = 0.0
         pyrogen_surface_heat_sink_power = 0.0
         if mdot_igniter > 0.0:
             ign_source = mdot_igniter / dx
-            ign_thermal_source = ign_source * T_ig
+            ign_enthalpy_source = ign_source * T_ig * Cp_gas
             mass_source[0] += ign_source
             mass_source_by_species[0, _SPECIES_IGNITER] += ign_source
-            thermal_source[0] += ign_thermal_source
+            thermal_source[0] += ign_enthalpy_source
             pyrogen_enthalpy_power = mdot_igniter * Cp_gas * T_ig
             pyrogen_surface_heat_sink = _pyrogen_surface_thermal_sink(
-                pyrogen_surface_heat_power, Cp_gas, dx, ign_thermal_source
+                pyrogen_surface_heat_power, dx, ign_enthalpy_source
             )
             thermal_source[0] -= pyrogen_surface_heat_sink
-            pyrogen_surface_heat_sink_power = pyrogen_surface_heat_sink * Cp_gas * dx
+            pyrogen_surface_heat_sink_power = pyrogen_surface_heat_sink * dx
             mass_sum += ign_source
 
         # Refresh the source-aware CFL cap from THIS step's complete

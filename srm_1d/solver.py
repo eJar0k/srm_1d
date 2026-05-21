@@ -602,10 +602,16 @@ def _piso_step_with_energy_diagnostics(
 
         convective_scalar_flux = flux_w - flux_e
         convective_scalar_flux_power += convective_scalar_flux * Cp_gas
-        thermal_source_power += thermal_source[i] * dx * Cp_gas
+        # v0.7.1 (Phase 3): thermal_source is enthalpy injection [W/m],
+        # so the cell power is thermal_source[i] * dx (no Cp factor).
+        thermal_source_power += thermal_source[i] * dx
 
+        # Convert the W/m enthalpy injection back to a temperature source
+        # for the legacy scalar-T advection (still in this kernel until
+        # Phase 3 swaps it for sensible-enthalpy advection): divide by Cp.
+        T_source_i = thermal_source[i] / Cp_gas if Cp_gas > 0.0 else 0.0
         scalar = old_mass * T[i] + dt * (
-            convective_scalar_flux + thermal_source[i] * dx
+            convective_scalar_flux + T_source_i * dx
         )
         T_raw = scalar / new_mass
         T_floor = max(1.0, T_ambient)
@@ -727,12 +733,13 @@ def compute_dt_source_cap(
     resulting Mach-front oscillation at the ignition front trips the
     numerical-collapse abort.
 
-    The per-cell power is ``thermal_source[i] * dx * Cp_gas`` (W),
-    available thermal capacity is ``rho[i] * A_port[i] * dx * Cp_gas``
-    (J/K). The Cp_gas and dx cancel:
+    v0.7.1 (Phase 3): ``thermal_source`` carries W/m (enthalpy injection
+    per unit length). The per-cell power is ``thermal_source[i] * dx``
+    (W); available thermal capacity is ``rho[i] * A_port[i] * dx * Cp_gas``
+    (J/K). The dx cancels and Cp_gas stays on the numerator:
 
         dt_cap[i] = source_cfl_factor * (T_flame - T_ambient)
-                    * rho[i] * A_port[i] / |thermal_source[i]|
+                    * rho[i] * A_port[i] * Cp_gas / |thermal_source[i]|
 
     Take the minimum across all cells with nonzero source. ``dt_floor``
     prevents an infinite spike from collapsing dt to zero.
@@ -744,13 +751,15 @@ def compute_dt_source_cap(
     A_port : ndarray (N,)
         Cell port (gas) cross-sectional area [m^2].
     thermal_source : ndarray (N,)
-        Per-cell thermal source [kg*K/(s*m)] -- mass-rate-times-T per
-        unit length. Matches solver.py's scalar-transport convention.
+        Per-cell enthalpy source [W/m]. v0.7.1 unit change from the
+        previous mass-rate-times-T convention.
     mass_source : ndarray (N,)
         Per-cell mass source [kg/(s*m^3)]. Used only to skip cells where
         the source is purely advective (no propellant injection).
     Cp_gas : float
-        Gas specific heat [J/(kg*K)].
+        Gas specific heat [J/(kg*K)] used to convert per-cell enthalpy
+        capacity into a temperature-rate cap. Phase 3 still threads a
+        scalar; Phase 3 of v0.7.1 will swap this for a per-cell ``Cp_arr``.
     T_flame, T_ambient : float
         Bounds on the temperature range used for the per-step cap.
     source_cfl_factor : float
@@ -766,8 +775,7 @@ def compute_dt_source_cap(
     for i in range(N):
         thermal_abs = abs(thermal_source[i])
         if thermal_abs > 0.0 and mass_source[i] > 0.0:
-            denom = thermal_abs
-            dt_i = dT_max * rho[i] * A_port[i] / denom
+            dt_i = dT_max * rho[i] * A_port[i] * Cp_gas / thermal_abs
             if dt_i < dt_min:
                 dt_min = dt_i
     if dt_min < dt_floor:

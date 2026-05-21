@@ -82,16 +82,22 @@ def test_pyrogen_surface_heat_power_is_sensible_enthalpy_capped():
 
 
 def test_pyrogen_surface_thermal_sink_conserves_energy_units():
+    """v0.7.1 (Phase 3): sink and pyrogen_enthalpy_source are now in W/m
+    (enthalpy injection per unit length). Conservation check: sink * dx
+    equals the input power (when the available pyrogen enthalpy exceeds
+    the requested sink, no clamping kicks in)."""
     power_w = 1200.0
     sink = _pyrogen_surface_thermal_sink(
-        power_w, Cp_gas=2000.0, dx=0.02, pyrogen_thermal_source=100.0,
+        power_w, dx=0.02, pyrogen_enthalpy_source_w_per_m=1.0e9,
     )
-    assert sink * 2000.0 * 0.02 == pytest.approx(power_w)
+    assert sink * 0.02 == pytest.approx(power_w)
 
 
 def test_thermal_source_power_matches_solver_units():
+    """v0.7.1 (Phase 3): thermal_source is now W/m so the power is the
+    sum times dx, no Cp factor."""
     thermal_source = np.array([10.0, -2.5])
-    assert _thermal_source_power(thermal_source, 2000.0, 0.01, 2) == pytest.approx(150.0)
+    assert _thermal_source_power(thermal_source, 0.01, 2) == pytest.approx(0.075)
 
 
 def test_adjacent_radiation_heats_only_neighbors_and_conserves_sink():
@@ -144,7 +150,9 @@ def test_adjacent_radiation_heats_only_neighbors_and_conserves_sink():
     assert radiation_sink_total_power == pytest.approx(radiation_heat_power)
     assert radiation_sink_power[0] == pytest.approx(0.0)
     assert radiation_sink_power[2] == pytest.approx(0.0)
-    assert thermal_source[1] < 1700.0 * r_total[1] * C_burn[1] * 3041.0
+    # v0.7.1 (Phase 3): thermal_source is W/m. Bare combustion contribution
+    # is prop_source * T_flame * Cp_gas; the radiation gas sink debits.
+    assert thermal_source[1] < 1700.0 * r_total[1] * C_burn[1] * 3041.0 * 2060.0
 
 
 def test_adjacent_radiation_sink_can_be_disabled_for_diagnostics():
