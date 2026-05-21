@@ -98,19 +98,26 @@ _SPECIES_AMBIENT = 2
 @njit(cache=True)
 def _post_piso_update(
     rho, u, P, T, D_hyd, Re, Mach, u_cell, f_darcy,
-    N, mu_gas, gamma_R, roughness,
+    N, mu_gas, gamma_arr, R_arr, roughness,
 ):
-    """Post-PISO: velocities, Re, Mach, friction, a_max — single pass."""
-    T_max = T[0]
+    """Post-PISO: velocities, Re, Mach, friction, a_max — single pass.
+
+    v0.7.1 (Phase 3): the sound speed and CFL wavespeed seed now use
+    per-cell ``gamma_arr[i] * R_arr[i] * T[i]``. The returned ``a_max``
+    is the maximum local sound speed across all cells (instead of the
+    sqrt at the global hottest T scaled by a constant γR).
+    """
+    a_max = 0.0
     for i in range(N):
         u_cell[i] = 0.5 * (u[i] + u[i + 1])
-        a_local = (gamma_R * T[i]) ** 0.5
+        gR_i = gamma_arr[i] * R_arr[i]
+        a_local = (gR_i * T[i]) ** 0.5
         Mach[i] = u_cell[i] / a_local
         Re[i] = rho[i] * abs(u_cell[i]) * D_hyd[i] / mu_gas
         f_darcy[i] = haaland_friction(Re[i], roughness, D_hyd[i])
-        if T[i] > T_max:
-            T_max = T[i]
-    return (gamma_R * T_max) ** 0.5
+        if a_local > a_max:
+            a_max = a_local
+    return a_max
 
 
 @njit(cache=True)
@@ -323,6 +330,42 @@ def _refresh_mixture_arrays(
         Cp_arr[i] = Cp_i
         R_arr[i] = R_i
         M_arr[i] = M_i
+
+
+@njit(cache=True)
+def _compute_T_ceiling_arr(
+    Y, species_params, T_ceiling_arr, N,
+):
+    """Refresh per-cell temperature ceiling from species mass fractions.
+
+    DESIGN §5 specifies a per-cell ceiling tied to the active species in
+    each cell:
+
+        T_ceiling[i] = max(T_flame[s] for s with Y[i, s] > Y_min) * 1.01
+
+    The DESIGN's Y_min = 0.05 is too tight given v0.7.1's deliberate
+    deviation in the initial condition: §3 keeps the v0.7.0 numerical-
+    stability shortcut of seeding T = T_flame_propellant while Y is
+    100% ambient. A strict 5% filter would set the ceiling to
+    T_ambient*1.01 in the pre-fill, clipping the bore gas to ~300 K on
+    step 0. We therefore use the **maximum** T_flame across all species
+    in ``species_params`` as the per-cell ceiling — which equals the
+    v0.7.0 scalar ``T_flame * 1.01`` ceiling exactly when the propellant
+    species is the hottest. This preserves the v0.7.0 baseline trace.
+
+    A tighter, per-cell Y-aware ceiling (as DESIGN specifies) can be
+    revisited if Phase 5 calibration shows the loose ceiling lets
+    cells overshoot physically. For now the ceiling is a numerical
+    backstop, not a physics-faithful per-cell bound.
+    """
+    S = species_params.shape[0]
+    T_flame_max = species_params[0, 3]
+    for s in range(1, S):
+        if species_params[s, 3] > T_flame_max:
+            T_flame_max = species_params[s, 3]
+    ceiling = T_flame_max * 1.01
+    for i in range(N):
+        T_ceiling_arr[i] = ceiling
 
 
 @njit(cache=True)
@@ -691,6 +734,7 @@ def _run_time_loop(
     # --- v0.7.1: N-species state ---
     Y_species, species_params_arr, mass_source_by_species,
     gamma_mix_arr, Cp_mix_arr, R_mix_arr, M_mix_arr,
+    T_ceiling_arr,
 ):
     """
     The complete simulation time loop, compiled to native code.
@@ -759,12 +803,26 @@ def _run_time_loop(
     S_species_local = Y_species.shape[1]
     rho_pre_step = np.zeros(N)
 
-    # Initial a_max for CFL
-    T_max = T[0]
+    # v0.7.1 Phase 3: seed the per-cell mixture arrays from the initial Y
+    # so the first PISO call sees consistent thermo before the post-PISO
+    # _refresh_mixture_arrays runs. Also seed T_ceiling_arr (a constant
+    # array under the current relaxed ceiling formula; refreshed each
+    # step in case species_params ever becomes time-varying).
+    _refresh_mixture_arrays(
+        Y_species, species_params_arr,
+        gamma_mix_arr, Cp_mix_arr, R_mix_arr, M_mix_arr, N,
+    )
+    _compute_T_ceiling_arr(
+        Y_species, species_params_arr, T_ceiling_arr, N,
+    )
+
+    # Initial a_max for CFL — use the hottest local sound speed across
+    # cells (per-cell γ·R varies once species advect).
+    a_max = 0.0
     for i in range(N):
-        if T[i] > T_max:
-            T_max = T[i]
-    a_max = (gamma_R * T_max) ** 0.5
+        a_local_init = (gamma_mix_arr[i] * R_mix_arr[i] * T[i]) ** 0.5
+        if a_local_init > a_max:
+            a_max = a_local_init
 
     hist_idx = 0
     snap_idx = 0
@@ -927,10 +985,11 @@ def _run_time_loop(
         # upper bound (with a one-step lag, which is fine because
         # thermal_source magnitudes change smoothly during ignition
         # cascades on a per-step basis).
+        # v0.7.1 Phase 3: per-cell Cp_arr replaces the scalar Cp_gas.
         if source_cfl_factor > 0.0:
             dt_source_cap = compute_dt_source_cap(
                 rho, A_port, thermal_source, mass_source, N,
-                Cp_gas, T_flame, ambient_temperature, source_cfl_factor,
+                Cp_mix_arr, T_flame, ambient_temperature, source_cfl_factor,
                 SOURCE_DT_FLOOR,
             )
 
@@ -955,7 +1014,7 @@ def _run_time_loop(
             rho_pre_step[i] = rho[i]
 
         # ============================================
-        # STEP 4: PISO
+        # STEP 4: PISO  (v0.7.1 Phase 3: per-cell γ/R/Cp/T_ceiling)
         # ============================================
         (rho, u, P, T,
          gas_energy_before, gas_energy_after, gas_sensible_dE_dt,
@@ -964,8 +1023,8 @@ def _run_time_loop(
          energy_residual) = _piso_step_with_energy_diagnostics(
             rho, u, P, T, A_port, D_hyd,
             mass_source, thermal_source, momentum_source, f_darcy,
-            dx, dt, gamma, R_specific, T_flame,
-            Cp_gas, A_throat, P_ambient, ambient_temperature, N,
+            dx, dt, gamma_mix_arr, R_mix_arr, Cp_mix_arr, T_ceiling_arr,
+            A_throat, P_ambient, ambient_temperature, N,
         )
 
         # ============================================
@@ -973,15 +1032,17 @@ def _run_time_loop(
         # ============================================
         a_max = _post_piso_update(
             rho, u, P, T, D_hyd, Re, Mach, u_cell, f_darcy,
-            N, mu_gas, gamma_R, roughness,
+            N, mu_gas, gamma_mix_arr, R_mix_arr, roughness,
         )
 
         # ============================================
         # STEP 6: BOOKKEEPING
         # ============================================
         total_mass_produced += mass_sum * dx * dt
+        # v0.7.1 Phase 3: nozzle uses cell-N-1 mixture thermo.
         nozzle_mdot, _dmdp_nozzle, nozzle_upstream_T, _nozzle_state = _nozzle_boundary_flow(
-            P[N - 1], T[N - 1], A_throat, gamma, R_specific,
+            P[N - 1], T[N - 1], A_throat,
+            gamma_mix_arr[N - 1], R_mix_arr[N - 1],
             P_ambient, ambient_temperature,
         )
         total_mass_nozzle += nozzle_mdot * dt
@@ -994,11 +1055,17 @@ def _run_time_loop(
             nozzle_mdot, dx, dt,
             mass_source_by_species, N, S_species_local,
         )
-        # v0.7.1 Phase 2: refresh per-cell mixture arrays from updated Y.
-        # Available for solver consumption in Phase 3; currently unused.
+        # v0.7.1 Phase 3: refresh per-cell (γ, Cp, R, M) for the NEXT
+        # step's PISO + post-PISO consumption. T_ceiling_arr is the
+        # max-of-species cap and is therefore time-invariant under the
+        # current relaxed formula, but we refresh it here for symmetry
+        # in case species_params later grows time-varying entries.
         _refresh_mixture_arrays(
             Y_species, species_params_arr,
             gamma_mix_arr, Cp_mix_arr, R_mix_arr, M_mix_arr, N,
+        )
+        _compute_T_ceiling_arr(
+            Y_species, species_params_arr, T_ceiling_arr, N,
         )
 
         # Kn = total bore burning area / throat area
@@ -1392,14 +1459,18 @@ def run_simulation(
     Y_species = np.zeros((N, S_species))
     Y_species[:, SPECIES_AMBIENT] = 1.0
 
-    # v0.7.1 Phase 2: per-cell mixture thermophysical arrays derived
-    # from Y each step. Allocated here, refreshed inside the time loop
-    # after _advect_species runs. Phase 3 will wire these into the
-    # solver; for now they are computed-but-unused diagnostics.
+    # v0.7.1 Phase 2/3: per-cell mixture thermophysical arrays derived
+    # from Y each step. Allocated here, seeded + refreshed inside the
+    # time loop after _advect_species runs. As of Phase 3 these arrays
+    # are CONSUMED by PISO + post-PISO + source-CFL + nozzle BC.
     gamma_mix_arr = np.empty(N)
     Cp_mix_arr = np.empty(N)
     R_mix_arr = np.empty(N)
     M_mix_arr = np.empty(N)
+    # v0.7.1 Phase 3: per-cell temperature ceiling. Refreshed each step
+    # by ``_compute_T_ceiling_arr`` from species_params; consumed by the
+    # PISO energy equation's T_raw clip.
+    T_ceiling_arr = np.empty(N)
 
     # Ignition state
     is_burning = np.zeros(N, dtype=np.bool_)
@@ -1603,6 +1674,7 @@ def run_simulation(
         # v0.7.1: N-species state
         Y_species, species_params_arr, mass_source_by_species,
         gamma_mix_arr, Cp_mix_arr, R_mix_arr, M_mix_arr,
+        T_ceiling_arr,
     )
 
     wall_elapsed = clock.time() - wall_start

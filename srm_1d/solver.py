@@ -277,7 +277,7 @@ def _nozzle_boundary_flow(
 def _piso_step_with_energy_diagnostics(
     rho, u, P, T, A_port, D_hyd,
     mass_source, thermal_source, momentum_source, f_darcy,
-    dx, dt, gamma, R_specific, T_flame, Cp_gas,
+    dx, dt, gamma_arr, R_arr, Cp_arr, T_ceiling_arr,
     A_throat, P_ambient, T_ambient, N,
 ):
     """
@@ -287,6 +287,14 @@ def _piso_step_with_energy_diagnostics(
     current state (ρ, u, P, T) and source terms (mass_source, f_darcy)
     and returns the updated state. It has no knowledge of where the mass
     source or friction come from — that is the simulation driver's job.
+
+    v0.7.1 (Phase 3): the previously-scalar gas thermo (gamma, R, Cp,
+    T_flame) is now per-cell. The nozzle boundary uses cell-N-1's
+    mixture (γ, R); the EOS update uses cell-i's R; the pressure-correction
+    transient term uses cell-i's R; and the energy equation advects
+    sensible enthalpy ``Cp·T`` rather than scalar T so cells with
+    different Cp conserve energy across faces. The T-clipping ceiling
+    is also per-cell from ``T_ceiling_arr``.
 
     Parameters
     ----------
@@ -306,8 +314,8 @@ def _piso_step_with_energy_diagnostics(
         Mass source per unit length [kg/(m·s)]. From propellant
         combustion and igniter.
     thermal_source : ndarray (N,)
-        Temperature-weighted mass source per unit length. Each source
-        contributes mass_source_component * source_temperature.
+        Enthalpy injection per unit length [W/m]. v0.7.1 unit change
+        (Phase 3 step 1) from the previous mass-rate-times-T convention.
     momentum_source : ndarray (N+1,)
         Face-centered axial momentum source [N/m^3]. Positive values
         accelerate flow downstream in the momentum predictor.
@@ -317,14 +325,15 @@ def _piso_step_with_energy_diagnostics(
         Cell width [m].
     dt : float
         Time step size [s].
-    gamma : float
-        Ratio of specific heats [-].
-    R_specific : float
-        Specific gas constant [J/(kg·K)].
-    T_flame : float
-        Flame temperature [K]. Temperature of injected mass.
-    Cp_gas : float
-        Specific heat at constant pressure [J/(kg·K)].
+    gamma_arr : ndarray (N,)
+        Per-cell ratio of specific heats [-].
+    R_arr : ndarray (N,)
+        Per-cell specific gas constant [J/(kg·K)].
+    Cp_arr : ndarray (N,)
+        Per-cell specific heat at constant pressure [J/(kg·K)].
+    T_ceiling_arr : ndarray (N,)
+        Per-cell temperature ceiling [K] used for the T_raw clip.
+        See ``simulation._compute_T_ceiling_arr``.
     A_throat : float
         Nozzle throat area [m²].
     P_ambient : float
@@ -345,6 +354,9 @@ def _piso_step_with_energy_diagnostics(
     T_new : ndarray (N,)
         Updated temperature.
     """
+    # v0.7.1 Phase 3: nozzle boundary uses cell-N-1 mixture thermo
+    gamma_bnd = gamma_arr[N - 1]
+    R_bnd = R_arr[N - 1]
     # Face areas (interpolated from cell centers)
     A_face = np.zeros(N + 1)
     A_face[0] = A_port[0]
@@ -437,7 +449,7 @@ def _piso_step_with_energy_diagnostics(
     b_rhs = np.zeros(N)
 
     for i in range(N):
-        RT_local = R_specific * T[i]
+        RT_local = R_arr[i] * T[i]
         a_t = A_port[i] * dx / (RT_local * dt)  # Transient density term
 
         # West face coefficient (face i)
@@ -459,7 +471,7 @@ def _piso_step_with_energy_diagnostics(
         # Nozzle BC: P' at last cell drives nozzle flow correction
         if i == N - 1:
             _mdot_bc, dmdp_bc, _T_bc, _state_bc = _nozzle_boundary_flow(
-                P[i], T[i], A_throat, gamma, R_specific, P_ambient, T_ambient
+                P[i], T[i], A_throat, gamma_bnd, R_bnd, P_ambient, T_ambient
             )
             a_diag[i] += dmdp_bc
 
@@ -475,7 +487,7 @@ def _piso_step_with_energy_diagnostics(
             mdot_star_e = rho_e * u_star[i + 1] * A_face[i + 1]
         else:
             mdot_star_e, _dmdp, _T_bc, _state = _nozzle_boundary_flow(
-                P[i], T[i], A_throat, gamma, R_specific, P_ambient, T_ambient
+                P[i], T[i], A_throat, gamma_bnd, R_bnd, P_ambient, T_ambient
             )
 
         b_rhs[i] = mass_source[i] * dx - (mdot_star_e - mdot_star_w)
@@ -496,7 +508,7 @@ def _piso_step_with_energy_diagnostics(
     # -------------------------------------------------------
     rho_new_1 = np.zeros(N)
     for i in range(N):
-        rho_new_1[i] = P_new[i] / (R_specific * T[i])
+        rho_new_1[i] = P_new[i] / (R_arr[i] * T[i])
 
     # Recompute d_face with updated density
     for j in range(1, N):
@@ -504,7 +516,7 @@ def _piso_step_with_energy_diagnostics(
         d_face[j] = dt / max(rho_f, 1e-6)
 
     for i in range(N):
-        RT_local = R_specific * T[i]
+        RT_local = R_arr[i] * T[i]
         a_t = A_port[i] * dx / (RT_local * dt)
 
         if i > 0:
@@ -522,7 +534,7 @@ def _piso_step_with_energy_diagnostics(
         a_diag[i] = a_t + coeff_w + coeff_e
         if i == N - 1:
             _mdot_bc, dmdp_bc, _T_bc, _state_bc = _nozzle_boundary_flow(
-                P_new[i], T[i], A_throat, gamma, R_specific, P_ambient, T_ambient
+                P_new[i], T[i], A_throat, gamma_bnd, R_bnd, P_ambient, T_ambient
             )
             a_diag[i] += dmdp_bc
 
@@ -537,7 +549,7 @@ def _piso_step_with_energy_diagnostics(
             mdot_e2 = rho_e * u_new[i + 1] * A_face[i + 1]
         else:
             mdot_e2, _dmdp, _T_bc, _state = _nozzle_boundary_flow(
-                P_new[i], T[i], A_throat, gamma, R_specific, P_ambient, T_ambient
+                P_new[i], T[i], A_throat, gamma_bnd, R_bnd, P_ambient, T_ambient
             )
 
         b_rhs[i] = mass_source[i] * dx - (mdot_e2 - mdot_w2)
@@ -549,18 +561,30 @@ def _piso_step_with_energy_diagnostics(
         u_new[j] = u_new[j] - d_face[j] * (P_prime2[j] - P_prime2[j - 1]) / dx
     u_new[0] = 0.0
     mdot_boundary, _dmdp, T_boundary, _state = _nozzle_boundary_flow(
-        P_new[N - 1], T[N - 1], A_throat, gamma, R_specific,
+        P_new[N - 1], T[N - 1], A_throat, gamma_bnd, R_bnd,
         P_ambient, T_ambient,
     )
     if mdot_boundary >= 0.0:
         rho_boundary = rho_new_1[N - 1]
     else:
-        rho_boundary = P_ambient / (R_specific * max(T_boundary, 1.0))
+        rho_boundary = P_ambient / (R_bnd * max(T_boundary, 1.0))
     u_new[N] = mdot_boundary / max(rho_boundary * A_face[N], 1.0e-12)
 
     # -------------------------------------------------------
-    # STEP 3b: ENERGY EQUATION
+    # STEP 3b: ENERGY EQUATION  (v0.7.1 Phase 3: sensible-enthalpy form)
     # -------------------------------------------------------
+    # We advect h_i = Cp_arr[i] * T[i] (specific sensible enthalpy)
+    # rather than T directly. Across a face between cells with different
+    # Cp, the conserved scalar that matches the mass flux is h, not T —
+    # advecting T directly loses energy proportional to ΔCp / Cp. See
+    # docs/v0_7_1/DESIGN.md §7.
+    #
+    # Cell update (per mass-flow at faces, mass-conservative form):
+    #   m_new * h_new = m_old * h_old
+    #                 + dt * (flux_h_in - flux_h_out + thermal_source[i] * dx)
+    # T_new = h_new / Cp_arr[i] (Cp stays at its start-of-step value within
+    # the PISO step — species composition is updated by _advect_species
+    # after PISO returns, then Cp_arr is refreshed for the next step.)
     gas_energy_before = 0.0
     gas_energy_after = 0.0
     convective_scalar_flux_power = 0.0
@@ -569,63 +593,64 @@ def _piso_step_with_energy_diagnostics(
     clipping_correction_power = 0.0
     T_new = np.zeros(N)
     for i in range(N):
+        Cp_i = Cp_arr[i]
         old_mass = rho[i] * A_port[i] * dx
         new_mass = max(rho_new_1[i] * A_port[i] * dx, 1e-16)
-        gas_energy_before += old_mass * Cp_gas * T[i]
+        h_old = Cp_i * T[i]
+        gas_energy_before += old_mass * h_old
 
-        # West face flux (upwind using staggered face velocity)
+        # West face enthalpy flux (upwind using staggered face velocity)
         if i == 0:
-            flux_w = 0.0
+            flux_h_w = 0.0
         else:
             rho_w = 0.5 * (rho_new_1[i - 1] + rho_new_1[i])
             mdot_w = rho_w * u_new[i] * A_face[i]
             if mdot_w >= 0:
-                flux_w = mdot_w * T[i - 1]
+                flux_h_w = mdot_w * Cp_arr[i - 1] * T[i - 1]
             else:
-                flux_w = mdot_w * T[i]
+                flux_h_w = mdot_w * Cp_i * T[i]
 
-        # East face flux
+        # East face enthalpy flux
         if i < N - 1:
             rho_e = 0.5 * (rho_new_1[i] + rho_new_1[i + 1])
             mdot_e = rho_e * u_new[i + 1] * A_face[i + 1]
             if mdot_e >= 0:
-                flux_e = mdot_e * T[i]
+                flux_h_e = mdot_e * Cp_i * T[i]
             else:
-                flux_e = mdot_e * T[i + 1]
+                flux_h_e = mdot_e * Cp_arr[i + 1] * T[i + 1]
         else:
             mdot_e, _dmdp, T_upstream, _state = _nozzle_boundary_flow(
-                P_new[i], T[i], A_throat, gamma, R_specific,
+                P_new[i], T[i], A_throat, gamma_bnd, R_bnd,
                 P_ambient, T_ambient,
             )
-            flux_e = mdot_e * T_upstream
-            nozzle_scalar_flux_power = mdot_e * Cp_gas * T_upstream
+            # Outflow carries cell-N-1's mixture Cp; inflow uses cell-N-1's
+            # Cp as a stand-in for ambient Cp (mdot_e is small in that
+            # regime so the choice is negligible).
+            flux_h_e = mdot_e * Cp_i * T_upstream
+            nozzle_scalar_flux_power = flux_h_e
 
-        convective_scalar_flux = flux_w - flux_e
-        convective_scalar_flux_power += convective_scalar_flux * Cp_gas
-        # v0.7.1 (Phase 3): thermal_source is enthalpy injection [W/m],
-        # so the cell power is thermal_source[i] * dx (no Cp factor).
+        convective_h_flux = flux_h_w - flux_h_e
+        convective_scalar_flux_power += convective_h_flux
+        # thermal_source is enthalpy injection [W/m] (Phase 3 step 1).
         thermal_source_power += thermal_source[i] * dx
 
-        # Convert the W/m enthalpy injection back to a temperature source
-        # for the legacy scalar-T advection (still in this kernel until
-        # Phase 3 swaps it for sensible-enthalpy advection): divide by Cp.
-        T_source_i = thermal_source[i] / Cp_gas if Cp_gas > 0.0 else 0.0
-        scalar = old_mass * T[i] + dt * (
-            convective_scalar_flux + T_source_i * dx
+        h_scalar = old_mass * h_old + dt * (
+            convective_h_flux + thermal_source[i] * dx
         )
-        T_raw = scalar / new_mass
+        h_new = h_scalar / new_mass
+        T_raw = h_new / Cp_i if Cp_i > 0.0 else h_new
         T_floor = max(1.0, T_ambient)
-        T_ceiling = T_flame * 1.01
+        T_ceiling_i = T_ceiling_arr[i]
         T_clipped = T_raw
         if T_clipped < T_floor:
             T_clipped = T_floor
-        if T_clipped > T_ceiling:
-            T_clipped = T_ceiling
+        if T_clipped > T_ceiling_i:
+            T_clipped = T_ceiling_i
         clipping_correction_power += (
-            (T_clipped - T_raw) * new_mass * Cp_gas / dt
+            (T_clipped - T_raw) * new_mass * Cp_i / dt
         )
         T_new[i] = T_clipped
-        gas_energy_after += new_mass * Cp_gas * T_new[i]
+        gas_energy_after += new_mass * Cp_i * T_new[i]
 
     # -------------------------------------------------------
     # STEP 4: UPDATE DENSITY
@@ -635,7 +660,7 @@ def _piso_step_with_energy_diagnostics(
         P_new[i] = max(P_new[i], pressure_floor)
     rho_new = np.zeros(N)
     for i in range(N):
-        rho_new[i] = P_new[i] / (R_specific * T_new[i])
+        rho_new[i] = P_new[i] / (R_arr[i] * T_new[i])
 
     gas_sensible_dE_dt = (gas_energy_after - gas_energy_before) / dt
     energy_residual = (
@@ -656,14 +681,19 @@ def _piso_step_with_energy_diagnostics(
 def piso_step(
     rho, u, P, T, A_port, D_hyd,
     mass_source, thermal_source, momentum_source, f_darcy,
-    dx, dt, gamma, R_specific, T_flame, Cp_gas,
+    dx, dt, gamma_arr, R_arr, Cp_arr, T_ceiling_arr,
     A_throat, P_ambient, T_ambient, N,
 ):
-    """Public PISO step returning only the updated flow state."""
+    """Public PISO step returning only the updated flow state.
+
+    v0.7.1 (Phase 3): the scalar (gamma, R_specific, Cp_gas, T_flame)
+    arguments are now per-cell arrays. See
+    ``_piso_step_with_energy_diagnostics`` for the full signature.
+    """
     out = _piso_step_with_energy_diagnostics(
         rho, u, P, T, A_port, D_hyd,
         mass_source, thermal_source, momentum_source, f_darcy,
-        dx, dt, gamma, R_specific, T_flame, Cp_gas,
+        dx, dt, gamma_arr, R_arr, Cp_arr, T_ceiling_arr,
         A_throat, P_ambient, T_ambient, N,
     )
     return out[0], out[1], out[2], out[3]
@@ -720,7 +750,7 @@ def compute_dt_cfl(u, a_sound, dx, N, cfl_target, dt_max):
 @njit(cache=True)
 def compute_dt_source_cap(
     rho, A_port, thermal_source, mass_source, N,
-    Cp_gas, T_flame, T_ambient, source_cfl_factor, dt_floor,
+    Cp_arr, T_flame, T_ambient, source_cfl_factor, dt_floor,
 ):
     """Source-aware CFL: cap dt so per-step per-cell energy injection
     cannot change a cell's gas temperature by more than
@@ -734,12 +764,12 @@ def compute_dt_source_cap(
     numerical-collapse abort.
 
     v0.7.1 (Phase 3): ``thermal_source`` carries W/m (enthalpy injection
-    per unit length). The per-cell power is ``thermal_source[i] * dx``
-    (W); available thermal capacity is ``rho[i] * A_port[i] * dx * Cp_gas``
-    (J/K). The dx cancels and Cp_gas stays on the numerator:
+    per unit length) and ``Cp_arr`` is per-cell. The per-cell power is
+    ``thermal_source[i] * dx`` (W); available thermal capacity is
+    ``rho[i] * A_port[i] * dx * Cp_arr[i]`` (J/K):
 
         dt_cap[i] = source_cfl_factor * (T_flame - T_ambient)
-                    * rho[i] * A_port[i] * Cp_gas / |thermal_source[i]|
+                    * rho[i] * A_port[i] * Cp_arr[i] / |thermal_source[i]|
 
     Take the minimum across all cells with nonzero source. ``dt_floor``
     prevents an infinite spike from collapsing dt to zero.
@@ -751,17 +781,16 @@ def compute_dt_source_cap(
     A_port : ndarray (N,)
         Cell port (gas) cross-sectional area [m^2].
     thermal_source : ndarray (N,)
-        Per-cell enthalpy source [W/m]. v0.7.1 unit change from the
-        previous mass-rate-times-T convention.
+        Per-cell enthalpy source [W/m].
     mass_source : ndarray (N,)
         Per-cell mass source [kg/(s*m^3)]. Used only to skip cells where
         the source is purely advective (no propellant injection).
-    Cp_gas : float
-        Gas specific heat [J/(kg*K)] used to convert per-cell enthalpy
-        capacity into a temperature-rate cap. Phase 3 still threads a
-        scalar; Phase 3 of v0.7.1 will swap this for a per-cell ``Cp_arr``.
+    Cp_arr : ndarray (N,)
+        Per-cell gas mixture specific heat [J/(kg*K)].
     T_flame, T_ambient : float
-        Bounds on the temperature range used for the per-step cap.
+        Bounds on the temperature range used for the per-step cap. Stay
+        scalar for v0.7.1 — the cap range is a global control knob, not
+        a per-cell mixture property.
     source_cfl_factor : float
         Fraction of the (T_flame - T_ambient) range allowed per step.
         0.10 (10%) is a standard CFL-like default.
@@ -775,7 +804,7 @@ def compute_dt_source_cap(
     for i in range(N):
         thermal_abs = abs(thermal_source[i])
         if thermal_abs > 0.0 and mass_source[i] > 0.0:
-            dt_i = dT_max * rho[i] * A_port[i] * Cp_gas / thermal_abs
+            dt_i = dT_max * rho[i] * A_port[i] * Cp_arr[i] / thermal_abs
             if dt_i < dt_min:
                 dt_min = dt_i
     if dt_min < dt_floor:

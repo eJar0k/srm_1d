@@ -78,14 +78,14 @@ class TestPisoSources:
                                  dt=1.0e-4, diagnostics=False):
         """Closed one-cell source step used by conservative energy tests.
 
-        v0.7.1 (Phase 3 unit shift): ``thermal_source`` is now W/m
-        (enthalpy injection per unit length), so it's ``mass_rate *
-        T_source * Cp_gas``.
+        v0.7.1 (Phase 3): thermal_source carries W/m and PISO takes
+        per-cell ``gamma_arr/R_arr/Cp_arr/T_ceiling_arr`` arrays.
         """
         N = 1
         gamma = 1.2
         R_specific = 300.0
         Cp_gas = 2000.0
+        T_flame = 3000.0
         T_initial = 300.0
         rho_initial = 1.0
         P_initial = rho_initial * R_specific * T_initial
@@ -100,12 +100,16 @@ class TestPisoSources:
         thermal_source = mass_source * source_temperature * Cp_gas
         momentum_source = np.zeros(N + 1)
         f_darcy = np.zeros(N)
+        gamma_arr = np.full(N, gamma)
+        R_arr = np.full(N, R_specific)
+        Cp_arr = np.full(N, Cp_gas)
+        T_ceiling_arr = np.full(N, T_flame * 1.01)
 
         step_func = _piso_step_with_energy_diagnostics if diagnostics else piso_step
         return step_func(
             rho, u, P, T, A_port, D_hyd,
             mass_source, thermal_source, momentum_source, f_darcy,
-            0.01, dt, gamma, R_specific, 3000.0, Cp_gas,
+            0.01, dt, gamma_arr, R_arr, Cp_arr, T_ceiling_arr,
             0.0, P_initial, T_initial, N,
         )
 
@@ -155,12 +159,14 @@ class TestPisoSources:
     def test_thermal_source_controls_injection_temperature(self):
         """Same mass source with hotter thermal source should heat more.
 
-        v0.7.1 (Phase 3): thermal_source carries W/m, so build it as
-        ``mass_source * T_source * Cp_gas``.
+        v0.7.1 (Phase 3): thermal_source carries W/m, and PISO takes
+        per-cell ``gamma_arr/R_arr/Cp_arr/T_ceiling_arr`` arrays.
         """
         N = 3
+        gamma = 1.2
         R_specific = 300.0
         Cp_gas = 2000.0
+        T_flame = 3000.0
         rho = np.full(N, 1.0)
         u = np.zeros(N + 1)
         T = np.full(N, 300.0)
@@ -172,19 +178,24 @@ class TestPisoSources:
         momentum_source = np.zeros(N + 1)
         f_darcy = np.zeros(N)
 
+        gamma_arr = np.full(N, gamma)
+        R_arr = np.full(N, R_specific)
+        Cp_arr = np.full(N, Cp_gas)
+        T_ceiling_arr = np.full(N, T_flame * 1.01)
+
         cold_source = mass_source * 500.0 * Cp_gas
         hot_source = mass_source * 2500.0 * Cp_gas
 
         cold = piso_step(
             rho.copy(), u.copy(), P.copy(), T.copy(), A_port, D_hyd,
             mass_source, cold_source, momentum_source, f_darcy,
-            0.01, 1.0e-5, 1.2, R_specific, 3000.0, Cp_gas,
+            0.01, 1.0e-5, gamma_arr, R_arr, Cp_arr, T_ceiling_arr,
             1.0e-4, 101325.0, 300.0, N,
         )
         hot = piso_step(
             rho.copy(), u.copy(), P.copy(), T.copy(), A_port, D_hyd,
             mass_source, hot_source, momentum_source, f_darcy,
-            0.01, 1.0e-5, 1.2, R_specific, 3000.0, Cp_gas,
+            0.01, 1.0e-5, gamma_arr, R_arr, Cp_arr, T_ceiling_arr,
             1.0e-4, 101325.0, 300.0, N,
         )
 
@@ -193,6 +204,10 @@ class TestPisoSources:
     def test_momentum_source_accelerates_downstream_face(self):
         """Positive face momentum source should push flow downstream."""
         N = 3
+        gamma = 1.2
+        R_specific = 300.0
+        Cp_gas = 2000.0
+        T_flame = 3000.0
         rho = np.full(N, 1.0)
         u = np.zeros(N + 1)
         P = np.full(N, 101325.0)
@@ -203,6 +218,11 @@ class TestPisoSources:
         thermal_source = np.zeros(N)
         f_darcy = np.zeros(N)
 
+        gamma_arr = np.full(N, gamma)
+        R_arr = np.full(N, R_specific)
+        Cp_arr = np.full(N, Cp_gas)
+        T_ceiling_arr = np.full(N, T_flame * 1.01)
+
         no_momentum = np.zeros(N + 1)
         with_momentum = np.zeros(N + 1)
         with_momentum[1] = 5.0e4
@@ -210,13 +230,13 @@ class TestPisoSources:
         base = piso_step(
             rho.copy(), u.copy(), P.copy(), T.copy(), A_port, D_hyd,
             mass_source, thermal_source, no_momentum, f_darcy,
-            0.01, 1.0e-5, 1.2, 300.0, 3000.0, 2000.0,
+            0.01, 1.0e-5, gamma_arr, R_arr, Cp_arr, T_ceiling_arr,
             1.0e-4, 101325.0, 300.0, N,
         )
         driven = piso_step(
             rho.copy(), u.copy(), P.copy(), T.copy(), A_port, D_hyd,
             mass_source, thermal_source, with_momentum, f_darcy,
-            0.01, 1.0e-5, 1.2, 300.0, 3000.0, 2000.0,
+            0.01, 1.0e-5, gamma_arr, R_arr, Cp_arr, T_ceiling_arr,
             1.0e-4, 101325.0, 300.0, N,
         )
 
@@ -225,6 +245,10 @@ class TestPisoSources:
     def test_nozzle_boundary_does_not_drain_ambient_chamber(self):
         """At ambient pressure with no sources, the nozzle should not create vacuum."""
         N = 3
+        gamma = 1.2
+        R_specific = 300.0
+        Cp_gas = 2000.0
+        T_flame = 3000.0
         P_ambient = 101325.0
         rho = np.full(N, 1.0)
         u = np.zeros(N + 1)
@@ -237,10 +261,15 @@ class TestPisoSources:
         momentum_source = np.zeros(N + 1)
         f_darcy = np.zeros(N)
 
+        gamma_arr = np.full(N, gamma)
+        R_arr = np.full(N, R_specific)
+        Cp_arr = np.full(N, Cp_gas)
+        T_ceiling_arr = np.full(N, T_flame * 1.01)
+
         rho_new, u_new, P_new, T_new = piso_step(
             rho.copy(), u.copy(), P.copy(), T.copy(), A_port, D_hyd,
             mass_source, thermal_source, momentum_source, f_darcy,
-            0.01, 1.0e-5, 1.2, 300.0, 3000.0, 2000.0,
+            0.01, 1.0e-5, gamma_arr, R_arr, Cp_arr, T_ceiling_arr,
             1.0e-4, P_ambient, 300.0, N,
         )
 
@@ -252,6 +281,10 @@ class TestPisoSources:
     def test_subambient_chamber_draws_reverse_nozzle_inflow(self):
         """Below ambient, the open boundary should add reverse mass flow."""
         N = 3
+        gamma = 1.2
+        R_specific = 300.0
+        Cp_gas = 2000.0
+        T_flame = 3000.0
         P_ambient = 101325.0
         rho = np.full(N, 0.5)
         u = np.zeros(N + 1)
@@ -264,10 +297,15 @@ class TestPisoSources:
         momentum_source = np.zeros(N + 1)
         f_darcy = np.zeros(N)
 
+        gamma_arr = np.full(N, gamma)
+        R_arr = np.full(N, R_specific)
+        Cp_arr = np.full(N, Cp_gas)
+        T_ceiling_arr = np.full(N, T_flame * 1.01)
+
         rho_new, u_new, P_new, _T_new = piso_step(
             rho.copy(), u.copy(), P.copy(), T.copy(), A_port, D_hyd,
             mass_source, thermal_source, momentum_source, f_darcy,
-            0.01, 1.0e-5, 1.2, 300.0, 3000.0, 2000.0,
+            0.01, 1.0e-5, gamma_arr, R_arr, Cp_arr, T_ceiling_arr,
             1.0e-4, P_ambient, 293.0, N,
         )
 
