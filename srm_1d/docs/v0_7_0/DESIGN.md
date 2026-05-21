@@ -1,7 +1,7 @@
 # srm_1d v0.7.0 — Hot-gas Plenum Igniter Model
 
-**Status**: Phase 4 complete on branch `v0.7.0-phase4`; ready to tag
-v0.7.0. The Hasegawa A v0.7.0 calibration LHS rank-1 produces
+**Status**: Tagged `v0.7.0` (2026-05-21) on branch `v0.7.0-phase4`.
+The Hasegawa A v0.7.0 calibration LHS rank-1 produces
 `mse_all = 0.0968 MPa²` (better than v0.6.0's 0.24 MPa² with the
 now-removed `igniter_tau = 127 ms` FSI proxy). See the per-step
 journey in `audits/2026-05-20_radiation_collapse_localT.md` and

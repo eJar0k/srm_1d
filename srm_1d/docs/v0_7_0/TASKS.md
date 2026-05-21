@@ -179,7 +179,8 @@ calibration per `feedback_no_unfounded_smoothing`.
 
 ## Phase 5 -- Release
 
-Status: ready. Phase 4 closed (above). 180 / 180 pytests pass.
+Status: tagged `v0.7.0` on 2026-05-21 (local; not yet pushed to
+origin). Phase 4 closed (above). 180 / 180 pytests pass at tag.
 
 Release checklist:
 

@@ -45,9 +45,8 @@ srm_1d/
 
 ## Dev workflow
 
-- **Versioning is git tags**, not folder names. Current branch:
-  `v0.7.0-phase4`. Phase 4 is complete and the LHS calibration passes
-  the plan target -- ready to tag `v0.7.0`.
+- **Versioning is git tags**, not folder names. Latest tag: `v0.7.0`
+  (2026-05-21), still on branch `v0.7.0-phase4` (no merge to main yet).
   Bump on hard API breaks; document each break in DEVNOTES "API
   Breaking Changes Log."
 - **Hard API breaks are fine** — refactor cleanly, no backward-compat
