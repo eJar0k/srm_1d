@@ -129,23 +129,38 @@ def _plot_metric_tradeoffs(rows, prefix):
     print(f'Saved {path}')
 
 
-def _plot_best_diagnostics(result, t_exp, p_exp, prefix):
+def _plot_best_diagnostics(result, t_exp, p_exp, prefix, t_offset=0.0):
+    """Best-run diagnostic plot.
+
+    v0.7.1 Phase 5: takes ``t_offset`` (seconds) so the sim trace and
+    its residual are drawn on the SAME aligned time axis the fitness
+    function scored against. Without this, the plotted sim trace would
+    show the un-aligned (raw) ignition timing and the residual would
+    bake in the ignition-phasing error — misleading because the
+    optimizer judged the run by the aligned residual instead.
+    """
     fig, axes = plt.subplots(4, 1, figsize=(12, 12), sharex=False)
 
-    t = result['time']
+    t_raw = result['time']
+    t_aligned = t_raw + t_offset
     p_sim = result['P_head'] / 1e6
-    p_at_exp = np.interp(t_exp, t, p_sim)
+    p_at_exp = np.interp(t_exp, t_aligned, p_sim)
 
-    axes[0].plot(t, p_sim, 'b-', linewidth=2, label='simulation')
+    axes[0].plot(t_aligned, p_sim, 'b-', linewidth=2,
+                 label=f'simulation (aligned, t_offset={t_offset*1000:+.1f} ms)')
+    axes[0].plot(t_raw, p_sim, color='0.7', linewidth=0.8, alpha=0.7,
+                 label='simulation (raw, pre-alignment)')
     axes[0].plot(t_exp, p_exp, 'ko-', linewidth=1.5, markersize=3,
                  label='experimental')
     axes[0].set_ylabel('P_head [MPa]')
-    axes[0].legend(loc='best')
+    axes[0].legend(loc='best', fontsize=9)
     axes[0].grid(True, alpha=0.3)
 
-    axes[1].plot(t_exp, p_at_exp - p_exp, 'r.-', linewidth=1.2)
+    axes[1].plot(t_exp, p_at_exp - p_exp, 'r.-', linewidth=1.2,
+                 label='aligned residual (what the optimizer scored)')
     axes[1].axhline(0.0, color='0.4', linewidth=0.8)
     axes[1].set_ylabel('Residual [MPa]')
+    axes[1].legend(loc='best', fontsize=9)
     axes[1].grid(True, alpha=0.3)
 
     ax_pig = axes[2]
@@ -314,9 +329,15 @@ def main():
             verbose=SIM_VERBOSE,
             **params,
         )
-        plt.plot(result['time'], result['P_head'] / 1e6,
+        # v0.7.1 Phase 5: draw each rank on its aligned time axis (the
+        # axis the fitness function judged) so visual comparison
+        # matches the reported MSE. The offset was captured in the
+        # row's metrics dict during the LHS sweep.
+        t_offset_rank = float(r.get('t_offset_applied_s', 0.0) or 0.0)
+        plt.plot(result['time'] + t_offset_rank, result['P_head'] / 1e6,
                  color=colors[rank], linewidth=1.5, alpha=0.9,
-                 label=f"Rank {rank+1} | fitness={r['fitness']:.3f}")
+                 label=f"Rank {rank+1} | fitness={r['fitness']:.3f} | "
+                       f"t_off={t_offset_rank*1000:+.0f} ms")
 
     plt.title(f"Hasegawa A — {len(bounds)}-Variable LHS (Top 5, N={N_SAMPLES})",
               fontsize=16)
@@ -340,7 +361,11 @@ def main():
             verbose=SIM_VERBOSE,
             **best_params,
         )
-        _plot_best_diagnostics(best_result, t_exp, p_exp, OUTPUT_PREFIX)
+        best_t_offset = float(sorted_rows[0].get('t_offset_applied_s', 0.0) or 0.0)
+        _plot_best_diagnostics(
+            best_result, t_exp, p_exp, OUTPUT_PREFIX,
+            t_offset=best_t_offset,
+        )
 
 
 if __name__ == "__main__":
