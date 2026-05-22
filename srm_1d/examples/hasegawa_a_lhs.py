@@ -197,6 +197,16 @@ def main():
     t_exp = HASEGAWA_MOTOR_A_EXPERIMENTAL['time'] + EXPERIMENTAL_TIME_OFFSET
     p_exp = HASEGAWA_MOTOR_A_EXPERIMENTAL['pressure']
 
+    # v0.7.1 Phase 5 bounds (Option B — Phase-3.5-faithful + physically
+    # realistic). Changes from v0.7.0 / Phase-3.5 probe (commit e8e9e47):
+    #   pyrogen_volume upper 1e-4 -> 1e-5 m^3 (100 -> 10 cm^3); the
+    #     probe optimum hit 83.8 cm^3 which is 26x Hasegawa's actual
+    #     igniter chamber. Keep the LHS in physical space.
+    #   T_ignition lower 700 -> 800 K; below ~800 K is unrealistic for
+    #     AP/HTPB ignition.
+    #   pyrogen_heat_flux_cal_cm2_s added (30-150 cal/cm^2/s) as the
+    #     direct lever for the Phase 3.5 sensible-power cap reduction.
+    #     BPNV nominal is 69.4; range spans ~factor of 2 each way.
     bounds = {
         # Ma erosive-burning knobs
         'roughness':           (5e-6, 50e-6),
@@ -204,22 +214,35 @@ def main():
         # Pyrogen plenum sizing
         'pyrogen_mass':        (0.001, 0.050),
         'pyrogen_throat_area': (1e-6, 5e-5),
-        'pyrogen_volume':      (1e-6, 1e-4),
+        'pyrogen_volume':      (1e-6, 1e-5),
+        'pyrogen_heat_flux_cal_cm2_s': (30.0, 150.0),
         # Goodman ignition / surface-conduction
-        'T_ignition':          (700.0, 950.0),
+        'T_ignition':          (800.0, 950.0),
         'k_solid':             (0.15, 0.60),
     }
 
+    # v0.7.1 Phase 5: per-sample ignition-timing alignment. The fitness
+    # finds the sim and experimental peak times inside this window
+    # before computing MSE — keeps the optimizer focused on trace
+    # SHAPE rather than ignition PHASING. Hasegawa A's global peak is
+    # the ignition spike; the (0.02, 0.18) window scoops it cleanly.
+    PEAK_ALIGN_WINDOW = (0.02, 0.18)
+
     metrics_fn = pressure_trace_metrics(
         t_exp, p_exp, t_min=0.01, segments=DEFAULT_PRESSURE_SEGMENTS,
+        peak_align_window=PEAK_ALIGN_WINDOW,
     )
     if FITNESS_MODE == 'mse':
-        fitness_fn = mse_fitness(t_exp, p_exp, t_min=0.01)
+        fitness_fn = mse_fitness(
+            t_exp, p_exp, t_min=0.01,
+            peak_align_window=PEAK_ALIGN_WINDOW,
+        )
     elif FITNESS_MODE == 'segmented':
         fitness_fn = segmented_pressure_fitness(
             t_exp, p_exp, t_min=0.01,
             segments=DEFAULT_PRESSURE_SEGMENTS,
             weights=SEGMENT_WEIGHTS,
+            peak_align_window=PEAK_ALIGN_WINDOW,
         )
     else:
         raise ValueError("SRM_HASEGAWA_LHS_FITNESS must be 'segmented' or 'mse'")
@@ -256,6 +279,7 @@ def main():
         print(f"  Pyro Mass    = {r['pyrogen_mass']*1000:.1f} g")
         print(f"  Pyro Throat  = {r['pyrogen_throat_area']*1e6:.2f} mm^2")
         print(f"  Pyro Volume  = {r['pyrogen_volume']*1e6:.1f} cm^3")
+        print(f"  Pyro HeatFlx = {r['pyrogen_heat_flux_cal_cm2_s']:.1f} cal/cm^2/s")
         print(f"  T_ignition   = {r['T_ignition']:.0f} K")
         print(f"  k_solid      = {r['k_solid']:.3f} W/(m.K)")
         print(f"  MSE segments = spike {r.get('mse_spike', np.nan):.3f}, "
@@ -264,6 +288,9 @@ def main():
               f"tail {r.get('mse_taildown', np.nan):.3f}")
         print(f"  Peak/trough  = {r.get('peak_error_pct', np.nan):+.1f}% / "
               f"{r.get('trough_error_pct', np.nan):+.1f}%")
+        t_off = r.get('t_offset_applied_s', np.nan)
+        if np.isfinite(t_off):
+            print(f"  t_offset     = {t_off*1000.0:+.1f} ms (sim peak shifted to match exp)")
         print("-" * 30)
 
     _plot_metric_tradeoffs(rows, OUTPUT_PREFIX)

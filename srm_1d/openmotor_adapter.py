@@ -551,6 +551,7 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
                  pyrogen=None, pyrogen_mass=None,
                  pyrogen_throat_area=None, pyrogen_volume=None,
                  pyrogen_burn_area=None, pyrogen_burn_law='0d',
+                 pyrogen_heat_flux_cal_cm2_s=None,
                  T_ignition=850.0, k_solid=None,
                  radiation_emissivity=None, verbose=True, **sim_overrides):
     """
@@ -623,6 +624,15 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
         pyrogen_obj = pyrogen
     else:
         pyrogen_obj = load_pyrogen(pyrogen)
+
+    # Pyrogen attribute override for LHS sweeps (same pattern as
+    # k_solid / radiation_emissivity above). The pyrogen-to-surface
+    # sensible-power cap in Phase 3.5 changed effective heat delivery
+    # noticeably; exposing this as a calibration knob lets the LHS
+    # compensate explicitly instead of via degenerate routes (e.g.
+    # oversized pyrogen volume).
+    if pyrogen_heat_flux_cal_cm2_s is not None:
+        pyrogen_obj.heat_flux_cal_cm2_s = float(pyrogen_heat_flux_cal_cm2_s)
 
     args['pyrogen_chamber'] = build_pyrogen_chamber(
         pyrogen_obj, geo, nozzle,

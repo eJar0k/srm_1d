@@ -61,6 +61,51 @@ from srm_1d.openmotor_adapter import run_from_ric
 # arrays don't pickle. Instead, fitness is implemented as top-level
 # callable classes — instances pickle cleanly.
 
+def _windowed_peak_time(t, p, window):
+    """Return the time of the maximum-pressure sample inside ``window``.
+
+    Returns ``np.nan`` if the window contains no samples or the input
+    is empty. Used by the peak-alignment hook in ``MSEFitness`` and
+    ``PressureTraceMetrics`` to compute a per-sample ignition-timing
+    offset before MSE evaluation.
+
+    Parameters
+    ----------
+    t, p : np.ndarray
+        Time and pressure arrays of equal length. Pressure can be in
+        any consistent unit (Pa or MPa) — only ``argmax`` is used.
+    window : tuple(float, float)
+        ``(t_lo, t_hi)`` inclusive bounds in the same time units as t.
+    """
+    t = np.asarray(t)
+    p = np.asarray(p)
+    if t.size == 0 or window is None:
+        return float('nan')
+    lo, hi = float(window[0]), float(window[1])
+    mask = (t >= lo) & (t <= hi)
+    if not np.any(mask):
+        return float('nan')
+    t_win = t[mask]
+    p_win = p[mask]
+    return float(t_win[int(np.argmax(p_win))])
+
+
+def _peak_alignment_offset(t_sim, p_sim, t_exp, p_exp, peak_align_window):
+    """Compute ``t_offset`` so that shifting t_sim by it aligns the sim
+    and experimental peak-pressure samples inside ``peak_align_window``.
+
+    Returns 0.0 (no shift) if alignment cannot be computed — empty
+    arrays, no samples in window on either trace, or NaN peak times.
+    """
+    if peak_align_window is None:
+        return 0.0
+    t_sim_peak = _windowed_peak_time(t_sim, p_sim, peak_align_window)
+    t_exp_peak = _windowed_peak_time(t_exp, p_exp, peak_align_window)
+    if not (np.isfinite(t_sim_peak) and np.isfinite(t_exp_peak)):
+        return 0.0
+    return t_exp_peak - t_sim_peak
+
+
 class MSEFitness:
     """Mean-squared error in MPa² between simulated and experimental traces.
 
@@ -68,18 +113,46 @@ class MSEFitness:
     interpolated onto the experimental time grid; samples with
     ``t_exp < t_min`` are dropped (typically used to skip the ignition
     transient that the LHS is *trying* to fit).
+
+    Parameters
+    ----------
+    t_exp, p_exp_mpa : np.ndarray
+        Experimental head-end pressure trace.
+    t_min : float
+        Drop samples before this time from the MSE sum.
+    peak_align_window : tuple(float, float) or None, optional
+        When set, find the sim and experimental peak times inside this
+        window each evaluation, then shift the sim time array by
+        ``t_exp_peak - t_sim_peak`` BEFORE interpolating. This removes
+        ignition-timing residual from the MSE so the optimizer fits
+        trace SHAPE rather than ignition PHASING — useful when the
+        igniter model has known timing drift (e.g. post-Phase-3.5
+        Hasegawa A, where the pyrogen-to-surface sensible-power cap
+        changed the ignition delay). Default ``None`` preserves the
+        original behavior.
     """
-    def __init__(self, t_exp, p_exp_mpa, t_min=0.0):
+    def __init__(self, t_exp, p_exp_mpa, t_min=0.0, peak_align_window=None):
         self.t_exp = np.asarray(t_exp)
         self.p_exp_mpa = np.asarray(p_exp_mpa)
         self.t_min = float(t_min)
+        if peak_align_window is None:
+            self.peak_align_window = None
+        else:
+            self.peak_align_window = (
+                float(peak_align_window[0]), float(peak_align_window[1])
+            )
 
     def __call__(self, result):
-        t_sim = result['time']
-        p_sim_mpa = result['P_head'] / 1e6
+        t_sim = np.asarray(result['time'])
+        p_sim_mpa = np.asarray(result['P_head']) / 1e6
         if len(t_sim) < 100 or t_sim[-1] < self.t_min + 1e-3:
             return 1e6
-        p_sim_at_exp = np.interp(self.t_exp, t_sim, p_sim_mpa)
+        t_offset = _peak_alignment_offset(
+            t_sim, p_sim_mpa, self.t_exp, self.p_exp_mpa,
+            self.peak_align_window,
+        )
+        t_sim_aligned = t_sim + t_offset
+        p_sim_at_exp = np.interp(self.t_exp, t_sim_aligned, p_sim_mpa)
         mask = self.t_exp >= self.t_min
         if not np.any(mask):
             return 1e6
@@ -135,7 +208,8 @@ class PressureTraceMetrics:
     def __init__(self, t_exp, p_exp_mpa, t_min=0.0,
                  segments=DEFAULT_PRESSURE_SEGMENTS,
                  peak_window=(0.03, 0.18),
-                 trough_window=(0.12, 0.60)):
+                 trough_window=(0.12, 0.60),
+                 peak_align_window=None):
         self.t_exp = np.asarray(t_exp, dtype=float)
         self.p_exp_mpa = np.asarray(p_exp_mpa, dtype=float)
         self.t_min = float(t_min)
@@ -143,6 +217,16 @@ class PressureTraceMetrics:
                               for name, lo, hi in segments)
         self.peak_window = tuple(float(v) for v in peak_window)
         self.trough_window = tuple(float(v) for v in trough_window)
+        # v0.7.1 Phase 5: optional per-sample ignition-time alignment.
+        # When set, find sim/exp peaks in this window and shift t_sim
+        # by t_exp_peak - t_sim_peak BEFORE interpolation + segment MSE
+        # evaluation. None preserves original (no-shift) behavior.
+        if peak_align_window is None:
+            self.peak_align_window = None
+        else:
+            self.peak_align_window = (
+                float(peak_align_window[0]), float(peak_align_window[1])
+            )
 
     def _window_peak(self, t, p, window):
         mask = (t >= window[0]) & (t <= window[1])
@@ -170,7 +254,18 @@ class PressureTraceMetrics:
         if len(t_sim) < 2:
             return {'mse_all': 1e6}
 
-        p_sim_at_exp = np.interp(self.t_exp, t_sim, p_sim)
+        # v0.7.1 Phase 5: optional ignition-timing alignment. The shift
+        # is applied to t_sim BEFORE the interpolation step so all
+        # downstream segment MSEs see the aligned trace. The applied
+        # offset is exposed in metrics for CSV / diagnostic capture.
+        t_offset = _peak_alignment_offset(
+            t_sim, p_sim, self.t_exp, self.p_exp_mpa,
+            self.peak_align_window,
+        )
+        t_sim_aligned = t_sim + t_offset
+        metrics['t_offset_applied_s'] = t_offset
+
+        p_sim_at_exp = np.interp(self.t_exp, t_sim_aligned, p_sim)
         all_mask = self.t_exp >= self.t_min
         if np.any(all_mask):
             residual = p_sim_at_exp[all_mask] - self.p_exp_mpa[all_mask]
@@ -192,7 +287,11 @@ class PressureTraceMetrics:
                 metrics[f'mae_{name}'] = np.nan
                 metrics[f'bias_{name}'] = np.nan
 
-        t_peak_sim, p_peak_sim = self._window_peak(t_sim, p_sim, self.peak_window)
+        # Peak/trough diagnostics use the ALIGNED sim trace so reported
+        # peak_error_pct / trough_error_pct compare like-for-like.
+        t_peak_sim, p_peak_sim = self._window_peak(
+            t_sim_aligned, p_sim, self.peak_window,
+        )
         t_peak_exp, p_peak_exp = self._window_peak(
             self.t_exp, self.p_exp_mpa, self.peak_window,
         )
@@ -208,7 +307,7 @@ class PressureTraceMetrics:
             metrics['peak_error_pct'] = np.nan
 
         t_trough_sim, p_trough_sim = self._window_trough(
-            t_sim, p_sim, self.trough_window,
+            t_sim_aligned, p_sim, self.trough_window,
         )
         t_trough_exp, p_trough_exp = self._window_trough(
             self.t_exp, self.p_exp_mpa, self.trough_window,
@@ -248,9 +347,11 @@ class SegmentedPressureFitness:
     instead of allowing plateau/tail duration to dominate the scalar MSE.
     """
     def __init__(self, t_exp, p_exp_mpa, t_min=0.0,
-                 segments=DEFAULT_PRESSURE_SEGMENTS, weights=None):
+                 segments=DEFAULT_PRESSURE_SEGMENTS, weights=None,
+                 peak_align_window=None):
         self.metrics = PressureTraceMetrics(
             t_exp, p_exp_mpa, t_min=t_min, segments=segments,
+            peak_align_window=peak_align_window,
         )
         if weights is None:
             weights = {
@@ -276,8 +377,10 @@ class SegmentedPressureFitness:
 
 
 # Backwards-friendly factory aliases (instantiate the class directly)
-def mse_fitness(t_exp, p_exp_mpa, t_min=0.0):
-    return MSEFitness(t_exp, p_exp_mpa, t_min=t_min)
+def mse_fitness(t_exp, p_exp_mpa, t_min=0.0, peak_align_window=None):
+    return MSEFitness(
+        t_exp, p_exp_mpa, t_min=t_min, peak_align_window=peak_align_window,
+    )
 
 
 def impulse_error_fitness(impulse_target_n_s):
@@ -291,18 +394,22 @@ def peak_pressure_error_fitness(p_peak_target_pa):
 def pressure_trace_metrics(t_exp, p_exp_mpa, t_min=0.0,
                            segments=DEFAULT_PRESSURE_SEGMENTS,
                            peak_window=(0.03, 0.18),
-                           trough_window=(0.12, 0.60)):
+                           trough_window=(0.12, 0.60),
+                           peak_align_window=None):
     return PressureTraceMetrics(
         t_exp, p_exp_mpa, t_min=t_min, segments=segments,
         peak_window=peak_window, trough_window=trough_window,
+        peak_align_window=peak_align_window,
     )
 
 
 def segmented_pressure_fitness(t_exp, p_exp_mpa, t_min=0.0,
                                segments=DEFAULT_PRESSURE_SEGMENTS,
-                               weights=None):
+                               weights=None,
+                               peak_align_window=None):
     return SegmentedPressureFitness(
         t_exp, p_exp_mpa, t_min=t_min, segments=segments, weights=weights,
+        peak_align_window=peak_align_window,
     )
 
 
