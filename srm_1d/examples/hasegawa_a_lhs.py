@@ -212,28 +212,37 @@ def main():
     t_exp = HASEGAWA_MOTOR_A_EXPERIMENTAL['time'] + EXPERIMENTAL_TIME_OFFSET
     p_exp = HASEGAWA_MOTOR_A_EXPERIMENTAL['pressure']
 
-    # v0.7.1 Phase 5 bounds (Option B + re-probe-driven extensions).
-    # Upper bounds raised where re-probe top-5 saturated:
-    #   pyrogen_volume 1e-5 -> 1.5e-5 m^3 (10 -> 15 cm^3); rank-4 hit
-    #     9.4 cm^3 against the 10 cm^3 ceiling.
-    #   pyrogen_heat_flux_cal_cm2_s 150 -> 250 cal/cm^2/s; rank-1 at
-    #     129 and rank-4 at 135 — close to 150 ceiling. Open BPNV-class
-    #     pyrogens can reach 200+ per DeMar data.
-    #   T_ignition 950 -> 1100 K; 4 of 5 ranks landed at 845-930 K and
-    #     the upper bound was binding. AP/HTPB physical upper ~1200 K.
-    #   k_solid 0.60 -> 1.00 W/(m.K); rank-1 at 0.598 was pegging.
-    #     AP/HTPB nominal is 0.3-0.5; metal-loaded propellants push
-    #     higher.
-    # Lower bounds unchanged — none were hit in the re-probe.
+    # v0.7.1 Phase 5 bounds (literature-bounded re-sweep, 2026-05-22).
+    # Refined after the N=1200 full sweep showed heat_flux pegging
+    # near 250 cal/cm^2/s and user-flagged the value as suspicious vs
+    # DeMar 1995 nominal of 69.4.
+    #
+    # Literature dive (memory: reference_pyrogen_heat_flux_literature)
+    # established:
+    #   - DeMar 69.4 is time-averaged, not peak-instantaneous.
+    #   - Sandia 2022 LDRD measured sustained pyrotechnic flux to
+    #     23.2 MW/m^2 (~970 cal/cm^2/s) and peak near-field to 1 GW/m^2.
+    #   - 232 cal/cm^2/s is defensible peak-transient but elevated;
+    #     user preference is the conservative end (nominal-flux +
+    #     larger pyrogen) per amateur/industry igniter sizing.
+    #
+    # Changes from prior full-sweep bounds:
+    #   roughness 50 -> 100 um upper; AP composites with slag /
+    #     oxide build-up can exceed 50 um (user request).
+    #   pyrogen_heat_flux_cal_cm2_s 250 -> 200 cal/cm^2/s upper;
+    #     caps to conservative end of literature range; pushes the
+    #     optimizer toward the nominal-flux + larger-pyrogen basin
+    #     (rank-2 of prior sweep) rather than the high-flux basin.
+    # Other bounds unchanged.
     bounds = {
         # Ma erosive-burning knobs
-        'roughness':           (5e-6, 50e-6),
+        'roughness':           (5e-6, 100e-6),
         'kappa':               (0.30, 0.60),
         # Pyrogen plenum sizing
         'pyrogen_mass':        (0.001, 0.050),
         'pyrogen_throat_area': (1e-6, 5e-5),
         'pyrogen_volume':      (1e-6, 1.5e-5),
-        'pyrogen_heat_flux_cal_cm2_s': (30.0, 250.0),
+        'pyrogen_heat_flux_cal_cm2_s': (30.0, 200.0),
         # Goodman ignition / surface-conduction
         'T_ignition':          (800.0, 1100.0),
         'k_solid':             (0.15, 1.00),
