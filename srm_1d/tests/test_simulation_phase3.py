@@ -127,6 +127,10 @@ def test_adjacent_radiation_heats_only_neighbors_and_conserves_sink():
     f = np.zeros(N)
 
     mass_source_by_species = np.zeros((N, 3))  # v0.7.1: 3-species
+    # v0.7.1 Phase 3.5: per-species Cp args. Cp_propellant = 2060 (matches
+    # the prior Cp_gas value), Cp_pyrogen = 1385 (BPNV-like derived Cp);
+    # this test sets mdot_igniter=0 so Cp_pyrogen is unused — value picked
+    # for documentation, not for the assertion.
     out = _goodman_ignition_sources_and_mass(
         P, T, T_surf, delta, has_ignited, is_burning, is_grain,
         ignition_time, r_total, r_erosive,
@@ -136,7 +140,8 @@ def test_adjacent_radiation_heats_only_neighbors_and_conserves_sink():
         x, Re, D_hyd, f,
         0.0, 1.0e-6, 1700.0, 3041.0, 293.0,
         0.5, 0.3685, 50e-6, 0.45, 1.0e-7, 0.3,
-        10000.0, N, dx, 0.0, 300.0, 2060.0,
+        10000.0, N, dx, 0.0, 300.0,
+        2060.0, 1385.0,
         0.0, 0.45, False, 0.0,
         mass_source_by_species,
     )
@@ -150,8 +155,8 @@ def test_adjacent_radiation_heats_only_neighbors_and_conserves_sink():
     assert radiation_sink_total_power == pytest.approx(radiation_heat_power)
     assert radiation_sink_power[0] == pytest.approx(0.0)
     assert radiation_sink_power[2] == pytest.approx(0.0)
-    # v0.7.1 (Phase 3): thermal_source is W/m. Bare combustion contribution
-    # is prop_source * T_flame * Cp_gas; the radiation gas sink debits.
+    # v0.7.1 Phase 3.5: thermal_source is W/m. Bare combustion contribution
+    # is prop_source * T_flame * Cp_propellant; the radiation gas sink debits.
     assert thermal_source[1] < 1700.0 * r_total[1] * C_burn[1] * 3041.0 * 2060.0
 
 
@@ -182,6 +187,7 @@ def test_adjacent_radiation_sink_can_be_disabled_for_diagnostics():
     f = np.zeros(N)
 
     mass_source_by_species = np.zeros((N, 3))  # v0.7.1: 3-species
+    # v0.7.1 Phase 3.5: per-species Cp args (see sibling test for notes).
     out = _goodman_ignition_sources_and_mass(
         P, T, T_surf, delta, has_ignited, is_burning, is_grain,
         ignition_time, r_total, r_erosive,
@@ -191,7 +197,8 @@ def test_adjacent_radiation_sink_can_be_disabled_for_diagnostics():
         x, Re, D_hyd, f,
         0.0, 1.0e-6, 1700.0, 3041.0, 293.0,
         0.5, 0.3685, 50e-6, 0.45, 1.0e-7, 0.3,
-        10000.0, N, dx, 0.0, 300.0, 2060.0,
+        10000.0, N, dx, 0.0, 300.0,
+        2060.0, 1385.0,
         0.0, 0.45, True, 0.0,
         mass_source_by_species,
     )

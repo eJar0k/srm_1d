@@ -168,19 +168,25 @@ def _cal_cm2_s_to_w_m2(heat_flux_cal_cm2_s):
 
 @njit(cache=True)
 def _pyrogen_surface_heat_power(
-    mdot_igniter, T_ig, T_surf, C_burn, dx, Cp_gas,
+    mdot_igniter, T_ig, T_surf, C_burn, dx, Cp_pyrogen,
     measured_heat_flux_w_m2,
 ):
     """
     Delivered pyrogen surface heating, capped by available sensible power.
 
-    Returns ``(power_w, heat_flux_w_m2)`` for the target cell. ``Cp_gas``
-    is the pyrogen species' Cp (the gas carrying the enthalpy from the
-    plenum to the surface) — this is a property of the injected species,
-    not the cell mixture, so it stays per-species rather than per-cell.
+    Returns ``(power_w, heat_flux_w_m2)`` for the target cell.
+
+    v0.7.1 (Phase 3.5): the gas carrying enthalpy from the plenum to the
+    propellant surface IS pyrogen products. The sensible-power cap uses
+    the pyrogen species's Cp, not the cell mixture's Cp and not the
+    propellant Cp_gas (the v0.7.0 / Phase 3 placeholder). For BPNV that
+    ratio is ~1385/2060 ≈ 0.67, so the sensible cap binds ~33% lower
+    than under v0.7.0 — physically correct, and a recognized source of
+    ignition-transient drift vs the v0.7.0 baseline (will be absorbed
+    by Phase 5 re-LHS).
     """
     if (mdot_igniter <= 0.0 or T_ig <= T_surf or C_burn <= 0.0 or
-            dx <= 0.0 or Cp_gas <= 0.0 or measured_heat_flux_w_m2 <= 0.0):
+            dx <= 0.0 or Cp_pyrogen <= 0.0 or measured_heat_flux_w_m2 <= 0.0):
         return 0.0, 0.0
 
     contact_area = C_burn * dx
@@ -188,7 +194,7 @@ def _pyrogen_surface_heat_power(
         return 0.0, 0.0
 
     measured_power = measured_heat_flux_w_m2 * contact_area
-    sensible_power = mdot_igniter * Cp_gas * (T_ig - T_surf)
+    sensible_power = mdot_igniter * Cp_pyrogen * (T_ig - T_surf)
     if sensible_power <= 0.0:
         return 0.0, 0.0
 
@@ -458,7 +464,8 @@ def _goodman_ignition_sources_and_mass(
     x_centers, Re, D_hyd, f_darcy,
     t, dt, rho_propellant, T_flame, T_initial,
     Pr, k_thermal, roughness, kappa, solid_alpha, k_solid,
-    T_ignition, N, dx, mdot_igniter, T_ig, Cp_gas,
+    T_ignition, N, dx, mdot_igniter, T_ig,
+    Cp_propellant, Cp_pyrogen,
     pyrogen_surface_heat_flux_w_m2, radiation_emissivity,
     diagnostic_disable_radiation_gas_sink,
     tau_establishment,
@@ -474,14 +481,15 @@ def _goodman_ignition_sources_and_mass(
     to 0.0 to disable (no ramp; pure step at ignition, matching Peretz/
     Pardue/Cavallini's instantaneous-ignition convention).
 
-    v0.7.1 (Phase 3 — unit shift only): ``thermal_source`` carries
-    enthalpy-per-unit-length [W/m]. Each combustion source multiplies
-    its mdot * T_source by ``Cp_gas`` (the scalar representative gas
-    Cp). Per-cell / per-species Cp lookups arrive in the PISO
-    array-threading pass; for this commit the kernel must remain
-    behavior-preserving — PISO still divides by ``Cp_gas`` to get the
-    temperature source, so multiplying by ``Cp_gas`` here yields the
-    same T_new as the pre-v0.7.1 kg*K/(s*m) convention.
+    v0.7.1 (Phase 3.5): the scalar `Cp_gas` arg has split into two
+    species-specific arguments. Propellant combustion sources (grain
+    sidewall + endface) multiply T_flame contributions by
+    ``Cp_propellant``; the pyrogen-to-surface heat-transfer cap inside
+    ``_pyrogen_surface_heat_power`` uses ``Cp_pyrogen``. Each source
+    species injects its OWN enthalpy, which is the physically correct
+    multi-species accounting. Phase 3's previous use of a single
+    ``Cp_gas`` (= propellant Cp) for both was a behavior-preserving
+    placeholder during the unit shift.
     """
     n_burning = 0
     n_ignited = 0
@@ -535,7 +543,7 @@ def _goodman_ignition_sources_and_mass(
                 if i == pyrogen_heat_target:
                     power_w, flux_w_m2 = _pyrogen_surface_heat_power(
                         mdot_igniter, T_ig, T_surf[i], C_burn[i], dx,
-                        Cp_gas, pyrogen_surface_heat_flux_w_m2,
+                        Cp_pyrogen, pyrogen_surface_heat_flux_w_m2,
                     )
                     if power_w > 0.0 and flux_w_m2 > 0.0:
                         pyrogen_surface_heat_power = power_w
@@ -635,15 +643,15 @@ def _goodman_ignition_sources_and_mass(
                 erosive_source = 0.0
             mass_source[i] += prop_source
             mass_source_by_species[i, _SPECIES_PROPELLANT] += prop_source
-            thermal_source[i] += prop_source * T_flame * Cp_gas
-            normal_sidewall_thermal_power += normal_source * T_flame * Cp_gas * dx
-            erosive_sidewall_thermal_power += erosive_source * T_flame * Cp_gas * dx
+            thermal_source[i] += prop_source * T_flame * Cp_propellant
+            normal_sidewall_thermal_power += normal_source * T_flame * Cp_propellant * dx
+            erosive_sidewall_thermal_power += erosive_source * T_flame * Cp_propellant * dx
 
         if endface_msource[i] > 0.0:
             mass_source[i] += endface_msource[i]
             mass_source_by_species[i, _SPECIES_PROPELLANT] += endface_msource[i]
-            thermal_source[i] += endface_msource[i] * T_flame * Cp_gas
-            endface_thermal_power += endface_msource[i] * T_flame * Cp_gas * dx
+            thermal_source[i] += endface_msource[i] * T_flame * Cp_propellant
+            endface_thermal_power += endface_msource[i] * T_flame * Cp_propellant * dx
 
         if radiation_sink_power[i] > 0.0 and dx > 0.0:
             thermal_source[i] -= radiation_sink_power[i] / dx
@@ -939,6 +947,10 @@ def _run_time_loop(
         if diagnostic_disable_pyrogen_surface_heating:
             active_pyrogen_surface_heat_flux_w_m2 = 0.0
 
+        # v0.7.1 Phase 3.5: each combustion source uses its own species Cp.
+        Cp_propellant_species = species_params_arr[_SPECIES_PROPELLANT, 1]
+        Cp_pyrogen_species = species_params_arr[_SPECIES_IGNITER, 1]
+
         (n_burning, n_ignited, mass_sum,
          pyrogen_surface_heat_power, radiation_heat_power,
          radiation_sink_total_power,
@@ -952,27 +964,29 @@ def _run_time_loop(
             x_centers, Re, D_hyd, f_darcy,
             t, dt, rho_propellant, T_flame, T_initial,
             Pr, k_thermal, roughness, kappa, solid_alpha, k_solid,
-            T_ignition, N, dx, mdot_igniter, T_ig, Cp_gas,
+            T_ignition, N, dx, mdot_igniter, T_ig,
+            Cp_propellant_species, Cp_pyrogen_species,
             active_pyrogen_surface_heat_flux_w_m2, radiation_emissivity,
             diagnostic_disable_radiation_gas_sink,
             tau_establishment,
             mass_source_by_species,
         )
 
-        # v0.7.1 (Phase 3 — unit shift): thermal_source is now W/m
-        # (enthalpy injection per unit length). Pyrogen still uses the
-        # scalar Cp_gas during the unit-shift commit so the PISO temperature
-        # remains identical to v0.7.0. Per-species Cp lookups arrive with
-        # the per-cell Cp_arr threading in the next commit.
+        # v0.7.1 Phase 3.5: pyrogen mass injection uses pyrogen Cp for the
+        # enthalpy flow, not the scalar Cp_gas (= propellant Cp) that
+        # Phase 3 used as a behavior-preserving placeholder. The enthalpy
+        # injected per unit length is mdot/dx * Cp_pyrogen * T_ig — the
+        # cell back-outs T_new = h_new / Cp_arr[0], where Cp_arr is the
+        # mixture Cp (PISO).
         pyrogen_enthalpy_power = 0.0
         pyrogen_surface_heat_sink_power = 0.0
         if mdot_igniter > 0.0:
             ign_source = mdot_igniter / dx
-            ign_enthalpy_source = ign_source * T_ig * Cp_gas
+            ign_enthalpy_source = ign_source * T_ig * Cp_pyrogen_species
             mass_source[0] += ign_source
             mass_source_by_species[0, _SPECIES_IGNITER] += ign_source
             thermal_source[0] += ign_enthalpy_source
-            pyrogen_enthalpy_power = mdot_igniter * Cp_gas * T_ig
+            pyrogen_enthalpy_power = mdot_igniter * Cp_pyrogen_species * T_ig
             pyrogen_surface_heat_sink = _pyrogen_surface_thermal_sink(
                 pyrogen_surface_heat_power, dx, ign_enthalpy_source
             )
