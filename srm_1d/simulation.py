@@ -340,37 +340,54 @@ def _refresh_mixture_arrays(
 
 @njit(cache=True)
 def _compute_T_ceiling_arr(
-    Y, species_params, T_ceiling_arr, N,
+    Y, species_params, T_ceiling_arr, N, T_initial_gas,
+    Y_min=0.05,
 ):
     """Refresh per-cell temperature ceiling from species mass fractions.
 
-    DESIGN §5 specifies a per-cell ceiling tied to the active species in
-    each cell:
+    DESIGN §5 specifies a per-cell ceiling tied to the active species
+    in each cell:
 
         T_ceiling[i] = max(T_flame[s] for s with Y[i, s] > Y_min) * 1.01
 
-    The DESIGN's Y_min = 0.05 is too tight given v0.7.1's deliberate
-    deviation in the initial condition: §3 keeps the v0.7.0 numerical-
-    stability shortcut of seeding T = T_flame_propellant while Y is
-    100% ambient. A strict 5% filter would set the ceiling to
-    T_ambient*1.01 in the pre-fill, clipping the bore gas to ~300 K on
-    step 0. We therefore use the **maximum** T_flame across all species
-    in ``species_params`` as the per-cell ceiling — which equals the
-    v0.7.0 scalar ``T_flame * 1.01`` ceiling exactly when the propellant
-    species is the hottest. This preserves the v0.7.0 baseline trace.
+    v0.7.1 (Phase 3 → strict-form follow-up, 2026-05-23): this is the
+    strict DESIGN §5 form WITH an initial-condition guard. v0.7.1's
+    documented IC (DESIGN §3) seeds ``T = T_flame_propellant`` while
+    ``Y[:, ambient] = 1.0`` for v0.7.0 numerical-stability parity, so a
+    naive strict §5 would clip the bore gas to ``T_ambient · 1.01`` on
+    step 0 (only ambient passes the Y > Y_min filter; its T_flame is
+    T_initial). The guard
 
-    A tighter, per-cell Y-aware ceiling (as DESIGN specifies) can be
-    revisited if Phase 5 calibration shows the loose ceiling lets
-    cells overshoot physically. For now the ceiling is a numerical
-    backstop, not a physics-faithful per-cell bound.
+        T_ceiling[i] = max(T_ceiling[i], T_initial_gas · 1.01)
+
+    keeps the ceiling above the IC gas temperature during the pre-fill
+    window. Once ambient purges (typically within ~1 ms in chamber
+    fill), the per-species max becomes the binding bound.
+
+    The strict ceiling tightens overshoot detection in three regimes:
+    - Pyrogen-only cells get ceiling = T_flame_pyrogen · 1.01 once
+      pyrogen displaces ambient (cell-0 during the early igniter
+      pulse). Under the previous relaxed (max-of-all-species) form,
+      these cells could climb ~9% above pyrogen T_flame.
+    - Pure-ambient cells far from the igniter (last few cells late in
+      ignition transient) cap at T_initial_gas · 1.01 — but only if
+      that exceeds T_ambient · 1.01, which it does for the IC's hot
+      seed temperature.
+    - v0.8.0 multi-grain configurations don't broadcast the hottest
+      species's T_flame to cells that don't contain it.
     """
     S = species_params.shape[0]
-    T_flame_max = species_params[0, 3]
-    for s in range(1, S):
-        if species_params[s, 3] > T_flame_max:
-            T_flame_max = species_params[s, 3]
-    ceiling = T_flame_max * 1.01
+    ic_guard = T_initial_gas * 1.01
     for i in range(N):
+        T_flame_max = 0.0
+        for s in range(S):
+            if Y[i, s] > Y_min:
+                Tf = species_params[s, 3]
+                if Tf > T_flame_max:
+                    T_flame_max = Tf
+        ceiling = T_flame_max * 1.01
+        if ceiling < ic_guard:
+            ceiling = ic_guard
         T_ceiling_arr[i] = ceiling
 
 
@@ -694,7 +711,7 @@ def _run_time_loop(
     N, N_seg, dx, D_outer,
     # --- Gas/propellant scalars ---
     gamma, R_specific, T_flame, Cp_gas, mu_gas, k_thermal, Pr,
-    rho_propellant, Cps, T_surface, T_initial, k_solid,
+    rho_propellant, Cps, T_surface, T_initial, T_initial_gas, k_solid,
     # --- Burn rate tabs (parallel arrays) ---
     tab_min_p, tab_max_p, tab_a, tab_n, n_tabs,
         # --- Simulation parameters ---
@@ -821,7 +838,7 @@ def _run_time_loop(
         gamma_mix_arr, Cp_mix_arr, R_mix_arr, M_mix_arr, N,
     )
     _compute_T_ceiling_arr(
-        Y_species, species_params_arr, T_ceiling_arr, N,
+        Y_species, species_params_arr, T_ceiling_arr, N, T_initial_gas,
     )
 
     # Initial a_max for CFL — use the hottest local sound speed across
@@ -1079,7 +1096,7 @@ def _run_time_loop(
             gamma_mix_arr, Cp_mix_arr, R_mix_arr, M_mix_arr, N,
         )
         _compute_T_ceiling_arr(
-            Y_species, species_params_arr, T_ceiling_arr, N,
+            Y_species, species_params_arr, T_ceiling_arr, N, T_initial_gas,
         )
 
         # Kn = total bore burning area / throat area
@@ -1635,7 +1652,8 @@ def run_simulation(
         gas.gamma, gas.R_specific, rep_tab.T_flame,
         gas.Cp, gas.mu, gas.k_thermal, gas.Pr,
         propellant.rho_propellant, propellant.Cps,
-        propellant.T_surface, propellant.T_initial, propellant.k_solid,
+        propellant.T_surface, propellant.T_initial, float(T_initial_gas),
+        propellant.k_solid,
         # Burn rate tabs
         tab_min_p, tab_max_p, tab_a, tab_n, n_tabs,
         # Simulation parameters

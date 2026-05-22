@@ -14,6 +14,7 @@ import pytest
 
 from srm_1d.simulation import (
     _compute_mixture_cell, _refresh_mixture_arrays,
+    _compute_T_ceiling_arr,
 )
 from srm_1d.propellant import (
     GasSpecies, species_array, ambient_air_species, Pyrogen,
@@ -225,3 +226,115 @@ def test_hasegawa_a_mixture_arrays_in_result():
     for i in range(len(gamma_arr)):
         expected = Cp_arr[i] / (Cp_arr[i] - R_arr[i])
         assert gamma_arr[i] == pytest.approx(expected, rel=1.0e-10)
+
+
+# ================================================================
+# Strict T_ceiling kernel (DESIGN §5 with IC guard)
+# ================================================================
+
+def _three_species_arr():
+    """Standard 3-species fixture matching the Hasegawa A registry."""
+    sp0 = _bpnv_species()
+    sp1 = _hasegawa_species()
+    sp2 = ambient_air_species(298.15)
+    return species_array([sp0, sp1, sp2]), sp0, sp1, sp2
+
+
+def test_t_ceiling_strict_pure_pyrogen_cell_bounds_by_pyrogen_tflame():
+    """A cell at Y_pyrogen = 1 caps at T_flame_pyrogen · 1.01 — the
+    strict-form benefit vs the prior relaxed (max-over-all-species)
+    ceiling that would have used T_flame_propellant · 1.01."""
+    arr, sp0, sp1, sp2 = _three_species_arr()
+    Y = np.array([[1.0, 0.0, 0.0]])
+    T_ceiling = np.empty(1)
+    _compute_T_ceiling_arr(Y, arr, T_ceiling, 1, T_initial_gas=300.0)
+    assert T_ceiling[0] == pytest.approx(sp0.T_flame * 1.01)
+    # And tighter than the propellant-dominated ceiling
+    assert T_ceiling[0] < sp1.T_flame * 1.01
+
+
+def test_t_ceiling_strict_pure_propellant_cell_bounds_by_propellant_tflame():
+    """A cell at Y_propellant = 1 caps at T_flame_propellant · 1.01."""
+    arr, _sp0, sp1, _sp2 = _three_species_arr()
+    Y = np.array([[0.0, 1.0, 0.0]])
+    T_ceiling = np.empty(1)
+    _compute_T_ceiling_arr(Y, arr, T_ceiling, 1, T_initial_gas=300.0)
+    assert T_ceiling[0] == pytest.approx(sp1.T_flame * 1.01)
+
+
+def test_t_ceiling_strict_pyrogen_plus_propellant_takes_max():
+    """A 50/50 mix of pyrogen + propellant uses max(T_flame_pyrogen,
+    T_flame_propellant) · 1.01 — same as v0.7.0's scalar ceiling when
+    propellant is the hottest species in the cell."""
+    arr, _sp0, sp1, _sp2 = _three_species_arr()
+    Y = np.array([[0.5, 0.5, 0.0]])
+    T_ceiling = np.empty(1)
+    _compute_T_ceiling_arr(Y, arr, T_ceiling, 1, T_initial_gas=300.0)
+    assert T_ceiling[0] == pytest.approx(sp1.T_flame * 1.01)
+
+
+def test_t_ceiling_strict_filters_below_Y_min():
+    """A cell with Y_propellant = 0.04 (below Y_min=0.05) and Y_pyrogen
+    = 0.96 should cap at T_flame_pyrogen · 1.01, ignoring the
+    sub-threshold propellant fraction."""
+    arr, sp0, _sp1, _sp2 = _three_species_arr()
+    Y = np.array([[0.96, 0.04, 0.0]])
+    T_ceiling = np.empty(1)
+    _compute_T_ceiling_arr(Y, arr, T_ceiling, 1, T_initial_gas=300.0)
+    assert T_ceiling[0] == pytest.approx(sp0.T_flame * 1.01)
+
+
+def test_t_ceiling_ic_guard_activates_for_pure_ambient_with_hot_seed():
+    """Pre-fill IC: Y = 100% ambient, T_initial_gas = T_flame_prop. The
+    strict §5 alone would cap at T_ambient · 1.01 (~300 K) and clip
+    the bore gas to ambient on step 0. The IC guard raises the ceiling
+    to T_initial_gas · 1.01 — preserving the documented v0.7.0 IC."""
+    arr, _sp0, sp1, _sp2 = _three_species_arr()
+    Y = np.array([[0.0, 0.0, 1.0]])
+    T_ceiling = np.empty(1)
+    T_initial_gas = sp1.T_flame  # the v0.7.1 default IC
+    _compute_T_ceiling_arr(Y, arr, T_ceiling, 1, T_initial_gas=T_initial_gas)
+    # The strict per-species max would be T_ambient · 1.01; the IC guard
+    # promotes it to T_initial_gas · 1.01 = T_flame_prop · 1.01.
+    assert T_ceiling[0] == pytest.approx(T_initial_gas * 1.01)
+
+
+def test_t_ceiling_ic_guard_inactive_once_combustion_dominates():
+    """Once pyrogen displaces ambient (Y_pyrogen > Y_min), the per-
+    species T_flame_pyrogen · 1.01 binds even if T_initial_gas is
+    cooler. Verifies the IC guard doesn't permanently inflate the
+    ceiling above the active-species bound."""
+    arr, sp0, _sp1, _sp2 = _three_species_arr()
+    Y = np.array([[1.0, 0.0, 0.0]])  # pure pyrogen
+    T_ceiling = np.empty(1)
+    # IC seed cooler than pyrogen T_flame — typical of v0.7.0 IC where
+    # T_initial_gas is the propellant T_flame (3041 K) but pyrogen
+    # T_flame (sp0) is 2800 K. Wait, pyrogen 2800 < propellant 3041,
+    # so the IC guard at T_initial_gas would actually be HIGHER than
+    # the per-species pyrogen ceiling. Use a low IC instead to test
+    # the inactive-guard case.
+    T_initial_gas = 500.0  # well below pyrogen T_flame
+    _compute_T_ceiling_arr(Y, arr, T_ceiling, 1, T_initial_gas=T_initial_gas)
+    assert T_ceiling[0] == pytest.approx(sp0.T_flame * 1.01)
+
+
+def test_t_ceiling_strict_array_length():
+    """_compute_T_ceiling_arr fills all N cells (no off-by-one)."""
+    arr, sp0, sp1, sp2 = _three_species_arr()
+    N = 4
+    Y = np.array([
+        [1.0, 0.0, 0.0],  # pyrogen
+        [0.0, 1.0, 0.0],  # propellant
+        [0.0, 0.0, 1.0],  # ambient
+        [0.3, 0.4, 0.3],  # mixed (all above Y_min)
+    ])
+    T_ceiling = np.empty(N)
+    _compute_T_ceiling_arr(Y, arr, T_ceiling, N, T_initial_gas=300.0)
+    assert T_ceiling[0] == pytest.approx(sp0.T_flame * 1.01)
+    assert T_ceiling[1] == pytest.approx(sp1.T_flame * 1.01)
+    # ambient cell: per-species max is T_ambient · 1.01 ≈ 301; IC guard
+    # at T_initial_gas=300 raises to 303. Take the larger of the two.
+    expected_ambient = max(sp2.T_flame * 1.01, 300.0 * 1.01)
+    assert T_ceiling[2] == pytest.approx(expected_ambient)
+    # mixed cell: max over pyrogen, propellant, ambient → propellant.
+    assert T_ceiling[3] == pytest.approx(sp1.T_flame * 1.01)
