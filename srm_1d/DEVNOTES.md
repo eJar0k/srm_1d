@@ -485,11 +485,14 @@ in geometry/burn rate/ignition (called every step or every N steps).
       Treat the current Zerox sim as a v0.6.0-style ignition trace
       with v0.7.0 numerics around it.
 - v0.7.1 (in progress): N-species bore gas (SPINBALL-style "infinite-
-  gases mixture") — Phases 1 + 2 + 3 complete (2026-05-23). PISO and
-  helpers now consume per-cell γ/Cp/R/T_ceiling. Sensible-enthalpy
-  advection. Cell-N-1 nozzle BC. Hasegawa A baseline within ±10% of
-  v0.7.0 trace without re-calibration. Phase 3.5 (per-species Cp source
-  lookups) + Phase 4 (validation tests) + Phase 5 (re-LHS) remain.
+  gases mixture") — Phases 1 + 2 + 3 + 3.5 + 4 complete + strict
+  T_ceiling (2026-05-23). PISO consumes per-cell γ/Cp/R/T_ceiling;
+  sensible-enthalpy advection; cell-N-1 nozzle BC; each combustion
+  source uses its OWN species's Cp; strict per-cell T_ceiling with IC
+  guard. 206/206 tests. Hasegawa A baseline P_peak shifted from
+  6.26 → 6.19 MPa with the ignition spike suppressed (Phase 3.5
+  reduces pyrogen-to-surface sensible-power cap by ~33%); Phase 5
+  re-LHS will recalibrate.
     - **New `GasSpecies` dataclass** in `propellant.py`. Bulk-flow thermo
       only (`gamma, Cp, molecular_weight, T_flame`). Burn-rate
       coefficients stay on `Pyrogen` / `PropellantTab`. Pyrogen and
@@ -588,15 +591,32 @@ in geometry/burn rate/ignition (called every step or every N steps).
         at P_peak 6.26 MPa, mass-balance err 0.1 %, c* 1543 m/s,
         O5347 designation — within the documented Phase 3 ±10 %
         target. Full re-calibration is Phase 5.
-    - **Phase 3.5 (pending)**: per-species Cp at source sites
-      (`Cp_propellant` for grain T_flame contributions,
-      `Cp_pyrogen` for pyrogen injection). Phase 3 kept the scalar
-      `Cp_gas` multiplier to ensure the unit shift was behavior-
-      preserving. Phase 3.5 lands before Phase 5 LHS so calibration
-      sees the physically-faithful build.
-    - **Phase 4 (pending)**: pure-pyrogen limit, pure-propellant
-      limit, species mass conservation, Hasegawa A baseline shape
-      match, Y invariants over a full run.
-    - **Phase 5 (pending)**: Hasegawa A re-LHS once Phases 3.5 + 4
-      land. Hypothesis: `k_solid` and `k_thermal` relax once γ/Cp
-      variation absorbs the compromise.
+    - **Phase 3.5 complete (2026-05-23, commit `6f0789e`)**:
+      `_pyrogen_surface_heat_power` arg renamed `Cp_gas` → `Cp_pyrogen`;
+      `_goodman_ignition_sources_and_mass` `Cp_gas` arg renamed
+      `Cp_propellant` and gains new `Cp_pyrogen` arg; `_run_time_loop`
+      pulls both species Cps from `species_params_arr` and uses them
+      at source sites. Hasegawa A baseline trace shifted: P_peak
+      6.26 → 6.19 MPa, ignition-spike peak time 0.041 s → 3.36 s,
+      pyrogen duration 152 ms → 576 ms. Cause: pyrogen Cp ≈ 1385 J/(kg·K)
+      vs the prior placeholder 2060 → ~33% reduction in the pyrogen-to-
+      surface sensible-power cap → delayed ignition. Phase 5 LHS will
+      recover the experimental ignition spike via re-calibration.
+    - **Strict T_ceiling complete (2026-05-23, commit `78209fb`)**:
+      `_compute_T_ceiling_arr` gains a `T_initial_gas` arg and a
+      `Y_min=0.05` keyword. Per-cell ceiling is
+      `max(T_flame[s] for s with Y[i, s] > Y_min) * 1.01`, then
+      clamped below by `T_initial_gas * 1.01` (IC guard). Tightens
+      pyrogen-only cells to ~2828 K (vs ~3072 K under the prior
+      relaxed form). 7 new direct-kernel tests in
+      `tests/test_yns_mixture.py`.
+    - **Phase 4 complete (2026-05-23, commit `95c427e`)**: pure-
+      pyrogen limit, pure-propellant limit, mass conservation,
+      ambient species purges, Hasegawa A baseline shape, Y
+      invariants over 3-second run. 6 tests in
+      `tests/test_yns_phase4_validation.py`.
+    - **Phase 5 (pending)**: Hasegawa A re-LHS. Calibration must
+      recover the experimental ignition spike that Phase 3.5
+      physically removed. Hypothesis: higher pyrogen mass / heat
+      flux setting will compensate. Compare rank-1 mse_all against
+      v0.7.0 baseline (0.0968 MPa²).

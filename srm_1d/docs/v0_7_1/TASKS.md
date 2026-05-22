@@ -84,33 +84,60 @@ Delivered in two commits on `v0.7.0-phase4`:
       O5347 designation — within Phase 3's "±10% of v0.7.0 baseline"
       target.
 
-### Phase 3.5 — True per-species Cp lookups (not yet wired)
+### Phase 3.5 — True per-species Cp lookups [COMPLETE 2026-05-23]
 
-Phase 3 deliberately kept the source-side Cp multiplications using
-scalar `Cp_gas` (the representative-tab gas Cp) instead of per-species
-Cp from `species_params`. This is a CONSCIOUS deviation: at unit-shift
-time the PISO step still expects enthalpy balanced against `Cp_gas`,
-and threading per-species Cp into the source sites without simultaneous
-per-species accounting in the energy equation would introduce a
-mass-rate–Cp asymmetry that drifts the v0.7.0 calibration. With Phase 3
-now consuming per-cell `Cp_arr` in PISO + energy advection, the next
-incremental refinement is:
+Delivered in commit `6f0789e`:
 
-- [ ] `_goodman_ignition_sources_and_mass` multiplies grain T_flame
-      contributions by `species_params[_SPECIES_PROPELLANT, 1]`
-      (propellant Cp) instead of scalar Cp_gas.
-- [ ] Pyrogen injection in `_run_time_loop` multiplies by
-      `species_params[_SPECIES_IGNITER, 1]` (pyrogen Cp) instead of
-      Cp_gas.
-- [ ] `_pyrogen_surface_heat_power` caller passes the pyrogen
-      species' Cp (it already takes a Cp arg; this is just a call-
-      site change).
+- [x] `_goodman_ignition_sources_and_mass` multiplies grain T_flame
+      contributions by `Cp_propellant` (= `species_params[_SPECIES_PROPELLANT, 1]`).
+- [x] Pyrogen injection in `_run_time_loop` multiplies by
+      `Cp_pyrogen` (= `species_params[_SPECIES_IGNITER, 1]`).
+- [x] `_pyrogen_surface_heat_power` arg renamed `Cp_gas` → `Cp_pyrogen`;
+      caller passes pyrogen Cp explicitly.
 
-Order: Phase 3.5 lands before Phase 5 (Hasegawa A re-LHS) but after
-Phase 4 validation tests. The motivation is faithfulness, not
-calibration fit — the v0.7.0 fit already absorbs the Cp_gas
-compromise, so Phase 5 LHS is the right place to absorb the
-per-species refinement instead of trying to chase it pre-cal.
+**Trace impact (Hasegawa A smoke)**:
+
+| Metric        | Phase 3      | Phase 3.5    |
+|---------------|--------------|--------------|
+| P_peak        | 6.26 MPa     | 6.19 MPa     |
+| t at P_peak   | 0.041 s      | 3.361 s      |
+| pyrogen dur.  | 152 ms       | 576 ms       |
+| c*            | 1543 m/s     | 1543 m/s     |
+| mass balance  | 0.1 %        | 0.1 %        |
+
+The pre-Phase-3.5 trace had a sharp ignition spike at ~40 ms followed
+by a lower steady-state plateau. Phase 3.5 suppresses the spike
+because the pyrogen-to-surface sensible-power cap (`mdot · Cp_pyrogen
+· (T_ig - T_surf)`) is now ~33% lower than under the scalar `Cp_gas =
+Cp_propellant` placeholder (BPNV Cp ≈ 1385 vs propellant 2060). This
+delays grain ignition; pressure climbs more gradually to a mid-burn
+peak. Phase 4 gates (P_peak ±50%, c*, mass balance) still pass.
+Phase 5 LHS will calibrate against this physics-faithful build.
+
+### Strict T_ceiling formula [COMPLETE 2026-05-23]
+
+Delivered in commit `78209fb`. The relaxed Phase 3 ceiling
+(max-over-all-species, global constant) is replaced by:
+
+```
+T_ceiling[i] = max(T_flame[s] for s with Y[i, s] > 0.05) * 1.01
+T_ceiling[i] = max(T_ceiling[i], T_initial_gas * 1.01)
+```
+
+The IC guard preserves the v0.7.1 initial condition (T =
+T_flame_propellant while Y = 100% ambient). Without it the strict
+filter would clip the bore gas to T_ambient · 1.01 on step 0.
+
+Tightens overshoot detection in:
+- Pyrogen-only cells: cap at T_flame_pyrogen · 1.01 (~2828 K for
+  BPNV) once pyrogen displaces ambient. Prior relaxed form allowed
+  ~9% overshoot to T_flame_propellant · 1.01.
+- v0.8.0 multi-grain configurations: pure-sustainer cells cap at
+  sustainer T_flame, not the hottest species across the registry.
+
+7 new direct-kernel tests in `tests/test_yns_mixture.py` cover
+pyrogen / propellant / mixed cells, the Y_min filter, IC guard
+activation and deactivation, and array length.
 
 ## Phase 4 — Validation tests [COMPLETE 2026-05-23]
 
@@ -137,21 +164,17 @@ suite for 199/199 overall).
 - [x] `test_yns_y_invariants_over_full_3s_hasegawa_run`: sum(Y) = 1 ±
       1e-6 and 0 ≤ Y ≤ 1 over a 3-second run (~420 k advection steps).
 
-### Phase 4 findings (queued, not yet fixed)
+### Phase 4 findings (status)
 
-- **Species γ is derived, not declared.** The mixture rule computes
-  γ_mix = Cp_mix / (Cp_mix - R_mix) and ignores `species_params[s, 0]`.
-  Hasegawa A's YAML declares (γ=1.19, Cp=2060, M=0.0254); the derived
-  γ is 1.189. The solver uses the derived value. This is a baked-in
-  v0.7.0 → v0.7.1 drift on sound speed of ~0.04% — too small to
-  matter for the baseline smoke but worth noting that the species's
-  γ column is currently dead weight. Slotted as a **Phase 3.5
-  cleanup**: either validate YAML consistency or document the
-  derivation policy.
-- **Strict T_ceiling formula** (DESIGN §5 with `Y > 0.05` filter plus
-  an IC guard) is queued — see memory
-  `project_v0_7_1_t_ceiling_strict_form_pending`. MUST land before
-  Phase 5 LHS so calibration sees the physics-faithful ceiling.
+- **Species γ is derived, not declared** — still open. The mixture rule
+  computes γ_mix = Cp_mix / (Cp_mix - R_mix) and ignores
+  `species_params[s, 0]`. Hasegawa A YAML declares γ=1.19 vs derived
+  1.189 (~0.04% sound-speed drift). Open question: validate at YAML
+  load (refuse inconsistent inputs) or document the derivation policy
+  and drop the species γ column. No solver code change needed.
+- **Strict T_ceiling formula** [LANDED 2026-05-23, commit `78209fb`]:
+  per-cell, Y > 0.05 filter, with an IC guard at T_initial_gas · 1.01.
+  See strict-form section above.
 
 ## Phase 5 — Hasegawa A re-LHS (post-merge)
 
@@ -172,11 +195,11 @@ suite for 199/199 overall).
 
 ## Current state (2026-05-23)
 
-- **Phases 1 + 2 + 3 + 4 complete.** 199/199 tests pass. PISO consumes
-  per-cell (γ, R, Cp, T_ceiling); sensible-enthalpy advection; cell-N-1
-  nozzle BC; per-species pure-limit thermo verified.
-- **Two follow-ups queued** before Phase 5: (a) strict T_ceiling
-  formula (memory `project_v0_7_1_t_ceiling_strict_form_pending`),
-  (b) Phase 3.5 per-species Cp at source sites. Either order is fine;
-  both must be in before LHS so calibration absorbs the
-  physics-faithful build.
+- **Phases 1 + 2 + 3 + 3.5 + 4 complete + strict T_ceiling.** 206/206
+  tests pass. PISO consumes per-cell (γ, R, Cp, T_ceiling) with
+  sensible-enthalpy advection; cell-N-1 nozzle BC; each species
+  injects its own Cp; strict per-cell ceiling with IC guard.
+- **Phase 5 (Hasegawa A re-LHS) is the only remaining work item.**
+  The species γ inconsistency (Phase 4 finding) is YAML-side cleanup
+  that doesn't affect the solver; it can land alongside Phase 5 or
+  independently.

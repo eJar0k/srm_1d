@@ -1,13 +1,14 @@
 # srm_1d v0.7.1 — Multi-Species Bore Gas (N-species)
 
-**Status**: Phases 1 + 2 + 3 + 4 complete (2026-05-23). 199/199 tests
-pass. PISO consumes per-cell `(γ, R, Cp, T_ceiling)` and advects
-sensible enthalpy; Phase 4 validation confirms the mixture arrays
-collapse to the correct single-species thermo in the pure-pyrogen and
-pure-propellant limits. Two follow-ups queued behind Phase 5: strict
-T_ceiling formula (DESIGN §5 with IC guard) and per-species Cp at
-source sites (Phase 3.5). Hasegawa A baseline smoke is within ±10% of
-v0.7.0 without re-calibration.
+**Status**: Phases 1 + 2 + 3 + 3.5 + 4 complete + strict T_ceiling
+(2026-05-23). 206/206 tests pass. PISO consumes per-cell `(γ, R, Cp,
+T_ceiling)` and advects sensible enthalpy; each combustion source uses
+its OWN species's Cp; strict per-cell T_ceiling (Y > 0.05 filter +
+T_initial_gas IC guard) per §5. Hasegawa A baseline trace shape
+shifted after Phase 3.5 (the v0.7.0 ignition spike was suppressed
+because pyrogen Cp is ~33% lower than the previous scalar Cp_gas
+placeholder); P_peak 6.19 MPa still within Phase 4's ±50% gate.
+Phase 5 (re-LHS) will recalibrate against the physics-faithful build.
 
 **Target**: Replace the single calorically-perfect gas assumption (v0.7.0
 "must-have" #5 from [v0_7_0/DESIGN.md](../v0_7_0/DESIGN.md) §3) with a

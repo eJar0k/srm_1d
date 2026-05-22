@@ -8,16 +8,17 @@ against Hasegawa A at `mse_all = 0.0968 MPa²` (was 0.24 in v0.6.0).
 
 **v0.7.1 in progress on branch `v0.7.0-phase4`** (no tag yet): N-species
 bore-gas refactor (SPINBALL-style "infinite-gases mixture"). Phases
-1+2+3+4 complete — `Y[N, 3]` advected per step; per-cell `(γ, Cp, R, M)`
-derived and consumed by PISO; sensible-enthalpy advection; cell-N-1
-nozzle BC; T_ceiling per cell. Phase 4 validation suite (6 tests in
-`tests/test_yns_phase4_validation.py`) confirms mixture arrays collapse
-to the correct single-species thermo in pure-pyrogen and pure-propellant
-limits. Hasegawa A baseline: 1.4M steps, P_peak 6.26 MPa, mass-balance
-err 0.1%, c* 1543 m/s — within Phase 3's ±10% target. Two follow-ups
-queued before Phase 5 LHS: strict T_ceiling formula (memory
-`project_v0_7_1_t_ceiling_strict_form_pending`) and per-species Cp at
-source sites (Phase 3.5). See `srm_1d/docs/v0_7_1/`.
+1+2+3+3.5+4 complete + strict T_ceiling — `Y[N, 3]` advected per step;
+per-cell `(γ, Cp, R, M)` consumed by PISO; sensible-enthalpy advection;
+cell-N-1 nozzle BC; **each combustion source uses its OWN species's Cp**
+(Phase 3.5); strict per-cell T_ceiling with IC guard. 206/206 tests
+(193 baseline + 6 Phase 4 + 7 strict T_ceiling kernel). Hasegawa A
+baseline post-Phase-3.5: P_peak 6.19 MPa, no early ignition spike
+(pyrogen Cp is 33% lower than the prior Cp_gas placeholder, which
+suppressed the surface-heat-flux cap); mass-balance err 0.1%, c* 1543
+m/s. Phase 5 (Hasegawa A re-LHS) is the only remaining work; will
+recalibrate to recover the experimental ignition spike. See
+`srm_1d/docs/v0_7_1/`.
 
 This file is loaded on every session — keep it tight. Pointers to
 deeper docs at the bottom.
@@ -25,7 +26,7 @@ deeper docs at the bottom.
 ## Quick start
 
 ```bash
-# Tests (pyenv 3.10.5 -- has numba, pytest, scikit-fmm installed; 199 tests)
+# Tests (pyenv 3.10.5 -- has numba, pytest, scikit-fmm installed; 206 tests)
 "C:/Users/ejarocki/.pyenv/pyenv-win/versions/3.10.5/python.exe" -m pytest srm_1d/tests/
 
 # Hasegawa A example (loads srm_1d/motors/hasegawa_a.ric)
@@ -53,7 +54,7 @@ srm_1d/
 ├── motors/              Canonical motor data: <motor>.ric + <motor>.transport.yaml pairs
 ├── tools/sensitivity.py Latin Hypercube parameter sweeps with parallel execution
 ├── examples/            hasegawa_motor_a, bates_4seg, hasegawa_a_lhs, Zerox_test, ZeroxOptimizer
-└── tests/               15 files, 199 tests
+└── tests/               15 files, 206 tests
 ```
 
 ## Dev workflow
@@ -110,16 +111,23 @@ srm_1d/
    by Cp_gas; the PISO energy equation now treats the input as direct
    enthalpy injection per unit length. `_pyrogen_surface_thermal_sink`
    and `_thermal_source_power` signatures changed accordingly.
-7. **v0.7.1 PISO + post-PISO take per-cell arrays (Phase 3 step 2)**.
-   `_piso_step_with_energy_diagnostics` and `piso_step` now take
+7. **v0.7.1 PISO + post-PISO take per-cell arrays**.
+   `_piso_step_with_energy_diagnostics` and `piso_step` take
    `gamma_arr / R_arr / Cp_arr / T_ceiling_arr` instead of scalar gas
    thermo. Energy advection is sensible-enthalpy (Cp·T) — face fluxes
    carry upwind Cp·T to conserve energy across cells with different Cp.
-   Nozzle BC uses cell-N-1 mixture. T_ceiling is **relaxed** from
-   DESIGN §5: max-over-all-species T_flame * 1.01 (not the strict
-   Y > 0.05 filter), to avoid clipping the v0.7.0 IC (T = T_flame_prop
-   while Y = 100% ambient) on step 0. See
-   `_compute_T_ceiling_arr` docstring.
+   Nozzle BC uses cell-N-1 mixture. T_ceiling is strict DESIGN §5
+   (per-cell Y > 0.05 filter) with an IC guard at T_initial_gas · 1.01
+   to preserve the v0.7.0 IC (T = T_flame_prop while Y = 100% ambient).
+   See `_compute_T_ceiling_arr` docstring.
+8. **v0.7.1 per-species Cp at source sites (Phase 3.5)**. Each
+   combustion source multiplies its `mdot · T_source` by its OWN
+   species's Cp: propellant grain → `Cp_propellant`; pyrogen plenum →
+   `Cp_pyrogen`. The `_pyrogen_surface_heat_power` sensible-power cap
+   uses Cp_pyrogen. This is ~33% lower than the prior scalar Cp_gas
+   for BPNV-class pyrogens, which suppresses the v0.7.0 Hasegawa A
+   ignition spike (P_peak shifts from t=0.041s to t=3.36s). Expected
+   regime change; Phase 5 LHS will recalibrate.
 
 ## External deps
 
