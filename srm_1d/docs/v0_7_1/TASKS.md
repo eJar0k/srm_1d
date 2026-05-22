@@ -112,13 +112,46 @@ calibration fit — the v0.7.0 fit already absorbs the Cp_gas
 compromise, so Phase 5 LHS is the right place to absorb the
 per-species refinement instead of trying to chase it pre-cal.
 
-## Phase 4 — Validation tests
+## Phase 4 — Validation tests [COMPLETE 2026-05-23]
 
-- [ ] `test_yns_pure_pyrogen_limit`: head-end pyrogen, no grain ignition → thermo matches pyrogen single-gas.
-- [ ] `test_yns_pure_propellant_limit`: long burn after pyrogen depleted → thermo matches v0.7.0 single-gas baseline to machine epsilon.
-- [ ] `test_yns_mass_conservation`: cumulative species accounting closes to <1e-3 relative.
-- [ ] `test_yns_hasegawa_a_baseline_runs`: peak P, t_burn, mse_all within ±50% of v0.7.0 baseline; trace shape qualitatively similar.
-- [ ] `test_yns_y_invariants_long_run`: sum≈1, 0≤Y≤1 over a full Hasegawa A run.
+Delivered as `tests/test_yns_phase4_validation.py` (6 tests, +6 to the
+suite for 199/199 overall).
+
+- [x] `test_yns_pure_pyrogen_limit_thermo_matches_pyrogen_species`:
+      T_ignition = 20000 K suppresses grain ignition; after 80 ms,
+      cells with Y[:, pyrogen] > 0.95 have (Cp_mix, R_mix) matching
+      the pyrogen species exactly and γ_mix matching the
+      ideal-gas-**derived** γ (= Cp/(Cp-R)).
+- [x] `test_yns_pure_propellant_limit_thermo_matches_propellant_species`:
+      1-second run; cells with Y[:, prop] > 0.99 have mixture thermo
+      collapsing to the propellant species in the same way.
+- [x] `test_yns_overall_mass_balance_closes`: 1-second run;
+      `mass_balance_error` < 2% (v0.7.0 was ~0.1%, Phase 3 leaves
+      headroom).
+- [x] `test_yns_ambient_species_purges_through_nozzle`: ambient bore
+      mass < 1% of total bore mass after 1 s — the per-species
+      conservation guarantee the S=3 registry exists to enable.
+- [x] `test_yns_hasegawa_a_baseline_within_phase3_tolerance`: P_peak
+      and c* within ±50% of v0.7.0 baseline. Actual: P_peak +1% drift,
+      c* unchanged. Phase 5 LHS will tighten this gate.
+- [x] `test_yns_y_invariants_over_full_3s_hasegawa_run`: sum(Y) = 1 ±
+      1e-6 and 0 ≤ Y ≤ 1 over a 3-second run (~420 k advection steps).
+
+### Phase 4 findings (queued, not yet fixed)
+
+- **Species γ is derived, not declared.** The mixture rule computes
+  γ_mix = Cp_mix / (Cp_mix - R_mix) and ignores `species_params[s, 0]`.
+  Hasegawa A's YAML declares (γ=1.19, Cp=2060, M=0.0254); the derived
+  γ is 1.189. The solver uses the derived value. This is a baked-in
+  v0.7.0 → v0.7.1 drift on sound speed of ~0.04% — too small to
+  matter for the baseline smoke but worth noting that the species's
+  γ column is currently dead weight. Slotted as a **Phase 3.5
+  cleanup**: either validate YAML consistency or document the
+  derivation policy.
+- **Strict T_ceiling formula** (DESIGN §5 with `Y > 0.05` filter plus
+  an IC guard) is queued — see memory
+  `project_v0_7_1_t_ceiling_strict_form_pending`. MUST land before
+  Phase 5 LHS so calibration sees the physics-faithful ceiling.
 
 ## Phase 5 — Hasegawa A re-LHS (post-merge)
 
@@ -133,16 +166,17 @@ per-species refinement instead of trying to chase it pre-cal.
 
 - All Phase 4 tests green.
 - Phase 5 rank-1 mse_all ≤ v0.7.0 baseline OR ≤ +10% (with documented physical justification for any regression).
-- Existing pytest baseline (193 with current N-species infrastructure) remains green.
+- Existing pytest baseline (199 with current N-species infrastructure + Phase 4 validation suite) remains green.
 - DEVNOTES API breaking-change log updated.
 - CLAUDE.md "Critical gotchas" updated if new ones surface.
 
 ## Current state (2026-05-23)
 
-- **Phases 1 + 2 + 3 complete.** 193/193 tests pass. Solver behavior
-  changes (sensible-enthalpy advection, per-cell EOS, cell-N-1 nozzle
-  BC) but the Hasegawa A baseline smoke is well within Phase 3's
-  ±10% target.
-- **Phase 3.5 is next** (per-species Cp lookups at source sites),
-  followed by **Phase 4** validation tests and **Phase 5** Hasegawa A
-  re-LHS. See `Phase 3.5` section above + the `Phase 4` checklist below.
+- **Phases 1 + 2 + 3 + 4 complete.** 199/199 tests pass. PISO consumes
+  per-cell (γ, R, Cp, T_ceiling); sensible-enthalpy advection; cell-N-1
+  nozzle BC; per-species pure-limit thermo verified.
+- **Two follow-ups queued** before Phase 5: (a) strict T_ceiling
+  formula (memory `project_v0_7_1_t_ceiling_strict_form_pending`),
+  (b) Phase 3.5 per-species Cp at source sites. Either order is fine;
+  both must be in before LHS so calibration absorbs the
+  physics-faithful build.

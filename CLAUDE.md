@@ -7,15 +7,17 @@ igniter + Goodman solid-heating ignition model and is calibrated
 against Hasegawa A at `mse_all = 0.0968 MPa²` (was 0.24 in v0.6.0).
 
 **v0.7.1 in progress on branch `v0.7.0-phase4`** (no tag yet): N-species
-bore-gas refactor (SPINBALL-style "infinite-gases mixture"). Phases 1+2+3
-complete — `Y[N, 3]` advected per step, per-cell `(γ, Cp, R, M)` derived
-each step, AND consumed by PISO. Energy advection switched to sensible-
-enthalpy form (Cp·T), EOS and pressure-correction transient per cell,
-nozzle BC uses cell-N-1 mixture, T_ceiling per cell. Hasegawa A baseline
-runs 1.4M steps without NaN (P_peak 6.26 MPa, mass-balance err 0.1%,
-c* 1543 m/s, O5347 designation — within Phase 3's ±10% target).
-Phase 3.5 (per-species Cp lookups at source sites) + Phase 4 (validation
-tests) + Phase 5 (Hasegawa A re-LHS) remain. See `srm_1d/docs/v0_7_1/`.
+bore-gas refactor (SPINBALL-style "infinite-gases mixture"). Phases
+1+2+3+4 complete — `Y[N, 3]` advected per step; per-cell `(γ, Cp, R, M)`
+derived and consumed by PISO; sensible-enthalpy advection; cell-N-1
+nozzle BC; T_ceiling per cell. Phase 4 validation suite (6 tests in
+`tests/test_yns_phase4_validation.py`) confirms mixture arrays collapse
+to the correct single-species thermo in pure-pyrogen and pure-propellant
+limits. Hasegawa A baseline: 1.4M steps, P_peak 6.26 MPa, mass-balance
+err 0.1%, c* 1543 m/s — within Phase 3's ±10% target. Two follow-ups
+queued before Phase 5 LHS: strict T_ceiling formula (memory
+`project_v0_7_1_t_ceiling_strict_form_pending`) and per-species Cp at
+source sites (Phase 3.5). See `srm_1d/docs/v0_7_1/`.
 
 This file is loaded on every session — keep it tight. Pointers to
 deeper docs at the bottom.
@@ -23,7 +25,7 @@ deeper docs at the bottom.
 ## Quick start
 
 ```bash
-# Tests (pyenv 3.10.5 -- has numba, pytest, scikit-fmm installed; 193 tests)
+# Tests (pyenv 3.10.5 -- has numba, pytest, scikit-fmm installed; 199 tests)
 "C:/Users/ejarocki/.pyenv/pyenv-win/versions/3.10.5/python.exe" -m pytest srm_1d/tests/
 
 # Hasegawa A example (loads srm_1d/motors/hasegawa_a.ric)
@@ -45,13 +47,13 @@ srm_1d/
 ├── fmm_grain.py         Bridge to local openMotor checkout; FmmTable extraction + Numba lookup
 ├── igniter_plenum.py    Pyrogen chamber, choked/subsonic venting, Sutton sizing defaults
 ├── solid_thermal.py     Goodman integral solid-heating ignition subsolver
-├── simulation.py        run_simulation wrapper + @njit _run_time_loop (pyrogen + Goodman); v0.7.1: _advect_species, _compute_mixture_cell, _refresh_mixture_arrays
+├── simulation.py        run_simulation wrapper + @njit _run_time_loop (pyrogen + Goodman); v0.7.1: _advect_species, _compute_mixture_cell, _refresh_mixture_arrays, _compute_T_ceiling_arr
 ├── plotting.py          matplotlib plots (pressure, thrust, flow snapshots, summary)
 ├── openmotor_adapter.py .ric reader, transport YAML loader, convert_propellant/_geometry/_nozzle, CSV export
 ├── motors/              Canonical motor data: <motor>.ric + <motor>.transport.yaml pairs
 ├── tools/sensitivity.py Latin Hypercube parameter sweeps with parallel execution
 ├── examples/            hasegawa_motor_a, bates_4seg, hasegawa_a_lhs, Zerox_test, ZeroxOptimizer
-└── tests/               14 files, 193 tests
+└── tests/               15 files, 199 tests
 ```
 
 ## Dev workflow
