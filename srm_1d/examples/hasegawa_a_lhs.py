@@ -197,16 +197,19 @@ def main():
     t_exp = HASEGAWA_MOTOR_A_EXPERIMENTAL['time'] + EXPERIMENTAL_TIME_OFFSET
     p_exp = HASEGAWA_MOTOR_A_EXPERIMENTAL['pressure']
 
-    # v0.7.1 Phase 5 bounds (Option B — Phase-3.5-faithful + physically
-    # realistic). Changes from v0.7.0 / Phase-3.5 probe (commit e8e9e47):
-    #   pyrogen_volume upper 1e-4 -> 1e-5 m^3 (100 -> 10 cm^3); the
-    #     probe optimum hit 83.8 cm^3 which is 26x Hasegawa's actual
-    #     igniter chamber. Keep the LHS in physical space.
-    #   T_ignition lower 700 -> 800 K; below ~800 K is unrealistic for
-    #     AP/HTPB ignition.
-    #   pyrogen_heat_flux_cal_cm2_s added (30-150 cal/cm^2/s) as the
-    #     direct lever for the Phase 3.5 sensible-power cap reduction.
-    #     BPNV nominal is 69.4; range spans ~factor of 2 each way.
+    # v0.7.1 Phase 5 bounds (Option B + re-probe-driven extensions).
+    # Upper bounds raised where re-probe top-5 saturated:
+    #   pyrogen_volume 1e-5 -> 1.5e-5 m^3 (10 -> 15 cm^3); rank-4 hit
+    #     9.4 cm^3 against the 10 cm^3 ceiling.
+    #   pyrogen_heat_flux_cal_cm2_s 150 -> 250 cal/cm^2/s; rank-1 at
+    #     129 and rank-4 at 135 — close to 150 ceiling. Open BPNV-class
+    #     pyrogens can reach 200+ per DeMar data.
+    #   T_ignition 950 -> 1100 K; 4 of 5 ranks landed at 845-930 K and
+    #     the upper bound was binding. AP/HTPB physical upper ~1200 K.
+    #   k_solid 0.60 -> 1.00 W/(m.K); rank-1 at 0.598 was pegging.
+    #     AP/HTPB nominal is 0.3-0.5; metal-loaded propellants push
+    #     higher.
+    # Lower bounds unchanged — none were hit in the re-probe.
     bounds = {
         # Ma erosive-burning knobs
         'roughness':           (5e-6, 50e-6),
@@ -214,11 +217,11 @@ def main():
         # Pyrogen plenum sizing
         'pyrogen_mass':        (0.001, 0.050),
         'pyrogen_throat_area': (1e-6, 5e-5),
-        'pyrogen_volume':      (1e-6, 1e-5),
-        'pyrogen_heat_flux_cal_cm2_s': (30.0, 150.0),
+        'pyrogen_volume':      (1e-6, 1.5e-5),
+        'pyrogen_heat_flux_cal_cm2_s': (30.0, 250.0),
         # Goodman ignition / surface-conduction
-        'T_ignition':          (800.0, 950.0),
-        'k_solid':             (0.15, 0.60),
+        'T_ignition':          (800.0, 1100.0),
+        'k_solid':             (0.15, 1.00),
     }
 
     # v0.7.1 Phase 5: per-sample ignition-timing alignment. The fitness
