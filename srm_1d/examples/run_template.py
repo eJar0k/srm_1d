@@ -16,10 +16,14 @@ Usage:
     # or, after copying / renaming:
     python -m srm_1d.examples.run_my_motor
 
-Outputs (default names; change SAVE_PREFIX below):
-    <prefix>_pressure.png   pressure trace (vs experimental if supplied)
-    <prefix>_flow.png       flow-field snapshot at FLOW_SNAPSHOT_TIME
-    <prefix>_summary.png    4-panel summary
+Outputs (each run gets a fresh stamped subdirectory; set MOTOR_SUBDIR):
+    artifacts/<motor>/<YYYY-MM-DDTHH-MM-SS>_<sha>[-dirty]/
+        pressure.png   pressure trace (vs experimental if supplied)
+        flow.png       flow-field snapshot at FLOW_SNAPSHOT_TIME
+        summary.png    4-panel summary
+
+Re-runs don't overwrite earlier traces — useful during LHS calibration
+sweeps where dozens of variants accumulate.
 
 See ``srm_1d/examples/hasegawa_motor_a.py`` for a fully calibrated
 example using these same primitives.
@@ -38,6 +42,7 @@ from srm_1d.plotting import (
     plot_summary,
     load_experimental_csv,
 )
+from srm_1d.run_artifacts import artifact_dir
 
 
 # =====================================================================
@@ -50,9 +55,12 @@ from srm_1d.plotting import (
 # both together under srm_1d/motors/.
 MOTOR_PATH = Path(__file__).resolve().parents[1] / 'motors' / 'CHANGEME.ric'
 
-# Human-readable identifier used in plot titles and output filenames.
+# Human-readable identifier used in plot titles.
 MOTOR_LABEL = "CHANGEME"
-SAVE_PREFIX = "changeme"       # output filenames: <prefix>_pressure.png, etc.
+# Short motor name used as the artifacts/<motor_name>/ subdirectory.
+# Each run lands in a fresh artifacts/<motor>/<timestamp>_<sha>/ dir
+# so repeated runs (e.g. LHS calibration iterations) don't overwrite.
+MOTOR_SUBDIR = "changeme"
 
 
 # ---- Igniter -----------------------------------------------------------
@@ -185,9 +193,14 @@ def main():
         )
 
     # ----- Plots -------------------------------------------------------
-    pressure_path = f"{SAVE_PREFIX}_pressure.png" if SAVE_PLOTS else None
-    flow_path     = f"{SAVE_PREFIX}_flow.png"     if SAVE_PLOTS else None
-    summary_path  = f"{SAVE_PREFIX}_summary.png"  if SAVE_PLOTS else None
+    # Per-run artifact dir: artifacts/<motor>/<timestamp>_<sha>[-dirty]/
+    # Reruns don't overwrite earlier outputs — important during LHS
+    # calibration sweeps where dozens of traces accumulate.
+    out = artifact_dir(MOTOR_SUBDIR) if SAVE_PLOTS else None
+
+    pressure_path = str(out / 'pressure.png') if SAVE_PLOTS else None
+    flow_path     = str(out / 'flow.png')     if SAVE_PLOTS else None
+    summary_path  = str(out / 'summary.png')  if SAVE_PLOTS else None
 
     plot_pressure(
         result,
@@ -213,9 +226,7 @@ def main():
 
     if SAVE_PLOTS:
         plt.close('all')
-        print(
-            f"\nPlots saved: {pressure_path}, {flow_path}, {summary_path}"
-        )
+        print(f"\nPlots saved to {out}")
     else:
         plt.show()
 

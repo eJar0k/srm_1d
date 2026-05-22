@@ -18,9 +18,14 @@ Usage:
     python -m srm_1d.examples.hasegawa_motor_a
 
 Outputs:
-    hasegawa_a_pressure.png  — pressure trace vs experimental
-    hasegawa_a_flow.png      — flow field snapshot at t ≈ 2s
-    hasegawa_a_summary.png   — 4-panel summary
+    artifacts/hasegawa_a/<timestamp>_<sha>[-dirty]/
+        pressure.png  — pressure trace vs experimental
+        flow.png      — flow field snapshot at t ≈ 2s
+        summary.png   — 4-panel summary
+
+Each run lands in its own stamped subdirectory so re-runs don't
+overwrite earlier traces (important during Phase 5 LHS where
+calibration runs accumulate quickly).
 """
 
 from pathlib import Path
@@ -34,10 +39,11 @@ from srm_1d.plotting import (
     plot_pressure, plot_flow_snapshot, plot_summary,
     HASEGAWA_MOTOR_A_EXPERIMENTAL,
 )
+from srm_1d.run_artifacts import artifact_dir
 
 
 MOTOR_PATH = Path(__file__).resolve().parents[1] / 'motors' / 'hasegawa_a.ric'
-EXPERIMENTAL_TIME_OFFSET = 0.02  # align experimental ignition with sim t=0
+EXPERIMENTAL_TIME_OFFSET = 1.1  # align experimental ignition with sim t=0
 
 
 def main():
@@ -53,17 +59,19 @@ def main():
         print_interval=0.2,
     )
 
+    out = artifact_dir('hasegawa_a')
+
     plot_pressure(
         result,
         title="Motor A — 1D PISO vs Experimental (Hasegawa 2006)",
         experimental=HASEGAWA_MOTOR_A_EXPERIMENTAL,
         time_offset=EXPERIMENTAL_TIME_OFFSET,
-        save_path="hasegawa_a_pressure.png",
+        save_path=str(out / 'pressure.png'),
     )
 
     plot_flow_snapshot(
         result, t_target=2.0,
-        save_path="hasegawa_a_flow.png",
+        save_path=str(out / 'flow.png'),
     )
 
     plot_summary(
@@ -71,11 +79,11 @@ def main():
         experimental=HASEGAWA_MOTOR_A_EXPERIMENTAL,
         time_offset=EXPERIMENTAL_TIME_OFFSET,
         title="Hasegawa Motor A — Simulation Summary",
-        save_path="hasegawa_a_summary.png",
+        save_path=str(out / 'summary.png'),
     )
 
     plt.close('all')
-    print("\nAll plots saved.")
+    print(f"\nAll plots saved to {out}")
 
 
 if __name__ == '__main__':

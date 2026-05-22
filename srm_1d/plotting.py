@@ -30,6 +30,8 @@ Usage:
 
 import numpy as np
 
+from srm_1d.run_artifacts import save_figure
+
 try:
     import matplotlib.pyplot as plt
     import matplotlib
@@ -245,8 +247,7 @@ def plot_pressure(result, title="Head-End Pressure",
     if own_fig:
         plt.tight_layout()
     if save_path:
-        fig.savefig(save_path, dpi=150)
-        print(f"Saved {save_path}")
+        save_figure(fig, save_path)
 
     return fig, ax
 
@@ -326,8 +327,7 @@ def plot_thrust(result, performance, title="Thrust",
     if own_fig:
         plt.tight_layout()
     if save_path:
-        fig.savefig(save_path, dpi=150)
-        print(f"Saved {save_path}")
+        save_figure(fig, save_path)
 
     return fig, axes
 
@@ -433,8 +433,7 @@ def plot_flow_snapshot(result, t_target=None, snap_index=None,
     plt.tight_layout()
 
     if save_path:
-        fig.savefig(save_path, dpi=150)
-        print(f"Saved {save_path}")
+        save_figure(fig, save_path)
 
     return fig, axes
 
@@ -534,8 +533,7 @@ def plot_summary(result, performance=None, experimental=None,
     plt.tight_layout()
 
     if save_path:
-        fig.savefig(save_path, dpi=150)
-        print(f"Saved {save_path}")
+        save_figure(fig, save_path)
 
     return fig, axes
 
@@ -619,8 +617,7 @@ def plot_comparison(result, perf=None, reference=None,
     plt.tight_layout()
 
     if save_path:
-        fig.savefig(save_path, dpi=150)
-        print(f"Saved {save_path}")
+        save_figure(fig, save_path)
 
     return fig, axes
 
@@ -685,7 +682,6 @@ def plot_grain_regression(grain_metrics, geo, title="Per-Grain Regression",
     plt.tight_layout()
 
     if save_path:
-        fig.savefig(save_path, dpi=150)
-        print(f"Saved {save_path}")
+        save_figure(fig, save_path)
 
     return fig, axes
