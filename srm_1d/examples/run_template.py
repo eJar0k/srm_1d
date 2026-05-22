@@ -86,6 +86,13 @@ K_SOLID = 0.4
 # Termination: head-end pressure below this aborts the run [Pa].
 P_CUTOFF = 0.05e6              # 50 kPa — well into tail-off
 
+# Termination: arbitrary time cutoff [s]. ``None`` → use
+# run_simulation's default (10 s); the run still terminates earlier
+# via P_cutoff or the history-array cap. Set to a number to force a
+# hard cutoff (useful when burns run long enough that the plot
+# becomes illegible).
+TIME_MAX = None
+
 # Adaptive-CFL target. 0.3 is the standard. Lower → safer / slower.
 CFL_TARGET = 0.3
 
@@ -139,6 +146,10 @@ def main():
     # chamber), and calls run_simulation. Returns (result, perf, nozzle,
     # geometry, propellant).
     print(f"Running {MOTOR_LABEL} from {MOTOR_PATH.name}...")
+    # TIME_MAX = None means "let run_simulation pick its default"; only
+    # thread t_max into the call when an explicit value is set, so we
+    # don't have to track run_simulation's default value in two places.
+    extra_kwargs = {} if TIME_MAX is None else {'t_max': TIME_MAX}
     result, perf, nozzle, geo, prop = run_from_ric(
         str(MOTOR_PATH),
         pyrogen=PYROGEN,
@@ -153,6 +164,7 @@ def main():
         cfl_target=CFL_TARGET,
         snapshot_interval=SNAPSHOT_INTERVAL,
         print_interval=PRINT_INTERVAL,
+        **extra_kwargs,
     )
 
     # ----- Optional experimental overlay -------------------------------
