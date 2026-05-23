@@ -165,9 +165,9 @@ def _plot_best_diagnostics(result, t_exp, p_exp, prefix, t_offset=0.0):
 
     ax_pig = axes[2]
     ax_mdot = ax_pig.twinx()
-    ax_pig.plot(t, result['P_ig'] / 1e6, color='tab:purple',
+    ax_pig.plot(t_aligned, result['P_ig'] / 1e6, color='tab:purple',
                 linewidth=1.6, label='P_ig')
-    ax_mdot.plot(t, result['mdot_ig'] * 1000.0, color='tab:orange',
+    ax_mdot.plot(t_aligned, result['mdot_ig'] * 1000.0, color='tab:orange',
                  linewidth=1.2, label='mdot_ig')
     ax_pig.set_ylabel('P_ig [MPa]')
     ax_mdot.set_ylabel('mdot_ig [g/s]')
