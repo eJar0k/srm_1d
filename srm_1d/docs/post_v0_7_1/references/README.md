@@ -12,6 +12,7 @@ re-calibration and the candidates queued for v0.7.2+.
 | Document | One-line purpose |
 |---|---|
 | [pyrogen_heat_flux_literature.md](pyrogen_heat_flux_literature.md) | DeMar / Sandia LDRD / AIAA pyrogen heat-flux bounds. **The "DeMar 69.4 is time-averaged, not peak" finding** that reframes elevated LHS heat-flux values (e.g. v0.7.1 Phase 5 rank-1 at 232 cal/cm²/s ≈ 9.7 MW/m²) as defensible peak-transient interpretations rather than missing-physics compensation. Cites Sandia LDRD 2022, MDPI 2020, AIAA JSR. |
+| [ap_htpb_k_solid_literature.md](ap_htpb_k_solid_literature.md) | **AP/HTPB+Al k_solid is bounded to 0.20-0.40 W/(m·K), centered 0.25-0.30.** The v0.7.1 Phase 5 LHS spread of 0.175-0.776 is ~3× wider than physical literature supports. High-k basin entries are using k_solid as a free parameter to absorb errors that belong to absent transient mechanisms. Recommends tightening to `(0.26, 0.32)` for honest calibration; if fit degrades, gap implicates Al2O3 lag / Z-N dynamic burn rate / Cps(T). Cites Thakre & Yang, AIAA classics, EUCASS 2019. |
 | [copper_thermite_igniter_literature.md](copper_thermite_igniter_literature.md) | CuO/Al thermite chemistry + heat delivery + ignition mechanism. **Architectural mismatch with v0.7.0+ 0D pyrogen plenum** — would need a surface-flux-only boundary path with no mass injection. Deferred to v0.8. Cites Reese 2015 (AIAA JPP, gold standard), Nishii 2024 (only published 1D thermite + grain model), Nakka, US Patent 4,464,989. |
 
 ## What's NOT here
