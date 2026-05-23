@@ -1,0 +1,22 @@
+# Combustion gas transport for Hasegawa Propellant 1 (RPA FROZEN values).
+# Preserved for diagnostic reference; NOT loaded by default.
+#
+# v0.7.0 and earlier shipped these values as the default
+# `hasegawa_a.transport.yaml`. v0.7.1 (2026-05-23, Phase 5 close-out)
+# switched the default to the effective RPA pair after the
+# frozen-vs-effective LHS A/B established that effective is consistent
+# with the `propellant.py` docstring directive and lands k_solid at the
+# literature center under LHS calibration. Frozen pinned the LHS-fit
+# k_solid at its lower bound (0.20-0.40 literature-defensible band),
+# which is a free-parameter compensation rather than physics.
+#
+# Load explicitly via:
+#     run_from_ric(..., transport_path='hasegawa_a.frozen.transport.yaml')
+#
+# Cross-reference:
+#   srm_1d/docs/v0_7_1/TASKS.md (Phase 5 closure)
+#   memory: project_v0_7_1_phase5_task1_task2_findings
+#   memory: project_hasegawa_calibration_state
+mu: 8.842e-5
+k: 0.3685
+Cp: 2060.0

@@ -70,8 +70,14 @@ functions, and adapter all use `cell_D_bore_init` (length N).
 ### Transport properties
 The model is sensitive to frozen vs effective gas transport:
 - Frozen (RPA): k=0.3685, Cp=2060 → underpredicts erosion, late tail-off
-- Effective: k~0.55, Cp~1900 → better tail-off but higher plateau
+- Effective (RPA, Hasegawa A): k=0.6517, Cp=2764 → better tail-off and
+  trace shape match; lets LHS settle k_solid at literature center
 - Recommendation: use effective values; frozen are physically wrong
+- **v0.7.1 ships effective as default for Hasegawa A** (Phase 5
+  close-out 2026-05-23). `srm_1d/motors/hasegawa_a.transport.yaml`
+  now contains effective; frozen preserved at
+  `hasegawa_a.frozen.transport.yaml` for diagnostic reference. Other
+  motor YAMLs are still frozen pending v0.7.2 cross-motor work.
 
 ### Roughness
 Higher roughness preferentially boosts nozzle-end erosion (high Re).
@@ -136,6 +142,24 @@ Hasegawa A v0.7.0 calibration (LHS rank-1, N=500, segmented fitness):
 - The 7-var LHS recovers v0.6.0's 37 µm roughness without the
   igniter_tau FSI proxy. Pyrogen mass is in the Sutton Eq.15-4 range
   for this motor's free volume.
+
+Hasegawa A v0.7.1 calibration state (Phase 5 close-out 2026-05-23):
+- Default transport YAML flipped to effective (k=0.6517, Cp=2764).
+- `hasegawa_motor_a.py` retains v0.7.0 example knobs (roughness=37.1µm,
+  kappa=0.45, T_ignition=850, no k_solid override → propellant default
+  0.3 W/(m·K) at literature center).
+- Phase 5 effective-LHS rank-1 (N=500, segmented): fitness 0.1933,
+  k_solid 0.331 W/(m·K) (literature center), P_peak under-prediction
+  -11.1%. Rank-1's roughness=6.8 µm and kappa=0.479 were rejected as
+  unphysical per the `roughness/kappa physical-bounds` feedback;
+  ONLY the transport YAML change was canonized.
+- Known v0.7.2 target: 11% ignition-spike under-prediction is a
+  structural ignition-kernel artifact (cross-motor pattern from Task 2:
+  Hasegawa A under-fires while Zerox/BALLSstick/Chunc over-fire 1.7×-5×
+  at the same default knobs). Z-N dynamic burn rate or spatial
+  ignition-front coupling are the leading candidates.
+- Artifacts: `artifacts/hasegawa_a_lhs_effective/`,
+  `artifacts/hasegawa_a_freeff/`, `artifacts/cross_motor_survey_task2/`.
 
 Full per-step audit journey in:
 `docs/v0_7_0/audits/2026-05-20_radiation_collapse_localT.md`,
@@ -615,8 +639,45 @@ in geometry/burn rate/ignition (called every step or every N steps).
       ambient species purges, Hasegawa A baseline shape, Y
       invariants over 3-second run. 6 tests in
       `tests/test_yns_phase4_validation.py`.
-    - **Phase 5 (pending)**: Hasegawa A re-LHS. Calibration must
-      recover the experimental ignition spike that Phase 3.5
-      physically removed. Hypothesis: higher pyrogen mass / heat
-      flux setting will compensate. Compare rank-1 mse_all against
-      v0.7.0 baseline (0.0968 MPa²).
+    - **Phase 5 close-out (2026-05-23)**: Hasegawa A re-LHS plus
+      structural diagnosis. The frozen-vs-effective k_gas A/B (Task 1)
+      and 4-motor default-knob spike survey (Task 2) established that
+      the cross-motor over-prediction is NOT primarily a gas-transport
+      compensation — it's a structural ignition-kernel artifact (bore
+      cells ignite nearly simultaneously). Three LHS sweeps under
+      effective YAML, frozen YAML, and tightened k_solid bounds
+      produced six full sweeps' worth of evidence.
+
+      **Canonized v0.7.1 calibration for Hasegawa A**:
+      - **Transport YAML default switched to effective** RPA pair
+        (k=0.6517, Cp=2764, μ unchanged). Frozen preserved at
+        `srm_1d/motors/hasegawa_a.frozen.transport.yaml`.
+      - **`hasegawa_motor_a.py` example unchanged** — retains v0.7.0
+        knobs (roughness=37.1µm, kappa=0.45, T_ignition=850,
+        no k_solid override → propellant default 0.3 W/(m·K)).
+      - Phase 5 effective-LHS rank-1 (fitness 0.1933, k_solid 0.331
+        at literature center) was **rejected** for canonization
+        because its roughness=6.8µm violated the >15µm physical
+        floor for cast composite grains, and its kappa=0.479 was
+        unphysical drift from the 0.45 default. Only the YAML
+        change was adopted; see memory
+        `[[roughness-kappa-physical-bounds]]`.
+
+      **API break (motor data only)**: Anyone using the prior
+      `hasegawa_a.transport.yaml` content (frozen values) as a fixed
+      sibling for downstream tooling needs to either re-import from
+      `hasegawa_a.frozen.transport.yaml` or accept the new default.
+      No solver API change.
+
+      **Known v0.7.1 limitation (v0.7.2 target)**: 11% ignition-spike
+      under-prediction with effective YAML — a structural ignition-
+      kernel artifact, not a calibration knob. Candidates for v0.7.2:
+      Z-N dynamic burn rate (SPINBALL primary) or spatial ignition-
+      front coupling between adjacent cells. Cross-motor effective-
+      transport recalibration (Zerox / BALLSstick / Chunc) is also
+      deferred to v0.7.2 since their YAMLs are still frozen.
+
+      Artifacts: `artifacts/hasegawa_a_lhs/{full3_kbound,full2,full}*.csv`
+      (frozen sweeps), `artifacts/hasegawa_a_lhs_effective/`
+      (effective sweep), `artifacts/hasegawa_a_freeff/` (Task 1 A/B),
+      `artifacts/cross_motor_survey_task2/` (cross-motor survey).

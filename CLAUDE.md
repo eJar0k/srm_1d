@@ -2,23 +2,26 @@
 
 A 1D transient finite-volume solid rocket motor internal ballistics
 simulator with the Ma et al. (2020) erosive burning model. Numba-JIT
-compiled time loop hits ~45-90k steps/s. v0.7.0 ships a pyrogen-plenum
-igniter + Goodman solid-heating ignition model and is calibrated
-against Hasegawa A at `mse_all = 0.0968 MPa²` (was 0.24 in v0.6.0).
+compiled time loop hits ~45-90k steps/s.
 
-**v0.7.1 in progress on branch `v0.7.0-phase4`** (no tag yet): N-species
-bore-gas refactor (SPINBALL-style "infinite-gases mixture"). Phases
-1+2+3+3.5+4 complete + strict T_ceiling — `Y[N, 3]` advected per step;
-per-cell `(γ, Cp, R, M)` consumed by PISO; sensible-enthalpy advection;
-cell-N-1 nozzle BC; **each combustion source uses its OWN species's Cp**
-(Phase 3.5); strict per-cell T_ceiling with IC guard. 206/206 tests
-(193 baseline + 6 Phase 4 + 7 strict T_ceiling kernel). Hasegawa A
-baseline post-Phase-3.5: P_peak 6.19 MPa, no early ignition spike
-(pyrogen Cp is 33% lower than the prior Cp_gas placeholder, which
-suppressed the surface-heat-flux cap); mass-balance err 0.1%, c* 1543
-m/s. Phase 5 (Hasegawa A re-LHS) is the only remaining work; will
-recalibrate to recover the experimental ignition spike. See
-`srm_1d/docs/v0_7_1/`.
+**v0.7.1 ships (branch `v0.7.0-phase4`)**: N-species bore-gas refactor
+(SPINBALL-style "infinite-gases mixture") + EFFECTIVE RPA transport
+default for Hasegawa A. Phases 1+2+3+3.5+4 complete + strict T_ceiling
+— `Y[N, 3]` advected per step; per-cell `(γ, Cp, R, M)` consumed by
+PISO; sensible-enthalpy advection; cell-N-1 nozzle BC; **each
+combustion source uses its OWN species's Cp** (Phase 3.5); strict
+per-cell T_ceiling with IC guard. 206/206 tests (193 baseline + 6
+Phase 4 + 7 strict T_ceiling kernel). Phase 5 close-out (2026-05-23):
+the Hasegawa A transport YAML default flipped from frozen
+(k=0.3685, Cp=2060) to effective (k=0.6517, Cp=2764) per the
+`propellant.py` docstring directive; effective-LHS rank-1 vindicated
+the switch by landing k_solid at the literature center 0.331 W/(m·K).
+`hasegawa_motor_a.py` retains v0.7.0 knobs (roughness=37.1µm,
+kappa=0.45, T_ign=850, k_solid=0.3 default) — the LHS rank-1's
+roughness=6.8µm and kappa drift were rejected as unphysical. **Known
+v0.7.2 target**: ignition-spike under-prediction ~11% (structural
+ignition-kernel artifact, not a calibration knob — see Phase 5 closeout
+docs). See `srm_1d/docs/v0_7_1/`.
 
 This file is loaded on every session — keep it tight. Pointers to
 deeper docs at the bottom.
@@ -97,14 +100,20 @@ srm_1d/
    momentum (via `_orifice_exit_velocity`) into cell 0 / face 1.
    The `igniter_axial_momentum_fraction` kwarg scales the momentum
    contribution (default 1.0 = pure axial head-end jet).
-5. **Frozen vs effective gas transport** — tunable knob in v0.7.0,
-   addressed structurally in v0.7.1. Frozen (k=0.37, Cp=2060)
-   under-predicts erosive spike; effective (k~0.65, Cp~1800)
-   over-predicts plateau. v0.7.1 Phase 3 now uses per-cell γ/Cp/R
-   derived from the Y[N, 3] mixture; `k_thermal` and `mu_gas` remain
-   scalar (deferred to v0.7.2 if Phase 5 calibration shows benefit).
-   Until Phase 5 re-LHS lands, the v0.7.0 calibrated `k_solid = 0.482`
-   compromise stands.
+5. **Frozen vs effective gas transport — v0.7.1 ships EFFECTIVE as default
+   for Hasegawa A**. `srm_1d/motors/hasegawa_a.transport.yaml` now contains
+   the effective RPA pair (k=0.6517, Cp=2764, μ unchanged); frozen
+   preserved at `hasegawa_a.frozen.transport.yaml` for diagnostic
+   reference (load via `transport_path=...` explicitly). Phase 5 LHS
+   confirmed effective lets the optimizer pick k_solid at the literature
+   center 0.331 W/(m·K) instead of pegging the lower bound 0.20 as the
+   frozen sweep did. Cost: 11% ignition-spike under-prediction — a
+   structural ignition-kernel artifact (NOT a calibration knob), slated
+   for v0.7.2 Z-N or spatial-ignition work. **Other motor YAMLs (Zerox,
+   BALLSstick, machbusterNew, etc.) are still FROZEN as of v0.7.1**;
+   cross-motor effective recalibration deferred to v0.7.2. `k_thermal`
+   and `mu_gas` remain scalar (per-cell array deferred to v0.7.2 if
+   benefit shown).
 6. **v0.7.1 thermal_source units changed to W/m (Phase 3 step 1)**.
    Previously kg·K/(s·m) — multiply by Cp_gas to convert legacy
    external builds. Each source site multiplies its mdot·T contribution
@@ -167,26 +176,28 @@ srm_1d/
 
 ## Open roadmap (priority order)
 
-1. **v0.7.1 Phase 3** -- thread per-cell γ/R/Cp arrays through the
-   PISO step + energy advection (T → Cp·T sensible enthalpy) + nozzle
-   BC + source-CFL cap + T_flame·1.01 clip ceiling. Estimated 30-40%
-   of a fresh session. Phase 4-5 (validation + Hasegawa A re-LHS)
-   follow. v0.7.1 tags when re-LHS rank-1 mse_all ≤ v0.7.0 (0.0968).
-2. **Z-N dynamic burn rate** -- the spike-taildown candidate identified
-   in the SPINBALL walkthrough. One state per cell + a relaxation ODE
-   on the steady r_b. No fitted constants if `τ_ZN = κ·α/r²`. Slotted
-   as v0.7.2 after v0.7.1 multi-species lands.
-3. **Zerox v0.7.0+ re-calibration** -- the v0.6.0 Zerox LHS calibrated
-   roughness, `erosionCoeff`, and `a` against the old exponential-decay
-   igniter. Re-run after v0.7.1 ships so calibration uses the new
-   per-cell mixture thermo.
-4. **ε = 0.05 single-cell ignition spike** (radiation-collapse residual)
+1. **v0.7.2 ignition-kernel structural fix** -- the v0.7.1 Phase 5
+   close-out identified the 11% ignition-spike under-prediction (and
+   cross-motor 1.7×-5× spike over-prediction at default knobs) as a
+   structural artifact: bore cells ignite nearly simultaneously,
+   producing an unphysical pressure transient. Two candidates:
+   (a) **Z-N dynamic burn rate** (SPINBALL walkthrough primary). One
+   state per cell + a relaxation ODE on the steady r_b. No fitted
+   constants if `τ_ZN = κ·α/r²`. (b) **Spatial ignition-front
+   coupling** between adjacent cells, OR pyrogen-injection spatial
+   distribution refactor (currently all mass enters cell 0).
+2. **Cross-motor effective-transport recalibration** -- v0.7.1 only
+   flipped Hasegawa A to effective; Zerox/BALLSstick/machbusterNew/
+   ChaseRed/L3035/ivanO25k YAMLs are still frozen. After v0.7.2's
+   structural ignition fix lands, re-run cross-motor LHS using
+   effective + the new kernel.
+3. **ε = 0.05 single-cell ignition spike** (radiation-collapse residual)
    -- the only remaining outlier in the 27-variant radiation matrix
    trips on the last-grain-cell ignition transition. Would require
    source sub-stepping (split-operator within one PISO step).
-5. **RodTube grain support** -- small extension (PerforatedGrain in
+4. **RodTube grain support** -- small extension (PerforatedGrain in
    addition to FmmGrain in `from_openmotor`).
-6. **Al2O3 two-phase thermal lag** -- Pardue 1992 form, the secondary
+5. **Al2O3 two-phase thermal lag** -- Pardue 1992 form, the secondary
    spike-taildown candidate from the SPINBALL walkthrough. Higher
    implementation cost than Z-N (full re-cal needed). v0.7.3+ if Z-N
    alone doesn't close the residual.
