@@ -212,28 +212,28 @@ def main():
     t_exp = HASEGAWA_MOTOR_A_EXPERIMENTAL['time'] + EXPERIMENTAL_TIME_OFFSET
     p_exp = HASEGAWA_MOTOR_A_EXPERIMENTAL['pressure']
 
-    # v0.7.1 Phase 5 bounds (literature-bounded re-sweep, 2026-05-22).
-    # Refined after the N=1200 full sweep showed heat_flux pegging
-    # near 250 cal/cm^2/s and user-flagged the value as suspicious vs
-    # DeMar 1995 nominal of 69.4.
+    # v0.7.1 Phase 5 bounds (k_solid-tightened diagnostic sweep,
+    # 2026-05-22). The prior literature-bounded re-sweep produced a
+    # top-5 ensemble with fitted k_solid spanning 0.175-0.776 W/(m·K),
+    # a 4.4x range for a single propellant composition. Subsequent
+    # AP/HTPB k_solid literature dive (memory:
+    # reference_ap_htpb_k_solid_literature) established that published
+    # cold-measurement bounds for AP/HTPB+Al cluster in 0.20-0.40,
+    # centered ~0.25-0.30. No source supports k > 0.6 except as a
+    # free fit parameter compensating for absent physics.
     #
-    # Literature dive (memory: reference_pyrogen_heat_flux_literature)
-    # established:
-    #   - DeMar 69.4 is time-averaged, not peak-instantaneous.
-    #   - Sandia 2022 LDRD measured sustained pyrotechnic flux to
-    #     23.2 MW/m^2 (~970 cal/cm^2/s) and peak near-field to 1 GW/m^2.
-    #   - 232 cal/cm^2/s is defensible peak-transient but elevated;
-    #     user preference is the conservative end (nominal-flux +
-    #     larger pyrogen) per amateur/industry igniter sizing.
+    # This sweep tightens k_solid to the full literature-defensible
+    # band (0.20-0.40) as a DIAGNOSTIC experiment:
     #
-    # Changes from prior full-sweep bounds:
-    #   roughness 50 -> 100 um upper; AP composites with slag /
-    #     oxide build-up can exceed 50 um (user request).
-    #   pyrogen_heat_flux_cal_cm2_s 250 -> 200 cal/cm^2/s upper;
-    #     caps to conservative end of literature range; pushes the
-    #     optimizer toward the nominal-flux + larger-pyrogen basin
-    #     (rank-2 of prior sweep) rather than the high-flux basin.
-    # Other bounds unchanged.
+    #   - If best fitness lands near the prior 0.0644 (within ~20%),
+    #     the model is honest and previous calibration is recoverable.
+    #   - If best fitness rises sharply (>~0.1), confirmed model gap.
+    #     The right response is NOT to re-widen k_solid; it's to
+    #     slate Al2O3 two-phase lag (Pardue 1992) and/or Z-N dynamic
+    #     burn rate as v0.7.2 priority work.
+    #
+    # All other bounds inherited from the prior sweep (commit af49a68):
+    #   roughness 5-100 um, heat_flux 30-200 cal/cm^2/s, etc.
     bounds = {
         # Ma erosive-burning knobs
         'roughness':           (5e-6, 100e-6),
@@ -245,7 +245,7 @@ def main():
         'pyrogen_heat_flux_cal_cm2_s': (30.0, 200.0),
         # Goodman ignition / surface-conduction
         'T_ignition':          (800.0, 1100.0),
-        'k_solid':             (0.15, 1.00),
+        'k_solid':             (0.20, 0.40),
     }
 
     # v0.7.1 Phase 5: per-sample ignition-timing alignment. The fitness
