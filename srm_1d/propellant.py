@@ -205,15 +205,24 @@ class Propellant:
     Cp_gas: float
     k_solid: float = 0.3  # Solid conductivity for Goodman ignition [W/(m*K)]
     radiation_emissivity: float = 0.0
-    # v0.7.2 Phase B: spatial ignition-front coupling. When True (default),
-    # pre-ignition cells' Bartz h_c is augmented by a Dittus-Boelter
-    # Re^0.8 factor proportional to cumulative upstream mass flux from
-    # already-burning cells. This produces sequential bore ignition
-    # (Kashiwagi 1982 / Han 2017 / SPINBALL mechanism) rather than the
-    # v0.7.1 simultaneous-cell-ignition artifact. Set False to disable
-    # for diagnostic A/B vs Phase A only (regression gate). See
-    # srm_1d/docs/v0_7_2/candidates/02_spatial_ignition_front_coupling.md.
-    flame_spread_enabled: bool = True
+    # v0.7.2 Phase B (DEFAULT DISABLED, opt-in only): flame-front h_c
+    # augmentation. When True, an unignited cell's Bartz h_c is
+    # multiplied by flame_spread_boost IF its immediate upstream
+    # neighbor ignited within the last flame_spread_tau seconds.
+    #
+    # **Empirically disabled by default** after Phase B-v1 (cumulative-G)
+    # and Phase B-v2 (flame-front gating) both showed the augmentation
+    # AMPLIFIES the ignition spike rather than smoothing it in this
+    # codebase — because PISO's local-Re tracking already captures
+    # upstream-mass-flux contributions to h_c at unignited cells, the
+    # extra augmentation is double-counting. Phase A (pyrogen axial
+    # distribution) is the load-bearing v0.7.2 ship; Phase B remains
+    # available as diagnostic infrastructure for experimentation /
+    # future iteration. See docs/v0_7_2/candidates/02_*.md and the
+    # negative findings at commits 065d193 (v1) and (v2 commit pending).
+    flame_spread_enabled: bool = False
+    flame_spread_tau: float = 1.0e-3   # [s] window after upstream ignition
+    flame_spread_boost: float = 3.0    # h_c multiplier when boost active
 
     def select_tab(self, P) -> PropellantTab:
         """

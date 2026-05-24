@@ -131,7 +131,7 @@ def test_adjacent_radiation_heats_only_neighbors_and_conserves_sink():
     # keeps this radiation-focused test independent of the Phase B
     # augmentation (zeros for G_cum + disabled flag => no behavior change
     # vs Phase A).
-    G_cum = np.zeros(N)
+    flame_spread_augment = np.ones(N)
     # v0.7.1 Phase 3.5: per-species Cp args. Cp_propellant = 2060 (matches
     # the prior Cp_gas value), Cp_pyrogen = 1385 (BPNV-like derived Cp);
     # this test sets mdot_igniter=0 so Cp_pyrogen is unused — value picked
@@ -149,7 +149,7 @@ def test_adjacent_radiation_heats_only_neighbors_and_conserves_sink():
         2060.0, 1385.0,
         0.0, 0.45, False, 0.0,
         mass_source_by_species,
-        G_cum, 1.0, False,
+        flame_spread_augment, False,
     )
 
     radiation_heat_power = out[4]
@@ -195,7 +195,7 @@ def test_adjacent_radiation_sink_can_be_disabled_for_diagnostics():
     mass_source_by_species = np.zeros((N, 3))  # v0.7.1: 3-species
     # v0.7.2 Phase B: flame_spread_enabled=False keeps this radiation-
     # focused test independent of the Phase B augmentation.
-    G_cum = np.zeros(N)
+    flame_spread_augment = np.ones(N)
     # v0.7.1 Phase 3.5: per-species Cp args (see sibling test for notes).
     out = _goodman_ignition_sources_and_mass(
         P, T, T_surf, delta, has_ignited, is_burning, is_grain,
@@ -210,7 +210,7 @@ def test_adjacent_radiation_sink_can_be_disabled_for_diagnostics():
         2060.0, 1385.0,
         0.0, 0.45, True, 0.0,
         mass_source_by_species,
-        G_cum, 1.0, False,
+        flame_spread_augment, False,
     )
 
     assert out[4] > 0.0
