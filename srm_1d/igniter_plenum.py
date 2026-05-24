@@ -28,63 +28,85 @@ BURN_LAW_END_BURNING = 1
 
 
 _VALID_TOPOLOGIES = (
-    'forward_plenum',                 # v0.7.0+ default: plenum upstream of bore
-    'head_cartridge',                 # 4a: plenum-in-bore at head [0, cart_len]
-    'aft_cartridge_zero_axial',       # 4b zero-mom: plenum-in-bore at aft, no momentum
-    'aft_cartridge_fore_firing',      # 4b fore: plenum-in-bore at aft + upstream momentum at face i_start
+    'forward_plenum',     # v0.7.0+ default: plenum upstream of bore, choked vent
+    'head_basket',        # uncontained pyrogen in head-end bore cells [0, i_end]
+    'aft_basket',         # uncontained pyrogen in aft bore cells [i_start, N-1]
 )
+
+# Numba-compatible topology codes (passed into the time loop as an int)
+TOPOLOGY_FORWARD_PLENUM = 0
+TOPOLOGY_HEAD_BASKET    = 1
+TOPOLOGY_AFT_BASKET     = 2
+
+
+def _topology_code(topology):
+    if topology == 'forward_plenum':
+        return TOPOLOGY_FORWARD_PLENUM
+    if topology == 'head_basket':
+        return TOPOLOGY_HEAD_BASKET
+    if topology == 'aft_basket':
+        return TOPOLOGY_AFT_BASKET
+    raise ValueError(f"unknown injection_topology: {topology!r}")
 
 
 @dataclass
 class PyrogenChamber:
     """
-    Pyrogen chamber configuration. **Plenum-containment model**:
+    Pyrogen chamber / igniter configuration. v0.7.3 Phase A supports
+    two physical containment models selected by ``injection_topology``:
+
+    **Plenum-containment model** (``'forward_plenum'``, v0.7.0+ default):
     pyrogen burns inside an enclosed volume with its own internal
     pressure ``P_ig`` (decoupled from bore pressure by the orifice),
     Saint-Robert burn rate evaluated at ``P_ig``, choked/subsonic
-    venting through ``A_throat``.
+    venting through ``A_throat`` into bore cell 0 (distributed via
+    Phase A exponential decay if ``pyrogen.kappa_jet > 0``). Axial
+    momentum injected at face 1 with downstream sign.
 
-    v0.7.3 Phase A adds support for **plenum-in-bore** topologies:
-    the cartridge is physically located INSIDE the bore (head-end
-    basket, aft-cavity cartridge like Super Loki) but still has its
-    own internal pressure separated from bore pressure by the orifice.
-    Plenum machinery (separate P_ig, choked vent, Saint-Robert at P_ig)
-    is preserved across all topologies; only WHERE the vented mass
-    enters the bore and WHETHER momentum is injected changes.
+    **Uncontained model** (``'head_basket'`` | ``'aft_basket'``):
+    pyrogen pellets sit physically inside the bore — no plenum
+    chamber wall, no internal pressure separation, no defined orifice
+    or burst threshold. Each pellet burns at the LOCAL bore pressure
+    of its host cell: ``r_b[i] = a · P_bore[i]^n``. Per-cell mass
+    enters the bore directly via ``mdot[i] = rho_p · r_b[i] ·
+    A_burn_per_cell`` where ``A_burn_per_cell = A_burn_initial /
+    n_cartridge_cells`` (initial burning surface distributed
+    uniformly across the cartridge's axial extent). No axial momentum
+    injection — PISO handles flow naturally via pressure gradient
+    between high-P pyrogen cells and surrounding bore. Plenum-state
+    fields (``A_throat``, ``V_plenum``, ``A_burn_initial``) are
+    repurposed: ``A_burn_initial`` becomes total burning surface
+    distributed across cells; ``V_plenum`` and ``A_throat`` are
+    ignored for the uncontained-burn computation but still validated
+    at the Python boundary so existing motor configs don't break.
 
-    A truly **uncontained basket** (loose pellets at local bore
-    pressure, no plenum state, per-cell Saint-Robert with
-    ``r_b = a · P_bore[i]^n``) is fundamentally different physics
-    and is NOT modeled here — it's a separate future candidate.
-
-    Parameters are SI. ``burn_law`` is validated at the Python
-    boundary and passed into Numba kernels as an integer code.
+    This split mirrors the physical reality identified in the Super
+    Loki literature dive (NASA CR-61238, MIT Super Loki Report,
+    Smithsonian/NASM): the ISP Super Loki igniter is a head-end
+    BKNO3 pellet charge in a consumable plastic moisture cup, with
+    NO defined orifice or pressure-containing aft cap. Modeling it
+    as a plenum-with-orifice would be wrong physics; modeling it as
+    head_basket (uncontained, at local bore P) is the appropriate
+    fit. A future ``'aft_fore_firing'`` topology could add an opt-in
+    upstream momentum injection at face i_start (mdot * user-supplied
+    v_exit_userspec) for aft-cartridge designs where the pellet
+    burns directionally — deferred from v0.7.3 Phase A.
 
     Topology options (``injection_topology``):
 
     - ``'forward_plenum'`` (default, v0.7.0-v0.7.2 behavior): plenum
-      sits upstream of the bore; mass enters cell 0 (or distributed
-      via Phase A exponential decay from cell 0); momentum at face 1
-      with downstream sign.
+      upstream of bore.
 
-    - ``'head_cartridge'`` (4a): plenum-in-bore at head end. Pyrogen
-      cartridge spans cells [0, i_end] determined by
-      ``cartridge_length_m``. Mass + enthalpy + species distribute
-      uniformly across those cells (top-hat). No axial momentum
-      injection (basket-style multi-port discharge has no net axial
-      component).
+    - ``'head_basket'``: uncontained pyrogen in cells ``[0, i_end]``
+      where ``i_end`` is set by ``cartridge_length_m``. Cells burn at
+      local bore P; mass + enthalpy enter their host cells. No
+      momentum injection. ISP Super Loki uses this topology.
 
-    - ``'aft_cartridge_zero_axial'`` (4b zero-mom): plenum-in-bore at
-      aft. Cartridge spans [i_start, N-1]. Same top-hat distribution
-      as head_cartridge, just at the other end. No momentum injection
-      — PISO handles axial flow naturally via the pressure gradient
-      between the high-P cartridge cells and the surrounding bore.
-
-    - ``'aft_cartridge_fore_firing'`` (4b fore): plenum-in-bore at
-      aft with axial momentum at face i_start, upstream-directed
-      sign (cartridge fires UP the bore). Magnitude derived from
-      ``mdot * _orifice_exit_velocity`` consistent with the existing
-      forward_plenum convention.
+    - ``'aft_basket'``: uncontained pyrogen in cells
+      ``[i_start, N-1]``. Same physics as head_basket, just at the
+      aft end of the bore. User-flagged as the cleanest test of
+      whether the simultaneous-ignition artifact is driven by
+      mass-injection position (head vs aft).
 
     Cartridge length: if ``cartridge_length_m < 0`` (default), derived
     from pyrogen mass and bore geometry as
@@ -92,7 +114,9 @@ class PyrogenChamber:
     A_port_avg is the bore-volume-weighted port area. User override
     via explicit positive ``cartridge_length_m`` always wins.
 
-    See srm_1d/docs/v0_7_2/candidates_post_phaseA.md (v0.7.3 design).
+    See srm_1d/docs/v0_7_2/candidates_post_phaseA.md (v0.7.3 design)
+    and the Super Loki igniter lit-check notes in the v0.7.3
+    DESIGN doc.
     """
     pyrogen: Pyrogen
     m_pyrogen_initial: float
@@ -157,9 +181,9 @@ class PyrogenChamber:
         # Snap to whole cells: find smallest n such that n*dx >= L_cart
         n_cart = max(1, int(np.ceil(L_cart / dx)))
         n_cart = min(n_cart, N)
-        if self.injection_topology == 'head_cartridge':
+        if self.injection_topology == 'head_basket':
             return (0, n_cart - 1)
-        # aft cartridge topologies
+        # aft_basket
         return (N - n_cart, N - 1)
 
 
