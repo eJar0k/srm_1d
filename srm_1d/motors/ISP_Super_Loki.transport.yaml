@@ -1,6 +1,8 @@
-# Combustion gas transport for Krush Shit Propellant.
-# RPA-derived FROZEN values.
-# Loaded automatically by openmotor_adapter when reading L3035.ric.
+# Combustion gas transport for ISP Super Loki sounding-rocket motor
+# (ISP Corporation, BPNV-class propellant approximation).
+# RPA-derived FROZEN values. Loaded automatically by openmotor_adapter
+# when reading ISP_Super_Loki.ric. v0.7.2 cleanup may swap to effective
+# alongside the other fired motors once RPA effective values are pulled.
 mu: 8.389e-5
 k: 0.2506
 Cp: 1878.0

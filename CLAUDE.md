@@ -100,20 +100,34 @@ srm_1d/
    momentum (via `_orifice_exit_velocity`) into cell 0 / face 1.
    The `igniter_axial_momentum_fraction` kwarg scales the momentum
    contribution (default 1.0 = pure axial head-end jet).
-5. **Frozen vs effective gas transport — v0.7.1 ships EFFECTIVE as default
-   for Hasegawa A**. `srm_1d/motors/hasegawa_a.transport.yaml` now contains
-   the effective RPA pair (k=0.6517, Cp=2764, μ unchanged); frozen
-   preserved at `hasegawa_a.frozen.transport.yaml` for diagnostic
-   reference (load via `transport_path=...` explicitly). Phase 5 LHS
-   confirmed effective lets the optimizer pick k_solid at the literature
-   center 0.331 W/(m·K) instead of pegging the lower bound 0.20 as the
-   frozen sweep did. Cost: 11% ignition-spike under-prediction — a
-   structural ignition-kernel artifact (NOT a calibration knob), slated
-   for v0.7.2 Z-N or spatial-ignition work. **Other motor YAMLs (Zerox,
-   BALLSstick, machbusterNew, etc.) are still FROZEN as of v0.7.1**;
-   cross-motor effective recalibration deferred to v0.7.2. `k_thermal`
-   and `mu_gas` remain scalar (per-cell array deferred to v0.7.2 if
-   benefit shown).
+5. **Frozen vs effective gas transport — v0.7.1.1 ships EFFECTIVE as
+   default for ALL fired motors**. Hasegawa A (v0.7.1), then Zerox /
+   Chunc (machbusterNew) / BALLSstick (v0.7.1.1 patch) all flipped to
+   their RPA-effective pair; frozen siblings preserved at
+   `<motor>.frozen.transport.yaml` for diagnostic reference (load via
+   `transport_path=...` explicitly). The v0.7.1 Phase 5 effective LHS
+   for Hasegawa A landed k_solid at the literature center 0.331 W/(m·K)
+   (vs frozen pegging lower bound 0.20 — free-parameter compensation
+   for under-heat-transfer through the gas film). `k_thermal` and
+   `mu_gas` remain scalar (per-cell array deferred to v0.7.2 if benefit
+   shown). **Unfired motors (ChaseRed BATES, L3035, ivanO25k) still
+   ship frozen** — no validation signal to motivate the switch.
+
+   **IMPORTANT post-tag finding (v0.7.1.1 cross-motor cleanup
+   2026-05-23)**: at default knobs (k_solid=0.4, roughness=35µm,
+   kappa=0.45, T_ign=900K, Sutton pyrogen), effective transport
+   AMPLIFIES the ignition spike for every fired motor by +30-55% vs
+   frozen at the same knobs (Hasegawa A 5.84→8.27, Zerox 7.85→10.20,
+   BALLSstick 9.33→14.48, Chunc 13.14→20.27 MPa). The pre-existing
+   Zerox YAML comment ("effective amplifies the spike") is confirmed
+   universally. **`hasegawa_motor_a.py` with the v0.7.1 effective
+   default + v0.7.0 knobs now over-predicts the ignition spike by
+   ~31%** (P_peak 8.5 MPa @ t≈0.05 s vs experimental 6.5 MPa @ t=1.1 s),
+   while matching the plateau + erosive peak shape better than the
+   v0.7.0 frozen baseline. This is the structural ignition-kernel
+   artifact manifesting in the canonized example — it is NOT a
+   regression, but anyone running `hasegawa_motor_a.py` post-v0.7.1
+   will see this spike overshoot. v0.7.2 structural work targets it.
 6. **v0.7.1 thermal_source units changed to W/m (Phase 3 step 1)**.
    Previously kg·K/(s·m) — multiply by Cp_gas to convert legacy
    external builds. Each source site multiplies its mdot·T contribution

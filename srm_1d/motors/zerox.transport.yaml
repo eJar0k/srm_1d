@@ -1,8 +1,20 @@
 # Combustion gas transport for Risky Batman V3 Jan2024 (Zerox motor).
-# RPA-derived FROZEN values. Effective values were tested in the
-# zerox_a_sweep workflow and amplified the ignition spike (wrong
-# direction for this motor) without helping the plateau.
-# Loaded automatically by openmotor_adapter when reading zerox.ric.
+# RPA-derived EFFECTIVE values. Loaded automatically by openmotor_adapter
+# when reading zerox.ric.
+#
+# v0.7.2 cleanup (2026-05-23) switched the default from frozen to
+# effective to match the v0.7.1 Hasegawa A convention and to verify
+# whether the Phase 5 structural ignition-kernel diagnosis generalizes
+# across the fired-motor library. Frozen sibling preserved at
+# `zerox.frozen.transport.yaml`.
+#
+# Prior context (preserved): v0.6.0-era zerox_a_sweep workflow noted
+# that effective values amplified the ignition spike. The v0.7.2
+# cleanup re-survey will confirm or refute that observation under the
+# v0.7.1 PISO + N-species build.
+#
+# mu: RPA outputs a single dynamic viscosity for both formulations;
+#     matches the frozen sibling.
 mu: 8.604e-5
-k: 0.3455
-Cp: 2052.0
+k: 0.5038
+Cp: 2468.0

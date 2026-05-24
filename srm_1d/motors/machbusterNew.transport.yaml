@@ -1,6 +1,13 @@
-# Combustion gas transport for Krush Shit Propellant.
-# RPA-derived FROZEN values.
-# Loaded automatically by openmotor_adapter when reading L3035.ric.
+# Combustion gas transport for Krush Shit Propellant (Chunc / machbusterNew).
+# RPA-derived EFFECTIVE values. Loaded automatically by openmotor_adapter
+# when reading machbusterNew.ric.
+#
+# v0.7.2 cleanup (2026-05-23) switched the default from frozen to
+# effective. Frozen sibling preserved at
+# `machbusterNew.frozen.transport.yaml`.
+#
+# mu: RPA outputs a single dynamic viscosity for both formulations;
+#     matches the frozen sibling.
 mu: 9.125e-5
-k: 0.3654
-Cp: 2050.0
+k: 0.6584
+Cp: 2826.0

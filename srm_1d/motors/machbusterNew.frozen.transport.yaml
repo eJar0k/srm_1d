@@ -1,0 +1,10 @@
+# Combustion gas transport for Krush Shit Propellant (Chunc / machbusterNew).
+# RPA-derived FROZEN values. Preserved for diagnostic reference; NOT
+# loaded by default as of v0.7.2 cleanup (2026-05-23) — the default
+# `machbusterNew.transport.yaml` now ships the effective RPA pair.
+#
+# Load explicitly via:
+#     run_from_ric(..., transport_path='machbusterNew.frozen.transport.yaml')
+mu: 9.125e-5
+k: 0.3654
+Cp: 2050.0

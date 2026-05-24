@@ -1,0 +1,10 @@
+# Combustion gas transport for UPET (BALLSstick), approx.
+# RPA-derived FROZEN values. Preserved for diagnostic reference; NOT
+# loaded by default as of v0.7.2 cleanup (2026-05-23) — the default
+# `BALLSstick.transport.yaml` now ships the effective RPA pair.
+#
+# Load explicitly via:
+#     run_from_ric(..., transport_path='BALLSstick.frozen.transport.yaml')
+mu: 9.009e-5
+k: 0.3460
+Cp: 2017.0

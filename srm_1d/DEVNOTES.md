@@ -681,3 +681,38 @@ in geometry/burn rate/ignition (called every step or every N steps).
       (frozen sweeps), `artifacts/hasegawa_a_lhs_effective/`
       (effective sweep), `artifacts/hasegawa_a_freeff/` (Task 1 A/B),
       `artifacts/cross_motor_survey_task2/` (cross-motor survey).
+
+- v0.7.1.1 (2026-05-23): cross-motor effective-transport cleanup
+  patch. Zerox / Chunc (machbusterNew) / BALLSstick `.transport.yaml`
+  defaults switched from frozen → effective using user-supplied RPA
+  pairs (Zerox Cp=2468/k=0.5038; Chunc Cp=2826/k=0.6584; BALLSstick
+  Cp=2629/k=0.5761; μ shared with frozen per RPA convention). Frozen
+  values preserved as `<motor>.frozen.transport.yaml` siblings.
+  Mirrors the v0.7.1 Hasegawa A pattern.
+
+  Closes the v0.7.1 Phase 5 blind spot: the structural diagnosis
+  ("cross-motor spike pattern is gas-transport-independent") was
+  based on Hasegawa-A-centric data + single default-knob runs per
+  other motor. The cleanup re-survey
+  (`srm_1d/examples/cross_motor_frozen_vs_effective.py`) tests each
+  motor under BOTH transports at identical defaults; result is
+  decisive: effective transport AMPLIFIES the ignition spike for
+  all 4 fired motors at default knobs by +30-55% (Hasegawa A
+  5.84→8.27 MPa, Zerox 7.85→10.20, BALLSstick 9.33→14.48, Chunc
+  13.14→20.27 MPa). The pre-existing Zerox YAML comment about
+  effective amplification is confirmed universally. **The
+  structural ignition-kernel diagnosis is now locked**; v0.7.2 does
+  NOT need per-motor effective LHS recalibration before structural
+  kernel work.
+
+  **Important post-tag finding**: `hasegawa_motor_a.py` (v0.7.0
+  example knobs: kappa=0.45, T_ign=850, k_solid default 0.3, Sutton
+  BPNV) with the v0.7.1 effective default now over-predicts the
+  ignition spike by ~31% (P_peak 8.5 MPa @ t≈0.05 s vs experimental
+  6.5 MPa @ t=1.1 s). Plateau + erosive peak shape track experimental
+  better than v0.7.0 frozen baseline did, but the early spike is
+  prominent. This is NOT a regression — it is the structural
+  ignition-kernel artifact appearing in the canonized example. v0.7.2
+  is the fix path. Flagged in CLAUDE.md gotcha #5 for visibility.
+
+  Artifacts: `artifacts/cross_motor_frozen_vs_effective/`.
