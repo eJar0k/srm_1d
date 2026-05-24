@@ -175,7 +175,14 @@ srm_1d/
   Sutton/DeMar summaries).
 - `srm_1d/docs/v0_7_1/` -- v0.7.1 N-species design package:
   `DESIGN.md` (mixture architecture, Phase plan, ambient species
-  decision), `TASKS.md` (Phase 1+2 complete; Phase 3-5 pending).
+  decision), `TASKS.md` (Phases 1+2+3+3.5+4+5 complete, tagged).
+- `srm_1d/docs/v0_7_2/` -- v0.7.2 ignition-model rework design
+  package: `README.md` (problem statement + decision criteria),
+  `candidates/01..04_*.md` (4 candidate design docs: Z-N dynamic
+  burn rate, spatial ignition-front coupling, pyrogen axial
+  distribution, submerged pyrogen modes), `references/01..04_*.md`
+  (extended literature digests). Implementation not started; user
+  scope decision pending.
 - `srm_1d/docs/post_v0_7_0/references/` -- SPINBALL research that
   motivated v0.7.1: Cavallini 2009 + DiGiacinto 2008 extractions plus
   the `spinball_walkthrough.md` decision document (recommends Z-N
@@ -191,15 +198,24 @@ srm_1d/
 ## Open roadmap (priority order)
 
 1. **v0.7.2 ignition-kernel structural fix** -- the v0.7.1 Phase 5
-   close-out identified the 11% ignition-spike under-prediction (and
-   cross-motor 1.7×-5× spike over-prediction at default knobs) as a
-   structural artifact: bore cells ignite nearly simultaneously,
-   producing an unphysical pressure transient. Two candidates:
-   (a) **Z-N dynamic burn rate** (SPINBALL walkthrough primary). One
-   state per cell + a relaxation ODE on the steady r_b. No fitted
-   constants if `τ_ZN = κ·α/r²`. (b) **Spatial ignition-front
-   coupling** between adjacent cells, OR pyrogen-injection spatial
-   distribution refactor (currently all mass enters cell 0).
+   + v0.7.1.1 cross-motor cleanup confirmed the spike artifact as
+   a structural ignition-kernel problem (bore cells ignite nearly
+   simultaneously) that gas-transport choice cannot fix. Design
+   package landed at `srm_1d/docs/v0_7_2/` with 4 candidate design
+   docs + 4 literature-dive references. The candidates:
+   (1) **Z-N dynamic burn rate** -- smallest scope, relaxation
+   ODE on steady r_b per cell; Greatrix 2008 is the canonical 1D-IB
+   reference and explicitly validates on low-L\* spikes;
+   (2) **Spatial ignition-front coupling** -- cumulative-G augmented
+   h_c per Kashiwagi 1982 / Han 2017 / SPINBALL; literature
+   consensus says this is the load-bearing fix;
+   (3) **Pyrogen axial distribution** -- exponential decay over
+   first ~10-25% of bore per Witze / Cavallini SPINBALL impingement-
+   region; eliminates head-end hot spot;
+   (4) **Submerged pyrogen modes** -- support head-end basket /
+   aft-cavity / Super Loki cartridge-in-nozzle topologies; depends
+   on (3) machinery; unlocks ISP Super Loki validation. Candidates
+   1/2/3 stack cleanly; user scope decision pending.
 2. **Cross-motor effective-transport recalibration** -- v0.7.1 only
    flipped Hasegawa A to effective; Zerox/BALLSstick/machbusterNew/
    ChaseRed/L3035/ivanO25k YAMLs are still frozen. After v0.7.2's
