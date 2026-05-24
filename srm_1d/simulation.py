@@ -381,6 +381,87 @@ def _compute_pyrogen_axial_weights(x_centers, dx, L_jet, N):
 
 
 @njit(cache=True)
+def _compute_uncontained_pyrogen_mdot(
+    P_bore, a, n, rho_p, A_burn_per_cell, m_pyrogen_remaining, dt,
+    i_start, i_end, N, mdot_arr,
+):
+    """v0.7.3 Phase A — per-cell pyrogen mdot for uncontained
+    submerged-igniter topologies (head_basket, aft_basket).
+
+    Each pyrogen pellet (cell in [i_start, i_end] inclusive) burns at
+    its host cell's LOCAL bore pressure — no plenum chamber, no
+    orifice, no separate P_ig. The physics is:
+
+        r_b[i] = a * max(P_bore[i], 0)^n        [m/s]
+        mdot[i] = rho_p * r_b[i] * A_burn_per_cell   [kg/s]
+
+    where ``A_burn_per_cell = chamber.A_burn_initial / n_cartridge_cells``
+    is the initial burning surface area distributed uniformly across
+    the cartridge's axial extent.
+
+    Mass conservation: if ``sum(mdot[i]) * dt`` would deplete more
+    pyrogen than ``m_pyrogen_remaining``, all per-cell mdots are
+    uniformly scaled down so the last burn step consumes exactly the
+    remaining pyrogen. After depletion, subsequent steps return
+    all-zero mdot.
+
+    Returns the updated ``m_pyrogen_remaining`` (caller persists it
+    in plenum_state[0] across steps; this mirrors the existing
+    forward_plenum convention even though the uncontained model has
+    no plenum-gas state per se).
+
+    Edge cases:
+    - ``m_pyrogen_remaining <= 0``: all-zero mdot, returns 0.0
+    - ``A_burn_per_cell <= 0`` or ``dt <= 0``: all-zero mdot,
+      returns ``m_pyrogen_remaining`` unchanged
+    - ``i_start > i_end`` or fully out-of-range: same as above
+    - ``P_bore[i] < 0`` (numerical artifact): clamped to 0
+
+    See srm_1d/docs/v0_7_2/candidates_post_phaseA.md (v0.7.3 design)
+    and the PyrogenChamber docstring in igniter_plenum.py for the
+    full architecture (uncontained vs plenum split).
+    """
+    # Zero the full array each step (cheap O(N))
+    for i in range(N):
+        mdot_arr[i] = 0.0
+
+    # Defensive early exits
+    if m_pyrogen_remaining <= 0.0:
+        return 0.0
+    if A_burn_per_cell <= 0.0 or dt <= 0.0:
+        return m_pyrogen_remaining
+    if i_start > i_end:
+        return m_pyrogen_remaining
+
+    # Clamp range to [0, N-1]
+    lo = i_start if i_start >= 0 else 0
+    hi = i_end if i_end < N else N - 1
+    if lo > hi:
+        return m_pyrogen_remaining
+
+    # Compute provisional per-cell mdot
+    total_mdot = 0.0
+    for i in range(lo, hi + 1):
+        P = P_bore[i]
+        if P < 0.0:
+            P = 0.0
+        r_b = a * (P ** n)
+        m = rho_p * r_b * A_burn_per_cell
+        mdot_arr[i] = m
+        total_mdot += m
+
+    # Mass conservation: cap total consumption at m_pyrogen_remaining
+    if total_mdot * dt > m_pyrogen_remaining:
+        if total_mdot > 0.0:
+            scale = m_pyrogen_remaining / (total_mdot * dt)
+            for i in range(lo, hi + 1):
+                mdot_arr[i] *= scale
+            return 0.0
+        return m_pyrogen_remaining
+    return m_pyrogen_remaining - total_mdot * dt
+
+
+@njit(cache=True)
 def _compute_uniform_band_weights(dx, i_start, i_end, N, w):
     """v0.7.3 Phase A — uniform top-hat axial weights for submerged-igniter
     pyrogen injection.
@@ -938,6 +1019,11 @@ def _run_time_loop(
     # --- v0.7.2 Phase B-v2: flame-front h_c augmentation ---
     flame_spread_augment, flame_spread_enabled,
     flame_spread_tau, flame_spread_boost,
+    # --- v0.7.3 Phase A: igniter topology (uncontained vs plenum) ---
+    topology_code,                # 0=forward_plenum, 1=head_basket, 2=aft_basket
+    cart_i_start, cart_i_end,     # cartridge cell range (inclusive); both 0 for forward_plenum
+    A_burn_per_cell,              # initial burning surface per cartridge cell (uncontained)
+    mdot_uncontained_arr,         # [N] scratch for per-cell uncontained mdot
 ):
     """
     The complete simulation time loop, compiled to native code.
@@ -1109,13 +1195,54 @@ def _run_time_loop(
         # STEP 3: IGNITION + SOURCE ASSEMBLY
         # ============================================
 
-        new_plenum_state, mdot_igniter, _mdot_generated, P_ig = _step_plenum_ode(
-            plenum_state, pyrogen_params_arr, chamber_params_arr, dt, P[0]
-        )
-        plenum_state[0] = new_plenum_state[0]
-        plenum_state[1] = new_plenum_state[1]
-        plenum_state[2] = new_plenum_state[2]
-        T_ig = plenum_state[2]
+        # v0.7.3 Phase A: branch on igniter topology.
+        #   - forward_plenum (code 0): plenum-with-orifice (v0.7.0+ path).
+        #   - head_basket / aft_basket (codes 1/2): uncontained pyrogen
+        #     at local bore P, no plenum dynamics, no momentum injection.
+        if topology_code == 0:
+            # Forward plenum (existing path, unchanged behavior).
+            new_plenum_state, mdot_igniter, _mdot_generated, P_ig = _step_plenum_ode(
+                plenum_state, pyrogen_params_arr, chamber_params_arr, dt, P[0]
+            )
+            plenum_state[0] = new_plenum_state[0]
+            plenum_state[1] = new_plenum_state[1]
+            plenum_state[2] = new_plenum_state[2]
+            T_ig = plenum_state[2]
+        else:
+            # Uncontained pyrogen (head_basket / aft_basket): each pyrogen
+            # pellet burns at its host cell's local bore P; mass enters
+            # the bore directly. No plenum gas state, no choked vent,
+            # no separate P_ig. plenum_state[0] is reused as
+            # m_pyrogen_remaining; plenum_state[1, 2] are vestigial here
+            # but left in place to keep the state-vector shape stable.
+            a_pyro = pyrogen_params_arr[0]
+            n_pyro = pyrogen_params_arr[1]
+            rho_pyro = pyrogen_params_arr[2]
+            T_flame_pyro = pyrogen_params_arr[3]
+            new_remaining = _compute_uncontained_pyrogen_mdot(
+                P, a_pyro, n_pyro, rho_pyro, A_burn_per_cell,
+                plenum_state[0], dt, cart_i_start, cart_i_end, N,
+                mdot_uncontained_arr,
+            )
+            plenum_state[0] = new_remaining
+            # Diagnostics: aggregate per-cell mdot for the existing
+            # mdot_igniter / pyrogen_enthalpy_power channels.
+            mdot_igniter = 0.0
+            for i in range(N):
+                mdot_igniter += mdot_uncontained_arr[i]
+            # Adiabatic flame T (no plenum gas dynamics in uncontained model).
+            T_ig = T_flame_pyro
+            # P_ig diagnostic: volume-avg bore P over cartridge cells.
+            p_sum = 0.0
+            p_vol = 0.0
+            for i in range(cart_i_start, cart_i_end + 1):
+                if 0 <= i < N:
+                    p_sum += P[i] * A_port[i] * dx
+                    p_vol += A_port[i] * dx
+            if p_vol > 0.0:
+                P_ig = p_sum / p_vol
+            else:
+                P_ig = P[0]
         if P_ig > pyrogen_peak_P:
             pyrogen_peak_P = P_ig
         if mdot_igniter > 1e-12:
@@ -1125,7 +1252,11 @@ def _run_time_loop(
         pyrogen_momentum_deposited = 0.0
         for i in range(N + 1):
             momentum_source[i] = 0.0
-        if (not diagnostic_disable_momentum and mdot_igniter > 0.0 and
+        # v0.7.3 Phase A: momentum injection only for forward_plenum.
+        # Uncontained topologies let PISO handle axial flow via the
+        # high-P pyrogen-cell pressure gradient (no explicit momentum).
+        if (topology_code == 0 and
+                not diagnostic_disable_momentum and mdot_igniter > 0.0 and
                 igniter_axial_momentum_fraction > 0.0 and N > 1):
             v_exit = _orifice_exit_velocity(
                 P_ig, T_ig, P[0], pyrogen_params_arr[5], pyrogen_params_arr[4]
@@ -1140,6 +1271,12 @@ def _run_time_loop(
 
         active_pyrogen_surface_heat_flux_w_m2 = pyrogen_surface_heat_flux_w_m2
         if diagnostic_disable_pyrogen_surface_heating:
+            active_pyrogen_surface_heat_flux_w_m2 = 0.0
+        # v0.7.3 Phase A: uncontained pyrogen has no impinging "plume"
+        # on a leading-edge unignited cell — heat enters via bulk mass
+        # injection at the cartridge cells. Disable DeMar surface
+        # heating for these topologies.
+        if topology_code != 0:
             active_pyrogen_surface_heat_flux_w_m2 = 0.0
 
         # v0.7.1 Phase 3.5: each combustion source uses its own species Cp.
@@ -1199,28 +1336,45 @@ def _run_time_loop(
         pyrogen_surface_heat_sink_power = 0.0
         if mdot_igniter > 0.0:
             pyrogen_enthalpy_power = mdot_igniter * Cp_pyrogen_species * T_ig
-            for i in range(N):
-                w_i = pyrogen_axial_weights[i]
-                if w_i <= 0.0:
-                    continue
-                mass_source_i = w_i * mdot_igniter / dx
-                mass_source[i] += mass_source_i
-                mass_source_by_species[i, _SPECIES_IGNITER] += mass_source_i
-                thermal_source[i] += mass_source_i * T_ig * Cp_pyrogen_species
-                mass_sum += mass_source_i
-            # Surface heat sink clamped against cell 0's distributed
-            # enthalpy share (not the full plenum enthalpy as in v0.7.1)
-            # because cell 0 only receives w[0] * ign_enthalpy of the
-            # bulk pyrogen enthalpy after distribution.
-            ign_enthalpy_cell0 = (
-                pyrogen_axial_weights[0] * mdot_igniter
-                * Cp_pyrogen_species * T_ig / dx
-            )
-            pyrogen_surface_heat_sink = _pyrogen_surface_thermal_sink(
-                pyrogen_surface_heat_power, dx, ign_enthalpy_cell0
-            )
-            thermal_source[0] -= pyrogen_surface_heat_sink
-            pyrogen_surface_heat_sink_power = pyrogen_surface_heat_sink * dx
+            # v0.7.3 Phase A: branch on topology for mass / enthalpy
+            # deposition. forward_plenum uses Phase A axial weights;
+            # uncontained topologies use per-cell mdot directly.
+            if topology_code == 0:
+                # Forward plenum: Phase A exponential axial decay
+                for i in range(N):
+                    w_i = pyrogen_axial_weights[i]
+                    if w_i <= 0.0:
+                        continue
+                    mass_source_i = w_i * mdot_igniter / dx
+                    mass_source[i] += mass_source_i
+                    mass_source_by_species[i, _SPECIES_IGNITER] += mass_source_i
+                    thermal_source[i] += mass_source_i * T_ig * Cp_pyrogen_species
+                    mass_sum += mass_source_i
+                # Surface heat sink clamped against cell 0's distributed
+                # enthalpy share (forward_plenum DeMar pyrogen-plume
+                # convention; not applicable to uncontained).
+                ign_enthalpy_cell0 = (
+                    pyrogen_axial_weights[0] * mdot_igniter
+                    * Cp_pyrogen_species * T_ig / dx
+                )
+                pyrogen_surface_heat_sink = _pyrogen_surface_thermal_sink(
+                    pyrogen_surface_heat_power, dx, ign_enthalpy_cell0
+                )
+                thermal_source[0] -= pyrogen_surface_heat_sink
+                pyrogen_surface_heat_sink_power = pyrogen_surface_heat_sink * dx
+            else:
+                # Uncontained (head_basket / aft_basket): per-cell
+                # mdot directly from the cartridge cells. No surface
+                # heat sink (no DeMar plume impingement in uncontained).
+                for i in range(N):
+                    mdot_cell = mdot_uncontained_arr[i]
+                    if mdot_cell <= 0.0:
+                        continue
+                    mass_source_i = mdot_cell / dx
+                    mass_source[i] += mass_source_i
+                    mass_source_by_species[i, _SPECIES_IGNITER] += mass_source_i
+                    thermal_source[i] += mass_source_i * T_ig * Cp_pyrogen_species
+                    mass_sum += mass_source_i
 
         # Refresh the source-aware CFL cap from THIS step's complete
         # thermal_source. The next iteration's dt will use this as an
@@ -1763,6 +1917,21 @@ def run_simulation(
         x_centers, dx_arr, L_jet, N
     )
 
+    # v0.7.3 Phase A: igniter topology resolution. forward_plenum
+    # preserves v0.7.0-v0.7.2 behavior byte-for-byte (i_start=i_end=0,
+    # A_burn_per_cell unused, mdot_uncontained_arr unused — the
+    # _run_time_loop pyrogen-injection block branches on topology_code).
+    # head_basket / aft_basket use the resolved cartridge cell range
+    # and per-cell A_burn distribution.
+    from srm_1d.igniter_plenum import _topology_code as _resolve_topology_code
+    topology_code = _resolve_topology_code(pyrogen_chamber.injection_topology)
+    cart_i_start, cart_i_end = pyrogen_chamber.resolve_injection_cells(
+        x_centers, dx, N, A_port,
+    )
+    n_cart_cells = max(1, cart_i_end - cart_i_start + 1)
+    A_burn_per_cell = pyrogen_chamber.A_burn_initial / n_cart_cells
+    mdot_uncontained_arr = np.zeros(N)
+
     # v0.7.2 Phase B-v2: flame-front h_c augmentation working state.
     # flame_spread_augment[i] is refreshed each step by
     # _compute_flame_front_augment inside _run_time_loop; allocated here
@@ -1951,6 +2120,9 @@ def run_simulation(
         # v0.7.2 Phase B-v2: flame-front h_c augmentation
         flame_spread_augment, flame_spread_enabled,
         flame_spread_tau, flame_spread_boost,
+        # v0.7.3 Phase A: igniter topology (uncontained vs plenum)
+        topology_code, cart_i_start, cart_i_end,
+        A_burn_per_cell, mdot_uncontained_arr,
     )
 
     wall_elapsed = clock.time() - wall_start
