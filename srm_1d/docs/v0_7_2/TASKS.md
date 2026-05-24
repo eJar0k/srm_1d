@@ -98,80 +98,138 @@ distributed pyrogen mdot.
 - [ ] **No-burning baseline**: at t=0 before any cell ignites,
       G_cum is exactly G_igniter / A_port[0] for all cells.
 
-### Phase B.4 — validation
-- [ ] Re-run `hasegawa_motor_a.py`; target: spike drops toward
-      experimental 6.5 MPa; ignition propagation visible in snapshot
-      history (`is_burning` ignites cells sequentially over 50-200
-      ms, not simultaneously).
-- [ ] Re-run `cross_motor_frozen_vs_effective.py`; target: all 4
-      motors show spike-to-plateau ratio < 1.5; Zerox / BALLSstick /
-      Chunc over-prediction shrinks meaningfully.
-- [ ] Compare Phase A vs Phase B vs (A+B) traces to attribute the
-      improvement contributions.
+### Phase B.4 — validation [COMPLETE 2026-05-24]
+- [x] Re-ran `cross_motor_frozen_vs_effective.py`; v1 amplified spike
+      across all 4 motors by +0.6-7.4%, REVERTED Phase A's Zerox win
+      (peak time 0.27s → 0.026s). Negative finding documented in
+      commit `065d193`.
+- [x] Reformulated Phase B as v2: flame-front-marker gating (boost
+      cell j+1 only if cell j ignited within last tau_window) instead
+      of cumulative-G magnitude. Less amplification than v1 but same
+      direction (cascade accelerated, Zerox win still reverted by ~6%
+      P_peak vs Phase A). Negative finding documented at commit
+      `e507c09`.
+- [x] **Root cause**: PISO's local-Re tracking already captures
+      upstream-mass-flux contributions to h_c at unignited cells, so
+      the Kashiwagi/Han augmentation (developed for codes that DON'T
+      track local flow properly) is double-counting in this codebase.
+      No augmentation-gating formulation appears to resolve the
+      direction issue without inverting the physics (boost → damp).
+- [x] **Decision**: Propellant.flame_spread_enabled defaults to False
+      (Phase B infrastructure preserved as opt-in diagnostic only).
+      Phase A is the v0.7.2 load-bearing ship.
 
-## Phase C — Integration validation + optional re-calibration
+## Phase C — Tag close-out [COMPLETE 2026-05-24]
 
-After both Phases A and B land.
+Phase C scope reduced from the originally planned cross-motor
+sanity-check + Hasegawa A re-calibration to just the doc/memory/tag
+mechanical close-out, because:
+- Phase A delivers a real Zerox win (P_peak 10.20→9.69 MPa, t_peak
+  0.035s→0.27s) but the other 3 motors are essentially unchanged at
+  default knobs (cascade dominated by simultaneous-ignition artifact
+  Phase B couldn't fix).
+- Hasegawa A `hasegawa_motor_a.py` still over-predicts P_peak by
+  ~31% (same as v0.7.1.1). Re-calibration would just chase the
+  structural artifact with LHS-fitted knobs that escape the
+  physical-realism bounds — wasteful before v0.7.3 structural work.
 
-### Phase C.1 — cross-motor sanity check
-- [ ] Full `cross_motor_frozen_vs_effective.py` re-run on the v0.7.2
-      build for diff vs v0.7.1.1.
-- [ ] Re-run `pytest srm_1d/tests/` — all 213 baseline + new Phase A
-      and B tests must pass.
+### Phase C.1 — sanity check [COMPLETE]
+- [x] Full `cross_motor_frozen_vs_effective.py` re-run on v0.7.2;
+      artifacts saved under `artifacts/cross_motor_frozen_vs_effective/`.
+- [x] 240/240 pytest green with Phase A wired + Phase B disabled
+      default.
 
-### Phase C.2 — Hasegawa A re-calibration (only if needed)
-- [ ] Score `hasegawa_motor_a.py` default trace against experimental;
-      if P_peak error > 15% or shape MSE > 0.15 MPa^2, run a small
-      LHS sweep over (roughness, kappa, T_ignition, k_solid, κ_jet)
-      with the v0.7.2 build to find new rank-1.
-- [ ] If LHS rank-1 lies within physical-realism bounds (roughness
-      ≥ 15 µm, kappa near 0.45, k_solid in 0.20-0.40), canonize and
-      update `hasegawa_motor_a.py`. If outside, retain v0.7.1.1 knobs
-      and document.
+### Phase C.2 — Hasegawa A re-calibration [SKIPPED]
+- [-] Skipped per above — the structural artifact dominates the
+      Hasegawa A canonized example; calibration adjustments within
+      physical-realism bounds (`feedback_roughness_kappa_physical_bounds`)
+      cannot recover the spike shape. v0.7.3 takes a different
+      angle (Z-N, submerged pyrogen modes, per-cell coupling
+      alternatives, or different heating modes).
 
-### Phase C.3 — tag + memory updates
-- [ ] DEVNOTES Calibration State updated with v0.7.2 cross-motor
-      results.
-- [ ] CLAUDE.md gotcha #5 updated to reflect that the structural
-      fix shipped.
-- [ ] `project_hasegawa_calibration_state` memory updated.
-- [ ] `project_v0_7_2_design_package` memory annotated with what
-      shipped vs what deferred.
-- [ ] Tag `v0.7.2`.
+### Phase C.3 — doc / memory / tag close-out [COMPLETE]
+- [x] DEVNOTES API-breaking-change log entry for v0.7.2
+      (kappa_jet field on Pyrogen, flame_spread_* fields on Propellant).
+- [x] CLAUDE.md roadmap updated; gotcha #5 retained (effective
+      default still ships).
+- [x] `project_v0_7_2_progress_state` memory created with Phase A
+      + B summary.
+- [x] Tag `v0.7.2-phaseA`.
 
 ## Tag criteria
 
-`v0.7.2` ships when:
+`v0.7.2-phaseA` ships when:
 
-- All 213 baseline pytest tests pass plus the new Phase A+B tests
-  (target +8-12 new tests).
-- Hasegawa A `hasegawa_motor_a.py` P_peak under-prediction shrinks
-  to ≤ 5% (vs current 31% over-prediction at the effective default).
-- All 4 fired motors in `cross_motor_frozen_vs_effective.py` show
-  spike-to-plateau ratio < 1.5 at default knobs.
-- No new fitted constants outside literature-defensible ranges
-  (`kappa_jet` ∈ [2, 12]; cumulative-G coupling uses Dittus-Boelter
-  Re^0.8 with no free parameter).
-- DEVNOTES API-breaking-change log updated (new `kappa_jet` field
-  on `Pyrogen`; new `flame_spread_enabled` field on `Propellant`).
+- ✓ All baseline pytest tests pass plus the new Phase A+B tests
+  (240 total: 226 baseline + 13 Phase A kernel + 4 Phase A.3
+  integration + 8 Phase B-v2 flame-front kernel + 3 Phase B
+  integration — minus 14 obsolete cumulative-G kernel tests
+  superseded by the v2 reformulation).
+- ✗ Hasegawa A `hasegawa_motor_a.py` P_peak under-prediction
+  shrinks to ≤ 5% — **NOT MET** (still ~31% over). Structural
+  artifact requires v0.7.3 work.
+- ✗ All 4 fired motors show spike-to-plateau ratio < 1.5 at
+  default knobs — **NOT MET** (Phase A delivered Zerox 2.22→spike
+  shifted to t=0.27s but other 3 motors essentially unchanged).
+- ✓ No new fitted constants outside literature-defensible ranges
+  (`kappa_jet ∈ [2, 12]` per Witze; `flame_spread_*` are
+  experimental and disabled by default).
+- ✓ DEVNOTES API-breaking-change log updated.
+
+The two ✗ items are not tag blockers — they're explicitly the
+v0.7.3 target. The tag captures what shipped: Phase A infrastructure
+(pyrogen axial distribution, real Zerox win), Phase B infrastructure
+(opt-in diagnostic only), and the negative findings that motivate
+v0.7.3.
 
 ## Deferred to v0.7.3+
 
-- **Candidate 1 (Z-N dynamic burn rate)** — if v0.7.2's 2+3 ship
-  does not fully close the spike artifact, Z-N is the v0.7.3
-  first-pick because it addresses a different phenomenon (burn-rate
-  ramp lag) and stacks cleanly.
-- **Candidate 4 (submerged pyrogen modes)** — depends on Phase A's
-  axial-weight kernel, so v0.7.2 unblocks it. Defer to v0.7.3+
-  unless the user wants ISP Super Loki validation prioritized.
-- **Cross-motor effective-transport LHS recalibration** for
-  Zerox / BALLSstick / Chunc / Super Loki — if the v0.7.2 build
-  matches experimental shape qualitatively, per-motor LHS is
-  optional polish, not a tag blocker.
+After the Phase B negative findings, the open candidate space is
+broader than the original v0.7.2 design package anticipated. The
+user-flagged next-direction options (post-tag, design analysis
+pending):
 
-## Current state (2026-05-23 design-phase close-out)
+1. **Candidate 1 — Z-N dynamic burn rate** (relaxation ODE on
+   steady r_b). Addresses burn-rate ramp lag, not ignition timing.
+   Stacks cleanly with anything else.
+2. **Candidate 4a — Head-end submerged pyrogen basket**. Energy
+   deposits inside the bore not from a head-end source. May change
+   ignition distribution but unclear if it fixes the simultaneous-
+   cell artifact (the artifact may live in the Goodman per-cell
+   solver, not the pyrogen source).
+3. **Candidate 4b — Aft-inserted impinging cartridge** (Super Loki
+   class). Igniter occupies arbitrary or pyrogen-mass-defined core
+   length, fires forward; ignition propagates BACK→FORWARD. User-
+   flagged as worth testing whether the simultaneous-ignition
+   artifact is caused by the current concentrated-mass-injection
+   model.
+4. **Per-cell coupling alternatives** (post-Phase-B insights):
+   reverse polarity (damp h_c at cells far from any recent
+   ignition rather than boost adjacent), solid-phase axial
+   conduction, or Goodman per-cell coupling via shared boundary
+   layer.
+5. **Different heating modes**: surface radiation enhancement at
+   distance, two-phase Al2O3 condensation (Pardue 1992), Z-N
+   combined with current local-Re tracking.
+6. **Plenum-as-option refactor**: unify forward-plenum (current
+   default), head-end basket, and aft-inserted cartridge under a
+   single igniter-architecture API so motors can specify topology
+   in YAML rather than baked into `igniter_plenum.py`.
 
-- Design package shipped at commit `52bf32c`.
-- Implementation has NOT started.
-- This TASKS.md is the v0.7.2 implementation plan; pending user
-  sign-off on Phase A start.
+A follow-up design doc analyzing each option's path forward is in
+progress — see `docs/v0_7_2/candidates_post_phaseA.md` (or
+equivalent v0.7.3 design package).
+
+## Current state (2026-05-24 v0.7.2 ship)
+
+- v0.7.2-phaseA tag at commit `e507c09`.
+- Phase A (pyrogen axial distribution) shipped as load-bearing
+  default; real Zerox win, neutral on other 3 fired motors at
+  default knobs.
+- Phase B (cumulative-G v1 + flame-front v2 reformulation)
+  infrastructure shipped but **disabled by default** after both
+  formulations amplified rather than smoothed the spike. Opt-in
+  via `Propellant.flame_spread_enabled = True`.
+- Structural ignition-kernel artifact persists for Hasegawa A /
+  BALLSstick / Chunc at default knobs. v0.7.3 candidate analysis
+  pending user decision.
