@@ -802,6 +802,8 @@ def _run_time_loop(
     Y_species, species_params_arr, mass_source_by_species,
     gamma_mix_arr, Cp_mix_arr, R_mix_arr, M_mix_arr,
     T_ceiling_arr,
+    # --- v0.7.2 Phase A: pyrogen axial distribution ---
+    pyrogen_axial_weights,
 ):
     """
     The complete simulation time loop, compiled to native code.
@@ -1035,23 +1037,44 @@ def _run_time_loop(
         # enthalpy flow, not the scalar Cp_gas (= propellant Cp) that
         # Phase 3 used as a behavior-preserving placeholder. The enthalpy
         # injected per unit length is mdot/dx * Cp_pyrogen * T_ig — the
-        # cell back-outs T_new = h_new / Cp_arr[0], where Cp_arr is the
+        # cell back-outs T_new = h_new / Cp_arr[i], where Cp_arr is the
         # mixture Cp (PISO).
+        #
+        # v0.7.2 Phase A: pyrogen mass / species mass / enthalpy are
+        # distributed across cells via pyrogen_axial_weights (computed
+        # once at sim init from L_jet = kappa_jet * d_throat_pyrogen).
+        # Sum(weights) = 1 → total mass + enthalpy preserved. Momentum
+        # stays at face 1 (head-end aperture) — distributed momentum
+        # deferred to v0.7.3+ per design doc rationale. Pyrogen surface
+        # heat sink also stays at cell 0 (Goodman surface heating acts on
+        # leading-edge unignited cell; sink clamp uses cell 0's
+        # distributed enthalpy share to avoid over-subtraction).
         pyrogen_enthalpy_power = 0.0
         pyrogen_surface_heat_sink_power = 0.0
         if mdot_igniter > 0.0:
-            ign_source = mdot_igniter / dx
-            ign_enthalpy_source = ign_source * T_ig * Cp_pyrogen_species
-            mass_source[0] += ign_source
-            mass_source_by_species[0, _SPECIES_IGNITER] += ign_source
-            thermal_source[0] += ign_enthalpy_source
             pyrogen_enthalpy_power = mdot_igniter * Cp_pyrogen_species * T_ig
+            for i in range(N):
+                w_i = pyrogen_axial_weights[i]
+                if w_i <= 0.0:
+                    continue
+                mass_source_i = w_i * mdot_igniter / dx
+                mass_source[i] += mass_source_i
+                mass_source_by_species[i, _SPECIES_IGNITER] += mass_source_i
+                thermal_source[i] += mass_source_i * T_ig * Cp_pyrogen_species
+                mass_sum += mass_source_i
+            # Surface heat sink clamped against cell 0's distributed
+            # enthalpy share (not the full plenum enthalpy as in v0.7.1)
+            # because cell 0 only receives w[0] * ign_enthalpy of the
+            # bulk pyrogen enthalpy after distribution.
+            ign_enthalpy_cell0 = (
+                pyrogen_axial_weights[0] * mdot_igniter
+                * Cp_pyrogen_species * T_ig / dx
+            )
             pyrogen_surface_heat_sink = _pyrogen_surface_thermal_sink(
-                pyrogen_surface_heat_power, dx, ign_enthalpy_source
+                pyrogen_surface_heat_power, dx, ign_enthalpy_cell0
             )
             thermal_source[0] -= pyrogen_surface_heat_sink
             pyrogen_surface_heat_sink_power = pyrogen_surface_heat_sink * dx
-            mass_sum += ign_source
 
         # Refresh the source-aware CFL cap from THIS step's complete
         # thermal_source. The next iteration's dt will use this as an
@@ -1581,6 +1604,19 @@ def run_simulation(
     pyrogen_params_arr = pyrogen_params(pyrogen_chamber.pyrogen)
     chamber_params_arr = chamber_params(pyrogen_chamber)
 
+    # v0.7.2 Phase A: pyrogen-injection axial weights. Computed once at
+    # sim init from L_jet = kappa_jet * d_throat_pyrogen (geometry doesn't
+    # change during pyrogen burn, so weights are constant over the
+    # simulation). See srm_1d/docs/v0_7_2/candidates/03_pyrogen_spatial_distribution.md.
+    # The dx array is uniform (geo.dx is scalar); building np.full(N, dx)
+    # keeps the kernel signature general for future non-uniform grids.
+    d_throat_pyrogen = np.sqrt(4.0 * pyrogen_chamber.A_throat / np.pi)
+    L_jet = float(pyrogen_chamber.pyrogen.kappa_jet) * d_throat_pyrogen
+    dx_arr = np.full(N, dx)
+    pyrogen_axial_weights = _compute_pyrogen_axial_weights(
+        x_centers, dx_arr, L_jet, N
+    )
+
     theoretical_propellant_mass = (
         geo.total_propellant_volume() * propellant.rho_propellant
     )
@@ -1749,6 +1785,8 @@ def run_simulation(
         Y_species, species_params_arr, mass_source_by_species,
         gamma_mix_arr, Cp_mix_arr, R_mix_arr, M_mix_arr,
         T_ceiling_arr,
+        # v0.7.2 Phase A: pyrogen axial distribution
+        pyrogen_axial_weights,
     )
 
     wall_elapsed = clock.time() - wall_start
