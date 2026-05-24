@@ -27,13 +27,72 @@ BURN_LAW_0D = 0
 BURN_LAW_END_BURNING = 1
 
 
+_VALID_TOPOLOGIES = (
+    'forward_plenum',                 # v0.7.0+ default: plenum upstream of bore
+    'head_cartridge',                 # 4a: plenum-in-bore at head [0, cart_len]
+    'aft_cartridge_zero_axial',       # 4b zero-mom: plenum-in-bore at aft, no momentum
+    'aft_cartridge_fore_firing',      # 4b fore: plenum-in-bore at aft + upstream momentum at face i_start
+)
+
+
 @dataclass
 class PyrogenChamber:
     """
-    Standalone pyrogen chamber configuration.
+    Pyrogen chamber configuration. **Plenum-containment model**:
+    pyrogen burns inside an enclosed volume with its own internal
+    pressure ``P_ig`` (decoupled from bore pressure by the orifice),
+    Saint-Robert burn rate evaluated at ``P_ig``, choked/subsonic
+    venting through ``A_throat``.
 
-    Parameters are SI. ``burn_law`` is validated at the Python boundary
-    and passed into Numba kernels as an integer code.
+    v0.7.3 Phase A adds support for **plenum-in-bore** topologies:
+    the cartridge is physically located INSIDE the bore (head-end
+    basket, aft-cavity cartridge like Super Loki) but still has its
+    own internal pressure separated from bore pressure by the orifice.
+    Plenum machinery (separate P_ig, choked vent, Saint-Robert at P_ig)
+    is preserved across all topologies; only WHERE the vented mass
+    enters the bore and WHETHER momentum is injected changes.
+
+    A truly **uncontained basket** (loose pellets at local bore
+    pressure, no plenum state, per-cell Saint-Robert with
+    ``r_b = a · P_bore[i]^n``) is fundamentally different physics
+    and is NOT modeled here — it's a separate future candidate.
+
+    Parameters are SI. ``burn_law`` is validated at the Python
+    boundary and passed into Numba kernels as an integer code.
+
+    Topology options (``injection_topology``):
+
+    - ``'forward_plenum'`` (default, v0.7.0-v0.7.2 behavior): plenum
+      sits upstream of the bore; mass enters cell 0 (or distributed
+      via Phase A exponential decay from cell 0); momentum at face 1
+      with downstream sign.
+
+    - ``'head_cartridge'`` (4a): plenum-in-bore at head end. Pyrogen
+      cartridge spans cells [0, i_end] determined by
+      ``cartridge_length_m``. Mass + enthalpy + species distribute
+      uniformly across those cells (top-hat). No axial momentum
+      injection (basket-style multi-port discharge has no net axial
+      component).
+
+    - ``'aft_cartridge_zero_axial'`` (4b zero-mom): plenum-in-bore at
+      aft. Cartridge spans [i_start, N-1]. Same top-hat distribution
+      as head_cartridge, just at the other end. No momentum injection
+      — PISO handles axial flow naturally via the pressure gradient
+      between the high-P cartridge cells and the surrounding bore.
+
+    - ``'aft_cartridge_fore_firing'`` (4b fore): plenum-in-bore at
+      aft with axial momentum at face i_start, upstream-directed
+      sign (cartridge fires UP the bore). Magnitude derived from
+      ``mdot * _orifice_exit_velocity`` consistent with the existing
+      forward_plenum convention.
+
+    Cartridge length: if ``cartridge_length_m < 0`` (default), derived
+    from pyrogen mass and bore geometry as
+    ``L_cart = m_pyrogen_initial / (rho_pyrogen * A_port_avg)`` where
+    A_port_avg is the bore-volume-weighted port area. User override
+    via explicit positive ``cartridge_length_m`` always wins.
+
+    See srm_1d/docs/v0_7_2/candidates_post_phaseA.md (v0.7.3 design).
     """
     pyrogen: Pyrogen
     m_pyrogen_initial: float
@@ -41,6 +100,9 @@ class PyrogenChamber:
     A_throat: float
     V_plenum: float
     burn_law: str = "0d"
+    # v0.7.3 Phase A — submerged-igniter topology fields
+    injection_topology: str = 'forward_plenum'
+    cartridge_length_m: float = -1.0  # < 0 => derive from pyrogen mass
 
     def __post_init__(self):
         if self.m_pyrogen_initial <= 0.0:
@@ -52,6 +114,53 @@ class PyrogenChamber:
         if self.V_plenum <= 0.0:
             raise ValueError("V_plenum must be positive")
         _burn_law_code(self.burn_law)
+        if self.injection_topology not in _VALID_TOPOLOGIES:
+            raise ValueError(
+                f"injection_topology must be one of {_VALID_TOPOLOGIES}; "
+                f"got '{self.injection_topology}'"
+            )
+
+    def resolve_cartridge_length(self, A_port_avg):
+        """Return cartridge length in meters, deriving from pyrogen mass
+        if not user-specified.
+
+        L_cart = m_pyrogen / (rho_pyrogen * A_port_avg)
+
+        A_port_avg is bore-volume-weighted port area (caller supplies).
+        """
+        if self.cartridge_length_m > 0.0:
+            return float(self.cartridge_length_m)
+        if A_port_avg <= 0.0:
+            raise ValueError(
+                "Cannot derive cartridge length from pyrogen mass: "
+                "A_port_avg must be positive"
+            )
+        return float(self.m_pyrogen_initial / (self.pyrogen.rho * A_port_avg))
+
+    def resolve_injection_cells(self, x_centers, dx, N, A_port):
+        """Compute (i_start, i_end) cell-index range for pyrogen
+        injection given bore geometry. Inclusive of both endpoints.
+
+        Returns (i_start, i_end) for submerged topologies, or (0, 0)
+        for forward_plenum (legacy default; the actual Phase A axial
+        decay is applied elsewhere).
+        """
+        if self.injection_topology == 'forward_plenum':
+            return (0, 0)
+        # Bore-volume-weighted A_port for cartridge length derivation
+        total_volume = 0.0
+        for i in range(N):
+            total_volume += A_port[i] * dx
+        bore_length = N * dx
+        A_port_avg = total_volume / bore_length if bore_length > 0 else 0.0
+        L_cart = self.resolve_cartridge_length(A_port_avg)
+        # Snap to whole cells: find smallest n such that n*dx >= L_cart
+        n_cart = max(1, int(np.ceil(L_cart / dx)))
+        n_cart = min(n_cart, N)
+        if self.injection_topology == 'head_cartridge':
+            return (0, n_cart - 1)
+        # aft cartridge topologies
+        return (N - n_cart, N - 1)
 
 
 def _burn_law_code(burn_law):

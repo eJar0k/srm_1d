@@ -381,6 +381,73 @@ def _compute_pyrogen_axial_weights(x_centers, dx, L_jet, N):
 
 
 @njit(cache=True)
+def _compute_uniform_band_weights(dx, i_start, i_end, N, w):
+    """v0.7.3 Phase A — uniform top-hat axial weights for submerged-igniter
+    pyrogen injection.
+
+    Fills ``w[i]`` with mass-conservative weights summing to 1.0:
+
+        w[i] = dx[i] / sum(dx[j] for j in [i_start, i_end])  if i_start <= i <= i_end
+        w[i] = 0                                              otherwise
+
+    This is the load-bearing kernel for submerged-igniter topologies
+    (head-end basket, aft-cavity cartridge, etc.). It distributes
+    pyrogen mass / enthalpy / species uniformly across the cells the
+    igniter physically occupies, in the same way Phase A's exponential
+    decay distributes forward-plenum injection across the head-end
+    impingement region.
+
+    By design, this kernel unifies four topologies:
+    - Head-end basket (4a): caller passes i_start=0, i_end = i_cartridge_end
+    - Aft-cavity zero-axial cartridge (4b zero-mom): caller passes
+      i_start = N - n_cartridge_cells, i_end = N - 1, and skips
+      momentum injection entirely
+    - Aft-cavity fore-firing cartridge (4b fore-firing): same i_start /
+      i_end as zero-axial, but caller adds upstream-directed momentum
+      at face i_start
+    - Mid-bore submerged basket: caller passes arbitrary i_start, i_end
+
+    For the existing forward-plenum default (Phase A pre-existing
+    behavior), callers should NOT use this kernel — they use
+    _compute_pyrogen_axial_weights with L_jet = kappa_jet * d_throat
+    for the exponential-decay shape.
+
+    Edge cases:
+    - i_start > i_end (invalid): all weight goes to cell 0 (defensive
+      fallback to match _compute_pyrogen_axial_weights's L_jet<=0
+      convention).
+    - i_start < 0 or i_end >= N: clamped to [0, N-1] internally.
+    - All-zero dx in the range: defensive fallback to cell 0.
+
+    Conservation: sum(w) == 1 to floating-point precision; verified
+    in tests/test_uniform_band_weights.py.
+
+    See srm_1d/docs/v0_7_2/candidates_post_phaseA.md (v0.7.3 design).
+    """
+    for i in range(N):
+        w[i] = 0.0
+    # Clamp range
+    lo = i_start
+    if lo < 0:
+        lo = 0
+    hi = i_end
+    if hi >= N:
+        hi = N - 1
+    if lo > hi:
+        w[0] = 1.0
+        return
+    total = 0.0
+    for i in range(lo, hi + 1):
+        total += dx[i]
+    if total <= 0.0:
+        w[0] = 1.0
+        return
+    inv_total = 1.0 / total
+    for i in range(lo, hi + 1):
+        w[i] = dx[i] * inv_total
+
+
+@njit(cache=True)
 def _compute_flame_front_augment(
     is_burning, has_ignited, ignition_time, t,
     tau_window, augment_value, N, augment_arr,
