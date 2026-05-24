@@ -205,6 +205,15 @@ class Propellant:
     Cp_gas: float
     k_solid: float = 0.3  # Solid conductivity for Goodman ignition [W/(m*K)]
     radiation_emissivity: float = 0.0
+    # v0.7.2 Phase B: spatial ignition-front coupling. When True (default),
+    # pre-ignition cells' Bartz h_c is augmented by a Dittus-Boelter
+    # Re^0.8 factor proportional to cumulative upstream mass flux from
+    # already-burning cells. This produces sequential bore ignition
+    # (Kashiwagi 1982 / Han 2017 / SPINBALL mechanism) rather than the
+    # v0.7.1 simultaneous-cell-ignition artifact. Set False to disable
+    # for diagnostic A/B vs Phase A only (regression gate). See
+    # srm_1d/docs/v0_7_2/candidates/02_spatial_ignition_front_coupling.md.
+    flame_spread_enabled: bool = True
 
     def select_tab(self, P) -> PropellantTab:
         """

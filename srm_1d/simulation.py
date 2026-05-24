@@ -381,6 +381,77 @@ def _compute_pyrogen_axial_weights(x_centers, dx, L_jet, N):
 
 
 @njit(cache=True)
+def _compute_cumulative_mass_flux(
+    G_igniter, rho_propellant, r_b, P_burn, A_port,
+    is_burning, dx, N, G_cum,
+):
+    """v0.7.2 Phase B — cumulative upstream mass flux for spatial coupling.
+
+    Sweeps head-to-aft along the bore, accumulating mass-addition from
+    already-burning cells into a per-cell mass flux G_cum[i] (kg/(m^2*s))
+    that represents what the local h_c at cell i should "see" if the
+    Kashiwagi 1982 / Han 2017 / SPINBALL flame-spread mechanism is
+    active.
+
+    Algorithm:
+        running_mdot = G_igniter  # head-end inflow from pyrogen [kg/s]
+        for i in 0..N-1:
+            G_cum[i] = running_mdot / A_port[i]
+            if is_burning[i]:
+                running_mdot += rho_propellant * r_b[i] * P_burn[i] * dx
+
+    G_igniter (input) is the pyrogen plenum mass flow entering the bore
+    [kg/s]; division by A_port[i] gives mass flux at cell i [kg/(m^2*s)].
+    Burning cells contribute their own surface mdot to downstream cells.
+
+    Phase B couples this with _blowing_augmentation to produce a
+    Dittus-Boelter Re^0.8 augmentation factor for the pre-ignition
+    Goodman h_c at downstream UNIGNITED cells (gated on is_burning==0
+    by the caller to avoid double-counting with the Ma 2020 erosive
+    burn-rate enhancement which already uses local Re).
+
+    See srm_1d/docs/v0_7_2/candidates/02_spatial_ignition_front_coupling.md.
+    """
+    running_mdot = G_igniter
+    for i in range(N):
+        if A_port[i] > 1e-12:
+            G_cum[i] = running_mdot / A_port[i]
+        else:
+            G_cum[i] = 0.0
+        if is_burning[i]:
+            running_mdot += rho_propellant * r_b[i] * P_burn[i] * dx
+
+
+@njit(cache=True)
+def _blowing_augmentation(G_cum_i, G_ref):
+    """v0.7.2 Phase B — Dittus-Boelter Re^0.8 augmentation factor.
+
+    h_c_augmented = h_c_local * (1 + G_cum_i / G_ref)^0.8
+
+    The (1 + .) keeps the factor >= 1 (never reduces h_c below the
+    local Bartz-style value). When G_cum_i is small (early time before
+    cells light), factor ~ 1 and behavior is identical to Phase A.
+    When G_cum_i grows (upstream cells contributing mass), factor
+    grows and h_c at downstream unignited cells goes up, accelerating
+    their march toward T_ignition — the sequential ignition front the
+    Kashiwagi 1982 / Han 2017 literature identifies as the physically
+    correct mechanism.
+
+    G_ref is a normalization scale [kg/(m^2*s)]; the design value is
+    1.0 (Han 2017 / SPINBALL convention) which makes G_cum_i / G_ref
+    naturally O(1) at typical pyrogen mass-flux scales.
+
+    See srm_1d/docs/v0_7_2/candidates/02_spatial_ignition_front_coupling.md
+    and references/02_*.md (Kashiwagi 1982 CST 28; Han 2017 JPP
+    10.2514/1.B36024).
+    """
+    if G_cum_i <= 0.0 or G_ref <= 0.0:
+        return 1.0
+    ratio = G_cum_i / G_ref
+    return (1.0 + ratio) ** 0.8
+
+
+@njit(cache=True)
 def _compute_T_ceiling_arr(
     Y, species_params, T_ceiling_arr, N, T_initial_gas,
     Y_min=0.05,
@@ -529,6 +600,10 @@ def _goodman_ignition_sources_and_mass(
     diagnostic_disable_radiation_gas_sink,
     tau_establishment,
     mass_source_by_species,  # v0.7.1: [N, S] per-species rates [kg/s/m]
+    # v0.7.2 Phase B: spatial ignition-front coupling
+    G_cum,                   # [N] cumulative upstream mass flux per cell
+    G_ref,                   # normalization scale [kg/(m^2*s)]
+    flame_spread_enabled,    # bool — gate the h_c augmentation
 ):
     """Goodman surface-temperature ignition and propellant source assembly.
 
@@ -597,6 +672,15 @@ def _goodman_ignition_sources_and_mass(
                     Re[i], D_hyd[i], x_centers[i], f_darcy[i],
                     Pr, k_thermal, T[i], T_surf[i], kappa,
                 )
+                # v0.7.2 Phase B: spatial coupling. Augment h_c at
+                # unignited cells by the Dittus-Boelter Re^0.8 factor on
+                # cumulative upstream mass flux. is_burning[i] is False
+                # in this branch already (has_ignited[i] is False), so
+                # no double-counting with the Ma 2020 erosive Re path.
+                # flame_spread_enabled=False routes to factor=1.0 inside
+                # the kernel — byte-for-byte Phase A behavior.
+                if flame_spread_enabled:
+                    h_c = h_c * _blowing_augmentation(G_cum[i], G_ref)
                 h_total = h_c
                 h_driver_num = h_c * T[i]
                 if i == pyrogen_heat_target:
@@ -804,6 +888,8 @@ def _run_time_loop(
     T_ceiling_arr,
     # --- v0.7.2 Phase A: pyrogen axial distribution ---
     pyrogen_axial_weights,
+    # --- v0.7.2 Phase B: spatial ignition-front coupling ---
+    G_cum_arr, G_ref, flame_spread_enabled,
 ):
     """
     The complete simulation time loop, compiled to native code.
@@ -1012,6 +1098,16 @@ def _run_time_loop(
         Cp_propellant_species = species_params_arr[_SPECIES_PROPELLANT, 1]
         Cp_pyrogen_species = species_params_arr[_SPECIES_IGNITER, 1]
 
+        # v0.7.2 Phase B: cumulative upstream mass flux for spatial
+        # ignition-front coupling. Always computed (cheap, O(N)); the
+        # augmentation is gated INSIDE the Goodman kernel by
+        # flame_spread_enabled so disabled runs reduce to Phase A
+        # byte-for-byte while still producing G_cum_arr as a diagnostic.
+        _compute_cumulative_mass_flux(
+            mdot_igniter, rho_propellant, r_total, C_burn, A_port,
+            is_burning, dx, N, G_cum_arr,
+        )
+
         (n_burning, n_ignited, mass_sum,
          pyrogen_surface_heat_power, radiation_heat_power,
          radiation_sink_total_power,
@@ -1031,6 +1127,8 @@ def _run_time_loop(
             diagnostic_disable_radiation_gas_sink,
             tau_establishment,
             mass_source_by_species,
+            # v0.7.2 Phase B: spatial ignition-front coupling
+            G_cum_arr, G_ref, flame_spread_enabled,
         )
 
         # v0.7.1 Phase 3.5: pyrogen mass injection uses pyrogen Cp for the
@@ -1617,6 +1715,17 @@ def run_simulation(
         x_centers, dx_arr, L_jet, N
     )
 
+    # v0.7.2 Phase B: spatial ignition-front coupling working state.
+    # G_cum_arr is refreshed each step by _compute_cumulative_mass_flux
+    # inside _run_time_loop; allocated here as a hot-loop scratch buffer.
+    # G_ref normalization scale = 1.0 kg/(m^2*s) per Han 2017 / SPINBALL
+    # convention (Dittus-Boelter Re^0.8 factor is naturally O(1) at
+    # typical pyrogen mass-flux scales). See
+    # srm_1d/docs/v0_7_2/candidates/02_spatial_ignition_front_coupling.md.
+    G_cum_arr = np.zeros(N)
+    G_ref_spatial = 1.0
+    flame_spread_enabled = bool(getattr(propellant, 'flame_spread_enabled', True))
+
     theoretical_propellant_mass = (
         geo.total_propellant_volume() * propellant.rho_propellant
     )
@@ -1787,6 +1896,8 @@ def run_simulation(
         T_ceiling_arr,
         # v0.7.2 Phase A: pyrogen axial distribution
         pyrogen_axial_weights,
+        # v0.7.2 Phase B: spatial ignition-front coupling
+        G_cum_arr, G_ref_spatial, flame_spread_enabled,
     )
 
     wall_elapsed = clock.time() - wall_start
