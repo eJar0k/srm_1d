@@ -11,3 +11,7 @@ M: 0.032
 gamma: 1.22
 impetus_W: 4700.0
 heat_flux_cal_cm2_s: 110.0
+# v0.7.2 Phase A: pyrogen axial distribution. L_jet = kappa_jet * d_throat.
+# MTV is treated as a choked sonic axial-vent pyrogen → kappa_jet ~ 6-10
+# (Witze + Hersch/Rieser).
+kappa_jet: 8.0

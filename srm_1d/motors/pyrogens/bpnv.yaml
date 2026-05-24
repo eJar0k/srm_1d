@@ -10,3 +10,8 @@ M: 0.030
 gamma: 1.25
 impetus_W: 5000.0
 heat_flux_cal_cm2_s: 69.4
+# v0.7.2 Phase A: pyrogen axial distribution. L_jet = kappa_jet * d_throat
+# is the exponential-decay length over which pyrogen mass / enthalpy /
+# momentum are spread along the bore. BPNV is treated as a choked sonic
+# axial-vent pyrogen → kappa_jet ~ 6-10 (Witze + Hersch/Rieser).
+kappa_jet: 8.0

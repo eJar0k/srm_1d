@@ -339,6 +339,48 @@ def _refresh_mixture_arrays(
 
 
 @njit(cache=True)
+def _compute_pyrogen_axial_weights(x_centers, dx, L_jet, N):
+    """v0.7.2 Phase A — exponential-decay axial weights for pyrogen injection.
+
+    Returns per-cell weights summing to exactly 1.0:
+
+        w[i] = exp(-x_centers[i] / L_jet) * dx[i] / sum_j(exp(-x_centers[j] / L_jet) * dx[j])
+
+    Pyrogen mass / enthalpy / momentum are split across cells by `w[i]`
+    so the energy deposits along the bore over the plume's physical
+    reach rather than concentrating in cell 0. ``L_jet`` is the
+    characteristic decay length set by ``kappa_jet * d_throat`` at the
+    Python boundary.
+
+    Edge cases:
+    - ``L_jet <= 0``: all weight goes to cell 0 (recovers v0.7.1
+      behavior byte-for-byte). Used as the regression gate.
+    - Pathological total < 0: defensive fallback to cell-0-only.
+
+    Conservation guarantee: ``sum(w) == 1`` to within floating-point
+    precision; verified in tests/test_pyrogen_axial_weights.py.
+
+    See ``srm_1d/docs/v0_7_2/candidates/03_pyrogen_spatial_distribution.md``.
+    """
+    w = np.zeros(N)
+    if L_jet <= 0.0:
+        w[0] = 1.0
+        return w
+    total = 0.0
+    for i in range(N):
+        w[i] = np.exp(-x_centers[i] / L_jet) * dx[i]
+        total += w[i]
+    if total <= 0.0:
+        w[:] = 0.0
+        w[0] = 1.0
+        return w
+    inv_total = 1.0 / total
+    for i in range(N):
+        w[i] *= inv_total
+    return w
+
+
+@njit(cache=True)
 def _compute_T_ceiling_arr(
     Y, species_params, T_ceiling_arr, N, T_initial_gas,
     Y_min=0.05,

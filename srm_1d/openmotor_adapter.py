@@ -198,6 +198,7 @@ def load_pyrogen(path_or_name):
             None if data.get('heat_flux_cal_cm2_s') is None
             else float(data['heat_flux_cal_cm2_s'])
         ),
+        kappa_jet=float(data.get('kappa_jet', 8.0)),
     )
 
 

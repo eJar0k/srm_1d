@@ -116,6 +116,17 @@ class Pyrogen:
     impetus_W: float = 0.0  # Optional DeMar impetus [psi*in^3/g]
     heat_flux_cal_cm2_s: Optional[float] = None  # DeMar heat flux [cal/(cm^2*s)]
     Cp_gas: Optional[float] = None  # Optional explicit product-gas Cp [J/(kg*K)]
+    # v0.7.2 Phase A: pyrogen-jet axial distribution. L_jet = kappa_jet * d_throat
+    # sets the characteristic exponential-decay length over which pyrogen
+    # mass / enthalpy / momentum are deposited into the bore (rather than the
+    # v0.7.1 cell-0-only model). Defensible defaults from coaxial-jet
+    # theory + sonic-injection literature: kappa_jet ~ 6-10 for choked
+    # sonic axial-vent pyrogens (Witze 1974 potential-core length;
+    # Hersch/Rieser 1971 NTRS 19710018794); ~ 2-4 for predominantly
+    # radial-vent pyrogens (JICF at q < 5). kappa_jet = 0 recovers the
+    # v0.7.1 cell-0-only behavior byte-for-byte. See
+    # srm_1d/docs/v0_7_2/candidates/03_pyrogen_spatial_distribution.md.
+    kappa_jet: float = 8.0
 
     @property
     def species(self) -> "GasSpecies":
