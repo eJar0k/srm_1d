@@ -97,6 +97,34 @@ ZEROX_EXPERIMENTAL = {
 }
 
 
+# ISP Super Loki static-fire (ISP Corporation, head-end BKNO3 pellet
+# charge in consumable moisture cup — head_basket topology). 59-point
+# digitized pressure trace (MPa). v0.7.3 Phase A validation target —
+# see srm_1d/docs/v0_7_3/TASKS.md and the PyrogenChamber docstring at
+# srm_1d/igniter_plenum.py L52-L120 for the head_basket topology
+# rationale (NASA CR-61238 / MIT Super Loki Report lit dive).
+ISP_SUPER_LOKI_EXPERIMENTAL = {
+    'label': 'Experimental (ISP Super Loki)',
+    'time': np.array([
+        0.0, 0.01, 0.044, 0.085, 0.126, 0.167, 0.207, 0.248, 0.289, 0.33,
+        0.37, 0.411, 0.452, 0.493, 0.533, 0.574, 0.615, 0.655, 0.696,
+        0.737, 0.778, 0.818, 0.859, 0.9, 0.941, 0.981, 1.022, 1.063,
+        1.104, 1.144, 1.185, 1.226, 1.267, 1.307, 1.348, 1.389, 1.429,
+        1.47, 1.511, 1.552, 1.592, 1.633, 1.674, 1.715, 1.755, 1.796,
+        1.837, 1.878, 1.918, 1.959, 2.0, 2.041, 2.081, 2.122, 2.163,
+        2.203, 2.244, 2.285, 2.326,
+    ]),
+    'pressure': np.array([
+        0.0, 8.466, 8.735, 8.807, 8.83, 8.863, 8.815, 8.808, 8.801, 8.834,
+        8.834, 8.883, 8.841, 8.808, 8.789, 8.76, 8.709, 8.67, 8.617, 8.57,
+        8.61, 8.602, 8.592, 8.52, 8.412, 8.106, 7.254, 6.251, 5.644, 5.241,
+        4.852, 4.273, 3.859, 3.498, 3.112, 2.699, 2.44, 2.199, 1.955, 1.69,
+        1.492, 1.308, 1.149, 0.979, 0.802, 0.669, 0.553, 0.45, 0.355, 0.288,
+        0.237, 0.193, 0.15, 0.125, 0.103, 0.081, 0.062, 0.049, 0.041,
+    ]),
+}
+
+
 def load_experimental_csv(filepath, time_col=0, pressure_col=1,
                           delimiter=',', skip_header=1,
                           pressure_unit='MPa', label=None):
@@ -384,7 +412,11 @@ def plot_flow_snapshot(result, t_target=None, snap_index=None,
     if title is None:
         title = f"Flow Snapshot at t = {snap['t']:.3f} s"
 
-    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+    # v0.7.3 Phase A: 3x2 grid adds u_cell (velocity, with sign-band) and
+    # T panels for aft_basket / head_basket diagnostics. Velocity sign
+    # reversal under aft_basket topology shows up cleanly in the new
+    # u_cell panel.
+    fig, axes = plt.subplots(3, 2, figsize=(13, 11))
 
     # Pressure
     axes[0, 0].plot(x_mm, snap['P'] / 1e6, 'b-', linewidth=1.5)
@@ -398,38 +430,335 @@ def plot_flow_snapshot(result, t_target=None, snap_index=None,
     axes[0, 1].set_title('Mach Number')
     axes[0, 1].grid(True, alpha=0.3)
 
+    # Velocity (cell-centered, signed). Positive = downstream, negative =
+    # upstream (back-firing aft_basket diagnostic). Color the line by
+    # sign-band so reversed-flow regions are visually obvious.
+    if 'u_cell' in snap:
+        u = snap['u_cell']
+        axes[1, 0].axhline(0.0, color='gray', linewidth=0.8, alpha=0.6)
+        axes[1, 0].plot(x_mm, u, 'k-', linewidth=1.5)
+        # Fill positive region green, negative region red
+        axes[1, 0].fill_between(x_mm, u, 0.0, where=(u > 0), color='tab:green',
+                                alpha=0.25, interpolate=True, label='downstream')
+        axes[1, 0].fill_between(x_mm, u, 0.0, where=(u < 0), color='tab:red',
+                                alpha=0.25, interpolate=True, label='upstream')
+        axes[1, 0].set_ylabel('u_cell [m/s]')
+        axes[1, 0].set_title('Cell Velocity (sign-banded)')
+        axes[1, 0].legend(fontsize=8, loc='best')
+        axes[1, 0].grid(True, alpha=0.3)
+    else:
+        axes[1, 0].text(0.5, 0.5, 'u_cell not in snapshot',
+                        transform=axes[1, 0].transAxes, ha='center')
+
+    # Temperature
+    if 'T' in snap:
+        axes[1, 1].plot(x_mm, snap['T'], 'tab:orange', linewidth=1.5)
+        axes[1, 1].set_ylabel('Gas Temperature [K]')
+        axes[1, 1].set_title('Gas Temperature')
+        axes[1, 1].grid(True, alpha=0.3)
+    else:
+        axes[1, 1].text(0.5, 0.5, 'T not in snapshot',
+                        transform=axes[1, 1].transAxes, ha='center')
+
     # Burn rate
-    axes[1, 0].plot(x_mm, snap['r_total'] * 1000, 'b-', linewidth=1.5,
+    axes[2, 0].plot(x_mm, snap['r_total'] * 1000, 'b-', linewidth=1.5,
                     label='Total')
-    axes[1, 0].plot(x_mm, snap['r_erosive'] * 1000, 'r--', linewidth=1.5,
+    axes[2, 0].plot(x_mm, snap['r_erosive'] * 1000, 'r--', linewidth=1.5,
                     label='Erosive')
     r_normal = (snap['r_total'] - snap['r_erosive']) * 1000
-    axes[1, 0].plot(x_mm, r_normal, 'g:', linewidth=1.5, label='Normal')
-    axes[1, 0].set_xlabel('Position [mm]')
-    axes[1, 0].set_ylabel('Burn Rate [mm/s]')
-    axes[1, 0].set_title('Burn Rate')
-    axes[1, 0].legend(fontsize=9)
-    axes[1, 0].grid(True, alpha=0.3)
+    axes[2, 0].plot(x_mm, r_normal, 'g:', linewidth=1.5, label='Normal')
+    axes[2, 0].set_xlabel('Position [mm]')
+    axes[2, 0].set_ylabel('Burn Rate [mm/s]')
+    axes[2, 0].set_title('Burn Rate')
+    axes[2, 0].legend(fontsize=9)
+    axes[2, 0].grid(True, alpha=0.3)
 
     # Show end-face mass injection locations if available
     if 'endface_msource' in snap:
         ef = snap['endface_msource']
         ef_mask = ef > 0
         if np.any(ef_mask):
-            ax2 = axes[1, 0].twinx()
+            ax2 = axes[2, 0].twinx()
             ax2.bar(x_mm[ef_mask], ef[ef_mask], width=x_mm[1]-x_mm[0],
                     alpha=0.25, color='orange', label='End-face source')
             ax2.set_ylabel('End-face [kg/(m·s)]', fontsize=8, color='orange')
             ax2.tick_params(axis='y', labelcolor='orange', labelsize=7)
 
     # Port diameter
-    axes[1, 1].plot(x_mm, snap['D_port'] * 1000, 'k-', linewidth=1.5)
-    axes[1, 1].set_xlabel('Position [mm]')
-    axes[1, 1].set_ylabel('Port Diameter [mm]')
-    axes[1, 1].set_title('Port Diameter')
-    axes[1, 1].grid(True, alpha=0.3)
+    axes[2, 1].plot(x_mm, snap['D_port'] * 1000, 'k-', linewidth=1.5)
+    axes[2, 1].set_xlabel('Position [mm]')
+    axes[2, 1].set_ylabel('Port Diameter [mm]')
+    axes[2, 1].set_title('Port Diameter')
+    axes[2, 1].grid(True, alpha=0.3)
 
     fig.suptitle(title, fontsize=14)
+    plt.tight_layout()
+
+    if save_path:
+        save_figure(fig, save_path)
+
+    return fig, axes
+
+
+# ================================================================
+# Multi-Snapshot Subplot Grid (v0.7.3 Phase A)
+# ================================================================
+
+_FIELD_LABELS = {
+    'P':         ('Pressure [MPa]',     lambda v: v / 1e6),
+    'Mach':      ('Mach',               lambda v: v),
+    'u_cell':    ('u_cell [m/s]',       lambda v: v),
+    'T':         ('Gas Temp [K]',       lambda v: v),
+    'T_surf':    ('Surface Temp [K]',   lambda v: v),
+    'r_total':   ('r_total [mm/s]',     lambda v: v * 1000),
+    'r_erosive': ('r_erosive [mm/s]',   lambda v: v * 1000),
+    'D_port':    ('Port D [mm]',        lambda v: v * 1000),
+    'mass_source':    ('mass_source [kg/m/s]',    lambda v: v),
+    'thermal_source': ('thermal_source [W/m]',    lambda v: v),
+    'is_burning':     ('is_burning',              lambda v: v),
+    'pyrogen_surface_heat_flux': ('pyro_heat_flux [W/m²]', lambda v: v),
+    'radiation_heat_flux':       ('rad_heat_flux [W/m²]', lambda v: v),
+}
+
+
+def plot_flow_snapshots(result, t_targets, fields=('P', 'Mach', 'u_cell', 'T'),
+                        title=None, save_path=None):
+    """v0.7.3 Phase A — multi-time snapshot subplot grid.
+
+    Renders one row per ``t_target`` (using nearest captured snapshot)
+    and one column per field. Each cell shows the field's spatial
+    profile (x vs value) at that snapshot time. Useful for comparing
+    flow evolution across ignition, plateau, and burnout phases in a
+    single figure.
+
+    Parameters
+    ----------
+    result : dict
+        Output from ``run_simulation``. Must have ``'snapshots'``.
+    t_targets : iterable of float
+        Target times [s]; rendered in the supplied order.
+    fields : iterable of str
+        Snapshot keys to plot per row. Defaults to
+        ``('P', 'Mach', 'u_cell', 'T')``. Any of the keys in
+        ``_FIELD_LABELS`` may be requested; unknown keys are skipped
+        with a one-line note in the panel.
+    title : str or None
+        Overall figure title; auto-generated if None.
+    save_path : str or None
+        If provided, save figure via ``save_figure``; otherwise the
+        caller is expected to ``plt.show()`` or further mutate the
+        figure.
+
+    Returns
+    -------
+    fig, axes : matplotlib Figure and 2D axes array
+        ``axes`` is always 2D ``(len(t_targets), len(fields))`` for
+        consistent indexing even when there's only one row/column.
+
+    Velocity sign-banding (``u_cell``) is applied automatically per
+    panel for at-a-glance reverse-flow diagnosis under aft_basket
+    topology.
+    """
+    if not HAS_MATPLOTLIB:
+        print("matplotlib not available — cannot plot.")
+        return None, None
+
+    snapshots = result.get('snapshots', [])
+    if not snapshots:
+        print("No snapshots in result dict.")
+        return None, None
+
+    t_targets = list(t_targets)
+    fields = list(fields)
+    n_rows = len(t_targets)
+    n_cols = len(fields)
+    if n_rows == 0 or n_cols == 0:
+        return None, None
+
+    snap_times = np.array([s['t'] for s in snapshots])
+
+    fig, axes = plt.subplots(
+        n_rows, n_cols,
+        figsize=(3.2 * n_cols + 0.6, 2.4 * n_rows + 0.8),
+        squeeze=False,
+    )
+
+    for r, t_tgt in enumerate(t_targets):
+        idx = int(np.argmin(np.abs(snap_times - t_tgt)))
+        snap = snapshots[idx]
+        x_mm = snap['x'] * 1000
+        actual_t = snap['t']
+        for c, field in enumerate(fields):
+            ax = axes[r, c]
+            if field not in _FIELD_LABELS:
+                ax.text(0.5, 0.5, f"unknown field\n'{field}'",
+                        ha='center', va='center', transform=ax.transAxes)
+                ax.set_xticks([])
+                ax.set_yticks([])
+                continue
+            if field not in snap:
+                ax.text(0.5, 0.5, f"'{field}' not in snapshot",
+                        ha='center', va='center', transform=ax.transAxes)
+                ax.set_xticks([])
+                ax.set_yticks([])
+                continue
+            ylabel, scale = _FIELD_LABELS[field]
+            y = scale(np.asarray(snap[field]))
+            if field == 'u_cell':
+                ax.axhline(0.0, color='gray', linewidth=0.7, alpha=0.6)
+                ax.plot(x_mm, y, 'k-', linewidth=1.2)
+                ax.fill_between(x_mm, y, 0.0, where=(y > 0),
+                                color='tab:green', alpha=0.25,
+                                interpolate=True)
+                ax.fill_between(x_mm, y, 0.0, where=(y < 0),
+                                color='tab:red', alpha=0.25,
+                                interpolate=True)
+            elif field == 'is_burning':
+                ax.fill_between(x_mm, 0, y, step='mid',
+                                color='tab:orange', alpha=0.5)
+                ax.set_ylim(-0.05, 1.05)
+            else:
+                ax.plot(x_mm, y, linewidth=1.2)
+            if c == 0:
+                ax.set_ylabel(f"t={actual_t:.3f}s\n{ylabel}", fontsize=9)
+            else:
+                ax.set_ylabel(ylabel, fontsize=9)
+            if r == 0:
+                ax.set_title(field, fontsize=10)
+            if r == n_rows - 1:
+                ax.set_xlabel('x [mm]', fontsize=9)
+            ax.grid(True, alpha=0.3)
+            ax.tick_params(axis='both', labelsize=8)
+
+    if title is None:
+        title = (f"Flow Snapshots — "
+                 f"{n_rows} time slice{'s' if n_rows > 1 else ''}")
+    fig.suptitle(title, fontsize=13)
+    plt.tight_layout()
+
+    if save_path:
+        save_figure(fig, save_path)
+
+    return fig, axes
+
+
+# ================================================================
+# x-t Field Heatmap (v0.7.3 Phase A)
+# ================================================================
+
+def plot_field_heatmap(result, fields=('P', 'u_cell', 'T', 'is_burning'),
+                       cmap=None, title=None, save_path=None,
+                       t_max=None):
+    """v0.7.3 Phase A — render snapshot fields as 2D x-t heatmaps.
+
+    For each requested field, builds a pcolormesh with x on the
+    horizontal axis and snapshot-time on the vertical axis (origin
+    at lower-left, time increasing upward). Color encodes field
+    value. Useful for visualizing back→front ignition cascades
+    (``is_burning`` shows diagonal stripes), reverse-flow regions
+    (``u_cell`` shows a sign-band), and pressure waves (``P``).
+
+    Parameters
+    ----------
+    result : dict
+        Output from ``run_simulation``. Must have ``'snapshots'``.
+    fields : iterable of str
+        Snapshot keys to render; one panel per field. Defaults to
+        ``('P', 'u_cell', 'T', 'is_burning')``.
+    cmap : dict or None
+        Optional per-field colormap override mapping field name to
+        a matplotlib colormap name. Defaults:
+        ``{'P': 'viridis', 'u_cell': 'RdBu_r', 'T': 'inferno',
+        'is_burning': 'Oranges'}``.
+    title : str or None
+        Figure title; auto-generated if None.
+    save_path : str or None
+        If provided, save figure via ``save_figure``.
+    t_max : float or None
+        If provided, clip the time axis to ``t <= t_max`` for a
+        zoomed-in view of the ignition transient (set to ~0.5s for
+        spike-shape diagnostics).
+
+    Returns
+    -------
+    fig, axes : matplotlib Figure and axes (1D array len(fields))
+    """
+    if not HAS_MATPLOTLIB:
+        print("matplotlib not available — cannot plot.")
+        return None, None
+
+    snapshots = result.get('snapshots', [])
+    if not snapshots:
+        print("No snapshots in result dict.")
+        return None, None
+
+    fields = list(fields)
+    n_cols = len(fields)
+    if n_cols == 0:
+        return None, None
+
+    snap_times = np.array([s['t'] for s in snapshots])
+    if t_max is not None:
+        keep_mask = snap_times <= float(t_max)
+        if not np.any(keep_mask):
+            print(f"No snapshots at t<={t_max}s.")
+            return None, None
+        snap_indices = np.where(keep_mask)[0]
+    else:
+        snap_indices = np.arange(len(snapshots))
+
+    x = snapshots[0]['x']
+    x_mm = x * 1000
+    t_axis = snap_times[snap_indices]
+
+    default_cmaps = {
+        'P': 'viridis', 'u_cell': 'RdBu_r', 'T': 'inferno',
+        'is_burning': 'Oranges', 'Mach': 'plasma',
+        'r_total': 'viridis', 'mass_source': 'cividis',
+        'thermal_source': 'magma',
+    }
+    if cmap is None:
+        cmap = {}
+    cmap_for = {**default_cmaps, **dict(cmap)}
+
+    fig, axes = plt.subplots(
+        1, n_cols, figsize=(3.6 * n_cols + 0.8, 4.5), squeeze=False,
+    )
+    axes = axes[0]
+
+    for c, field in enumerate(fields):
+        ax = axes[c]
+        if field not in _FIELD_LABELS or field not in snapshots[0]:
+            ax.text(0.5, 0.5, f"'{field}'\nunavailable",
+                    ha='center', va='center', transform=ax.transAxes)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            continue
+        ylabel, scale = _FIELD_LABELS[field]
+        # Build (n_t, n_x) matrix
+        Z = np.array([scale(np.asarray(snapshots[i][field]))
+                      for i in snap_indices])
+        cmap_name = cmap_for.get(field, 'viridis')
+        # Symmetric colorbar for signed fields
+        if field == 'u_cell':
+            zmax = float(np.max(np.abs(Z))) if Z.size else 1.0
+            zmax = zmax if zmax > 0 else 1.0
+            im = ax.pcolormesh(x_mm, t_axis, Z, cmap=cmap_name,
+                               vmin=-zmax, vmax=zmax, shading='auto')
+        else:
+            im = ax.pcolormesh(x_mm, t_axis, Z, cmap=cmap_name,
+                               shading='auto')
+        ax.set_title(f"{field} — {ylabel}", fontsize=10)
+        ax.set_xlabel('x [mm]', fontsize=9)
+        if c == 0:
+            ax.set_ylabel('t [s]', fontsize=9)
+        ax.tick_params(axis='both', labelsize=8)
+        cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        cbar.ax.tick_params(labelsize=8)
+
+    if title is None:
+        title = "Field Heatmap (x vs t)"
+    fig.suptitle(title, fontsize=13)
     plt.tight_layout()
 
     if save_path:

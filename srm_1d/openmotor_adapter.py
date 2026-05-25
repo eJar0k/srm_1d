@@ -209,9 +209,21 @@ def build_pyrogen_chamber(
     pyrogen_volume=None,
     pyrogen_burn_area=None,
     pyrogen_burn_law='0d',
+    injection_topology='forward_plenum',
+    cartridge_length_m=-1.0,
 ):
     """
     Build a PyrogenChamber using v0.7.0 default sizing rules.
+
+    v0.7.3 Phase A — ``injection_topology`` selects between the
+    plenum-with-orifice (``'forward_plenum'``, v0.7.0+ default) and
+    uncontained submerged-pyrogen models (``'head_basket'`` /
+    ``'aft_basket'``). For uncontained topologies, ``A_throat`` and
+    ``V_plenum`` are vestigial (PyrogenChamber still validates them at
+    construction so existing motor configs don't break, but the time
+    loop ignores them). ``cartridge_length_m=-1.0`` (default sentinel)
+    derives the cartridge length from pyrogen mass via
+    ``L_cart = m_pyrogen / (rho_p * A_port_avg)`` at sim init.
     """
     if pyrogen_mass is None:
         case_volume = np.pi / 4.0 * geo.D_outer ** 2 * geo.L_motor
@@ -238,6 +250,8 @@ def build_pyrogen_chamber(
         A_throat=pyrogen_throat_area,
         V_plenum=pyrogen_volume,
         burn_law=pyrogen_burn_law,
+        injection_topology=injection_topology,
+        cartridge_length_m=cartridge_length_m,
     )
 
 
@@ -553,6 +567,8 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
                  pyrogen_throat_area=None, pyrogen_volume=None,
                  pyrogen_burn_area=None, pyrogen_burn_law='0d',
                  pyrogen_heat_flux_cal_cm2_s=None,
+                 injection_topology='forward_plenum',
+                 cartridge_length_m=-1.0,
                  T_ignition=850.0, k_solid=None,
                  radiation_emissivity=None, verbose=True, **sim_overrides):
     """
@@ -642,6 +658,8 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
         pyrogen_volume=pyrogen_volume,
         pyrogen_burn_area=pyrogen_burn_area,
         pyrogen_burn_law=pyrogen_burn_law,
+        injection_topology=injection_topology,
+        cartridge_length_m=cartridge_length_m,
     )
     args['T_ignition'] = T_ignition
     args['verbose'] = verbose

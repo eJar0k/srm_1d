@@ -802,3 +802,96 @@ in geometry/burn rate/ignition (called every step or every N steps).
 
   Artifacts: `artifacts/hasegawa_a/2026-05-24*/`,
   `artifacts/cross_motor_frozen_vs_effective/2026-05-24*/`.
+
+- v0.7.3-phaseA (2026-05-24): uncontained-pyrogen topology
+  (head_basket + aft_basket) ships as Phase A; ignition-initiation
+  pathway exposed as a structural gap in Phase A.3 validation.
+
+  **Phase A.1 + A.1.1 + A.2 [SHIPPED]**:
+  - `PyrogenChamber.injection_topology: str = 'forward_plenum'`
+    field — values `'forward_plenum' | 'head_basket' |
+    'aft_basket'`. Default preserves v0.7.2 behavior byte-for-byte.
+  - `PyrogenChamber.cartridge_length_m: float = -1.0` sentinel —
+    derives cartridge length from pyrogen mass via
+    `L_cart = m_pyrogen / (rho_p * A_port_avg)` at sim init.
+  - `_compute_uniform_band_weights` Numba kernel — mass-
+    conservative top-hat axial weights over `[i_start, i_end]`.
+  - `_compute_uncontained_pyrogen_mdot` Numba kernel — per-cell
+    pyrogen mdot from local bore P with mass-conservation cap.
+  - `_run_time_loop` topology branch: uncontained topologies use
+    per-cell mass / species / enthalpy delivery, skip momentum
+    injection, skip DeMar surface heat flux, use volume-averaged
+    bore P over cartridge cells as P_ig diagnostic.
+  - 574 lines of new tests (uniform-band, uncontained pyrogen,
+    submerged topology).
+
+  **Phase A.1.1 naming pivot**: "submerged" → "uncontained"
+  throughout to clarify the physics. Per Super Loki literature
+  (NASA CR-61238, MIT Super Loki Report, Smithsonian/NASM): the
+  ISP Super Loki igniter is a head-end BKNO3 pellet charge in a
+  consumable plastic moisture cup with NO defined orifice or
+  pressure-containing aft cap. Plenum-state fields (`A_throat`,
+  `V_plenum`) repurposed: validated at the Python boundary so
+  existing motor configs don't break, but ignored by the
+  uncontained-burn time-loop.
+
+  **Phase A.3 [SHIPPED]**:
+  - Diagnostic visualization helpers in `plotting.py`:
+    `plot_flow_snapshot` upgraded from 2x2 to 3x2 with sign-banded
+    `u_cell` panel + gas T panel; new `plot_flow_snapshots`
+    (multi-time subplot grid) and `plot_field_heatmap` (x-t
+    pcolormesh) helpers.
+  - `ISP_SUPER_LOKI_EXPERIMENTAL` dataset moved from commented-
+    out mis-labeled block in `examples/ISP_Super_Loki.py` to
+    `plotting.py` with proper labeling.
+  - `run_from_ric` and `build_pyrogen_chamber` extended with
+    `injection_topology=` / `cartridge_length_m=` kwargs.
+  - `examples/ISP_Super_Loki.py` wired to head_basket;
+    `examples/hasegawa_motor_a_aft_basket.py` created as the
+    reversed-topology diagnostic sibling of `hasegawa_motor_a.py`.
+
+  **Validation findings (Phase A.3)**:
+  - **ISP Super Loki head_basket**: P_peak = 0.12 MPa vs
+    experimental ~8.8 MPa. Pyrogen burns to completion at
+    atmospheric bore P without lighting the main grain.
+  - **Hasegawa A aft_basket diagnostic**: P_peak = 0.10 MPa,
+    same failure mode. The diagnostic question ("does the
+    simultaneous-ignition artifact persist under reversed
+    topology?") is INCONCLUSIVE because the run never reaches
+    an ignition cascade.
+
+  **Structural finding** (the load-bearing v0.7.3 Phase A insight):
+  uncontained topologies correctly capture "pellets at
+  atmospheric P burn slowly" but expose a gap that forward_plenum
+  hides via its choked-orifice startup transient — real-world
+  pyrogen ignition is initiated by a thermal kick (e-match,
+  squib) the uncontained model has no equivalent for. v0.7.3
+  Phase B needs to add an ignition-initiation pathway before
+  uncontained topologies validate quantitatively.
+
+  **API breaks**:
+  - `PyrogenChamber.injection_topology` + `cartridge_length_m`
+    fields added with defaults that preserve v0.7.2 behavior.
+    Existing motor configs and example scripts unchanged.
+  - `_run_time_loop` signature gained 5 new arguments
+    (`topology_code`, `cart_i_start`, `cart_i_end`,
+    `A_burn_per_cell`, `mdot_uncontained_arr`). Call-site
+    internal — only direct kernel callers in tests need updates.
+  - `run_from_ric(..., injection_topology=..., cartridge_length_m=...)`
+    and `build_pyrogen_chamber(...,
+    injection_topology=..., cartridge_length_m=...)` extended
+    with new kwargs (defaults preserve prior behavior).
+  - `plot_flow_snapshot` now returns a `(3, 2)` axes array
+    instead of `(2, 2)` — callers iterating by index need
+    updating; callers using returned figures or saving directly
+    are unaffected.
+
+  v0.7.3 Phase B candidate breakdown in
+  `srm_1d/docs/v0_7_3/TASKS.md`. Recommended ordering pending
+  user decision: initial thermal pulse (smallest), per-pellet
+  surface heat flux (most direct mapping from forward_plenum),
+  or a coupled e-match dataclass (largest, opens door to
+  plenum-as-option refactor candidate 6).
+
+  Artifacts: `artifacts/ISP_Super_Loki/2026-05-24*/`,
+  `artifacts/hasegawa_a_aft_basket/2026-05-24*/`.

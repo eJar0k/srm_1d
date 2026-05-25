@@ -4,23 +4,34 @@ A 1D transient finite-volume solid rocket motor internal ballistics
 simulator with the Ma et al. (2020) erosive burning model. Numba-JIT
 compiled time loop hits ~45-90k steps/s.
 
-**v0.7.2-phaseA ships (branch `v0.7.0-phase4`, tag `v0.7.2-phaseA`)**:
-pyrogen axial distribution (Phase A) wired into the time loop;
-spatial-coupling-via-h_c-augmentation (Phase B, both v1 cumulative-G
-and v2 flame-front formulations) **shipped but disabled by default**
-after both empirically AMPLIFIED the ignition spike rather than
-smoothing it. Phase A delivers a real Zerox win (P_peak 10.20→9.69 MPa
-@ default knobs, t_peak shifted from 0.035s to 0.27s — closer to
-experimental ~0.2s). Other 3 fired motors essentially unchanged.
-**Structural ignition-kernel artifact persists** for Hasegawa A /
-BALLSstick / Chunc — Phase B's negative finding is that PISO's
-local-Re tracking already captures upstream-mass-flux contributions,
-so adding the Kashiwagi/Han augmentation double-counts and
-accelerates the cascade rather than slowing it. 240/240 pytest green.
-v0.7.3 candidate analysis pending (Z-N dynamic burn rate, submerged
-pyrogen modes including aft-inserted impinging cartridges, alternative
-per-cell coupling mechanisms, different heating modes). See
-`srm_1d/docs/v0_7_2/`.
+**v0.7.3-phaseA ships (branch `v0.7.0-phase4`, tag `v0.7.3-phaseA`)**:
+uncontained-pyrogen topology architecture (`head_basket` +
+`aft_basket`) wired into the time loop via a shared
+`PyrogenChamber.injection_topology` field. Each pyrogen pellet
+burns at its host cell's LOCAL bore pressure (no plenum, no
+orifice). Phase A.3 added diagnostic visualization helpers
+(`plot_flow_snapshots`, `plot_field_heatmap`, sign-banded
+`u_cell` panel in `plot_flow_snapshot`). **Validation findings**:
+ISP Super Loki head_basket gives P_peak 0.12 MPa (experimental
+~8.8 MPa); Hasegawa A aft_basket diagnostic gives P_peak 0.10
+MPa — both stall at atmospheric pressure because uncontained
+topologies lack the choked-orifice startup transient that drives
+forward_plenum ignition. The aft_basket diagnostic question
+("does the simultaneous-ignition artifact persist under reversed
+topology?") is INCONCLUSIVE without an ignition-initiation
+pathway, which is the natural v0.7.3 Phase B scope. See
+`srm_1d/docs/v0_7_3/` for the full narrative and Phase B
+candidate breakdown.
+
+**v0.7.2-phaseA baseline** (carried forward): pyrogen axial
+distribution (Phase A) shipped as a real Zerox win (P_peak
+10.20→9.69 MPa, t_peak 0.035s→0.27s); Phase B (h_c augmentation)
+shipped but DISABLED by default after both v1 (cumulative-G) and
+v2 (flame-front) formulations amplified rather than smoothed the
+spike. Structural ignition-kernel artifact persists for Hasegawa
+A / BALLSstick / Chunc — PISO's local-Re tracking already
+captures upstream-mass-flux contributions, so the Kashiwagi/Han
+augmentation double-counts. See `srm_1d/docs/v0_7_2/`.
 
 **v0.7.1.1 baseline** (carried forward): N-species bore-gas refactor
 (SPINBALL-style "infinite-gases mixture") + EFFECTIVE RPA transport
@@ -105,6 +116,14 @@ srm_1d/
    momentum (via `_orifice_exit_velocity`) into cell 0 / face 1.
    The `igniter_axial_momentum_fraction` kwarg scales the momentum
    contribution (default 1.0 = pure axial head-end jet).
+   **v0.7.3 Phase A** adds two new optional fields:
+   `PyrogenChamber.injection_topology` (default `'forward_plenum'`,
+   alternatives `'head_basket'` | `'aft_basket'` for uncontained
+   pellets that burn at LOCAL bore P with no plenum / no orifice /
+   no DeMar surface heat flux), and `cartridge_length_m` (default
+   `-1.0` sentinel = derive from pyrogen mass via
+   `L_cart = m_pyrogen / (rho_p * A_port_avg)`). Both `run_from_ric`
+   and `build_pyrogen_chamber` accept these as kwargs.
 5. **Frozen vs effective gas transport — v0.7.1.1 ships EFFECTIVE as
    default for ALL fired motors**. Hasegawa A (v0.7.1), then Zerox /
    Chunc (machbusterNew) / BALLSstick (v0.7.1.1 patch) all flipped to
@@ -193,6 +212,14 @@ srm_1d/
   attempted twice (v1 cumulative-G, v2 flame-front gating) and
   shipped DISABLED by default after both amplified rather than
   smoothed the spike.
+- `srm_1d/docs/v0_7_3/` -- v0.7.3 uncontained-pyrogen topology
+  package: `README.md` (problem statement + Phase A architecture +
+  Phase B candidate space), `TASKS.md` (Phase A.1/A.1.1/A.2/A.3
+  complete — tagged `v0.7.3-phaseA`). Validation findings: ISP
+  Super Loki head_basket (P_peak 0.12 MPa vs ~8.8 MPa experimental)
+  and Hasegawa A aft_basket (P_peak 0.10 MPa) both stall at
+  atmospheric P, exposing the ignition-initiation gap. Cross-
+  version architectural anchor is `docs/v0_7_2/candidates_post_phaseA.md`.
 - `srm_1d/docs/post_v0_7_0/references/` -- SPINBALL research that
   motivated v0.7.1: Cavallini 2009 + DiGiacinto 2008 extractions plus
   the `spinball_walkthrough.md` decision document (recommends Z-N
@@ -207,37 +234,46 @@ srm_1d/
 
 ## Open roadmap (priority order)
 
-1. **v0.7.3 ignition-kernel structural fix** -- v0.7.2-phaseA shipped
-   candidate 3 (pyrogen axial distribution; real Zerox win) but
-   candidate 2 (spatial-coupling-via-h_c-augmentation) negative-
-   found in both v1 (cumulative-G) and v2 (flame-front gating)
-   formulations: the Kashiwagi/Han augmentation amplifies the spike
-   because PISO's local-Re tracking already captures upstream
-   contributions. v0.7.3 candidate space (user-flagged, analysis
-   pending):
-   - **Z-N dynamic burn rate** (original candidate 1) -- burn-rate-
-     ramp lag, stacks cleanly. Greatrix 2008 validation on low-L\*
-     spikes.
-   - **Submerged pyrogen 4a -- head-end basket** -- energy enters
-     inside the bore, not from cell 0. Tests whether the artifact
-     is in the pyrogen-source model or in the Goodman per-cell
-     solver.
-   - **Submerged pyrogen 4b -- aft-inserted impinging cartridge**
-     (Super Loki class) -- igniter occupies arbitrary or pyrogen-
-     mass-defined core length, fires FORWARD; ignition propagates
-     back→front. User-flagged as a clean test of whether mass-
-     injection topology is causing the artifact.
-   - **Per-cell coupling alternatives** -- reverse polarity of
-     Phase B (damp h_c at cells far from any recent ignition rather
-     than boost adjacent); solid-phase axial conduction; Goodman
-     per-cell shared boundary layer.
-   - **Different heating modes** -- two-phase Al2O3 condensation
-     (Pardue 1992); enhanced radiation at distance.
-   - **Plenum-as-option refactor** -- unify forward-plenum
-     (current), head-end basket, and aft-inserted cartridge under a
-     single igniter-architecture API.
+1. **v0.7.3 Phase B — uncontained-pyrogen ignition initiation** --
+   v0.7.3-phaseA shipped the uncontained-pyrogen topology
+   architecture (`head_basket` + `aft_basket`) but Phase A.3
+   validation surfaced a structural gap: pellets at atmospheric
+   bore P burn slowly enough that the bore never pressurizes
+   without an external thermal kick. forward_plenum hides this
+   via the choked-orifice startup transient; uncontained has no
+   equivalent. The natural Phase B is to add an ignition-
+   initiation pathway. Recommended options pending user
+   decision (smallest → largest scope):
+   - **Initial thermal pulse** (~150 LOC) — kick `T_surf` and/or
+     local bore T at t=0 in cartridge cells. Models the
+     e-match heat dump.
+   - **Per-pellet surface heat flux** (~200 LOC) — re-enable
+     DeMar-style surface flux PER CARTRIDGE CELL (not cell 0
+     only). Most direct mapping from forward_plenum.
+   - **Coupled e-match dataclass** (~400 LOC) — `Igniter` with
+     explicit `t_kick`, `Q_kick`, `tau_kick`. Opens door to
+     candidate 6 (plenum-as-option refactor).
 
-   Breakdown analysis lives at `srm_1d/docs/v0_7_2/candidates_post_phaseA.md`.
+   Once Phase B lands, re-run **both** validation examples to test
+   (a) ISP Super Loki head_basket fit vs ~8.8 MPa experimental,
+   and (b) Hasegawa A aft_basket diagnostic — does the
+   simultaneous-ignition artifact persist under reversed mass-
+   injection topology?
+
+   Broader v0.7.3+ candidate space still on the table (independent
+   of Phase B):
+   - **Z-N dynamic burn rate** — burn-rate-ramp lag, stacks
+     cleanly with any topology.
+   - **Per-cell coupling alternatives** — reverse-polarity Phase B
+     damping, solid-phase axial conduction.
+   - **Pardue 1992 Al2O3 condensation** — secondary spike-taildown
+     candidate.
+   - **Plenum-as-option refactor** (candidate 6) — best done AFTER
+     ignition-initiation work lands so the abstraction is informed
+     by real requirements.
+
+   Cross-version anchor: `srm_1d/docs/v0_7_2/candidates_post_phaseA.md`.
+   v0.7.3 Phase B narrative: `srm_1d/docs/v0_7_3/TASKS.md`.
 2. **Cross-motor effective-transport recalibration** -- v0.7.1 only
    flipped Hasegawa A to effective; Zerox/BALLSstick/machbusterNew/
    ChaseRed/L3035/ivanO25k YAMLs are still frozen. After v0.7.2's
