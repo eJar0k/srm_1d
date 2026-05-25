@@ -17,15 +17,16 @@ import matplotlib.pyplot as plt
 
 from srm_1d.openmotor_adapter import run_from_ric
 from srm_1d.plotting import plot_pressure, plot_flow_snapshot, plot_summary
+from srm_1d.run_artifacts import artifact_dir
 
 
 CASE_NAME = 'l3035'
 MOTOR_PATH = Path(__file__).resolve().parents[1] / 'motors' / 'L3035.ric'
-OUTPUT_DIR = Path('artifacts') / CASE_NAME
 
 
 def main():
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    # Per-run artifact dir matches the run_template.py convention.
+    OUTPUT_DIR = artifact_dir(CASE_NAME)
 
     result, perf, nozzle, geo, prop = run_from_ric(
         str(MOTOR_PATH),
@@ -52,20 +53,20 @@ def main():
     plot_pressure(
         result,
         title="L3035 Pressure Trace",
-        save_path=OUTPUT_DIR / "l3035_pressure.png",
+        save_path=str(OUTPUT_DIR / "pressure.png"),
     )
 
     plot_flow_snapshot(
         result,
         t_target=0.1,
-        save_path=OUTPUT_DIR / "l3035_flow.png",
+        save_path=str(OUTPUT_DIR / "flow.png"),
     )
 
     plot_summary(
         result,
         performance=perf,
         title="L3035 Simulation Summary",
-        save_path=OUTPUT_DIR / "l3035_summary.png",
+        save_path=str(OUTPUT_DIR / "summary.png"),
     )
 
     plt.close('all')

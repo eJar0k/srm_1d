@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 
 from srm_1d.openmotor_adapter import run_from_ric
 from srm_1d.plotting import plot_pressure, plot_flow_snapshot, plot_summary
+from srm_1d.run_artifacts import artifact_dir
 
 # CHUNC_EXPERIMENTAL = {
 #     'label': 'Experimental (Hasegawa)',
@@ -46,11 +47,13 @@ from srm_1d.plotting import plot_pressure, plot_flow_snapshot, plot_summary
 
 CASE_NAME = 'ISP_Super_Loki'
 MOTOR_PATH = Path(__file__).resolve().parents[1] / 'motors' / 'ISP_Super_Loki.ric'
-OUTPUT_DIR = Path('artifacts') / CASE_NAME
 
 
 def main():
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    # Per-run artifact dir matches the run_template.py convention:
+    # artifacts/<CASE_NAME>/<timestamp>_<sha>[-dirty]/. Reruns don't
+    # overwrite earlier traces.
+    OUTPUT_DIR = artifact_dir(CASE_NAME)
 
     result, perf, nozzle, geo, prop = run_from_ric(
         str(MOTOR_PATH),
@@ -77,13 +80,13 @@ def main():
         result,
         title="ISP_Super_Loki Pressure Trace",
         # experimental=CHUNC_EXPERIMENTAL,
-        save_path=OUTPUT_DIR / "ISP_Super_Loki_pressure.png",
+        save_path=str(OUTPUT_DIR / "pressure.png"),
     )
 
     plot_flow_snapshot(
         result,
         t_target=0.2,
-        save_path=OUTPUT_DIR / "ISP_Super_Loki_flow.png",
+        save_path=str(OUTPUT_DIR / "flow.png"),
     )
 
     plot_summary(
@@ -91,7 +94,7 @@ def main():
         performance=perf,
         title="ISP_Super_Loki Simulation Summary",
         # experimental=CHUNC_EXPERIMENTAL,
-        save_path=OUTPUT_DIR / "ISP_Super_Loki_summary.png",
+        save_path=str(OUTPUT_DIR / "summary.png"),
     )
 
     plt.close('all')

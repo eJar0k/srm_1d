@@ -26,6 +26,7 @@ from srm_1d.plotting import (
     plot_pressure, plot_thrust, plot_flow_snapshot,
     ZEROX_EXPERIMENTAL,
 )
+from srm_1d.run_artifacts import artifact_dir
 
 
 MOTOR_PATH = Path(__file__).resolve().parents[1] / 'motors' / 'zerox.ric'
@@ -48,26 +49,29 @@ def main():
         print_interval=0.2,
     )
 
+    # Per-run artifact dir matches the run_template.py convention.
+    out = artifact_dir('zerox')
+
     plot_pressure(
         result, title="Zerox Test",
         experimental=ZEROX_EXPERIMENTAL,
         time_offset=ZEROX_EXPERIMENTAL.get('time_offset', 0.0),
-        save_path="Zerox_pressure.png",
+        save_path=str(out / "pressure.png"),
     )
     plot_flow_snapshot(
         result, t_target=0.3,
         title="Zerox — Flow at t ≈ 0.3s",
-        save_path="Zerox_flow.png",
+        save_path=str(out / "flow.png"),
     )
     plot_thrust(
         result, perf, title="Zerox Test",
-        save_path="Zerox_thrust.png",
+        save_path=str(out / "thrust.png"),
     )
     plt.close('all')
-    print("\nAll plots saved.")
+    print(f"\nAll plots saved to {out}")
 
-    save_csv("output.csv", result, perf, geo=geo, propellant=prop)
-    print("CSV saved.")
+    save_csv(str(out / "output.csv"), result, perf, geo=geo, propellant=prop)
+    print(f"CSV saved to {out / 'output.csv'}")
 
 
 if __name__ == '__main__':

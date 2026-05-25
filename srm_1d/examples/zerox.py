@@ -17,10 +17,10 @@ DEVNOTES "Calibration State"). MSE = 0.071 MPa² vs experimental
 Usage:
     python -m srm_1d.examples.zerox
 
-Outputs:
-    zerox_pressure.png  — pressure trace vs experimental
-    zerox_flow.png      — flow field snapshot at t ≈ 0.3s
-    zerox_summary.png   — 4-panel summary
+Outputs (under artifacts/zerox/<timestamp>_<sha>[-dirty]/):
+    pressure.png  — pressure trace vs experimental
+    flow.png      — flow field snapshot at t ≈ 0.3s
+    summary.png   — 4-panel summary
 """
 
 from pathlib import Path
@@ -34,6 +34,7 @@ from srm_1d.plotting import (
     plot_pressure, plot_flow_snapshot, plot_summary,
     ZEROX_EXPERIMENTAL,
 )
+from srm_1d.run_artifacts import artifact_dir
 
 
 MOTOR_PATH = Path(__file__).resolve().parents[1] / 'motors' / 'zerox_LHS.ric'
@@ -53,17 +54,20 @@ def main():
         print_interval=0.2,
     )
 
+    # Per-run artifact dir matches the run_template.py convention.
+    out = artifact_dir('zerox')
+
     plot_pressure(
         result,
         title="Zerox — 1D PISO vs Experimental (LHS-calibrated)",
         experimental=ZEROX_EXPERIMENTAL,
         time_offset=ZEROX_EXPERIMENTAL.get('time_offset', 0.0),
-        save_path="zerox_pressure.png",
+        save_path=str(out / "pressure.png"),
     )
 
     plot_flow_snapshot(
         result, t_target=0.3,
-        save_path="zerox_flow.png",
+        save_path=str(out / "flow.png"),
     )
 
     plot_summary(
@@ -71,11 +75,11 @@ def main():
         experimental=ZEROX_EXPERIMENTAL,
         time_offset=ZEROX_EXPERIMENTAL.get('time_offset', 0.0),
         title="Zerox — Simulation Summary",
-        save_path="zerox_summary.png",
+        save_path=str(out / "summary.png"),
     )
 
     plt.close('all')
-    print("\nAll plots saved.")
+    print(f"\nAll plots saved to {out}")
 
 
 if __name__ == '__main__':

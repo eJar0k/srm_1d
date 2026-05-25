@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 
 from srm_1d.openmotor_adapter import run_from_ric
 from srm_1d.plotting import plot_pressure, plot_flow_snapshot, plot_summary
+from srm_1d.run_artifacts import artifact_dir
 
 CHUNC_EXPERIMENTAL = {
     'label': 'Experimental (Hasegawa)',
@@ -46,11 +47,11 @@ CHUNC_EXPERIMENTAL = {
 
 CASE_NAME = 'machbusterNew'
 MOTOR_PATH = Path(__file__).resolve().parents[1] / 'motors' / 'machbusterNew.ric'
-OUTPUT_DIR = Path('artifacts') / CASE_NAME
 
 
 def main():
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    # Per-run artifact dir matches the run_template.py convention.
+    OUTPUT_DIR = artifact_dir(CASE_NAME)
 
     result, perf, nozzle, geo, prop = run_from_ric(
         str(MOTOR_PATH),
@@ -77,13 +78,13 @@ def main():
         result,
         title="machbusterNew Pressure Trace",
         experimental=CHUNC_EXPERIMENTAL,
-        save_path=OUTPUT_DIR / "machbusterNew_pressure.png",
+        save_path=str(OUTPUT_DIR / "pressure.png"),
     )
 
     plot_flow_snapshot(
         result,
         t_target=0.01,
-        save_path=OUTPUT_DIR / "machbusterNew_flow.png",
+        save_path=str(OUTPUT_DIR / "flow.png"),
     )
 
     plot_summary(
@@ -91,7 +92,7 @@ def main():
         performance=perf,
         title="machbusterNew Simulation Summary",
         experimental=CHUNC_EXPERIMENTAL,
-        save_path=OUTPUT_DIR / "machbusterNew_summary.png",
+        save_path=str(OUTPUT_DIR / "summary.png"),
     )
 
     plt.close('all')
