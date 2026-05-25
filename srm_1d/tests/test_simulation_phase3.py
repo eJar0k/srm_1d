@@ -136,6 +136,11 @@ def test_adjacent_radiation_heats_only_neighbors_and_conserves_sink():
     # the prior Cp_gas value), Cp_pyrogen = 1385 (BPNV-like derived Cp);
     # this test sets mdot_igniter=0 so Cp_pyrogen is unused — value picked
     # for documentation, not for the assertion.
+    # v0.7.3 Phase B.2: Y_species (all-ambient → no pyrogen-hot cells).
+    # v0.7.3 Phase B.4: zero per-cell pyrogen heat flux array (no DeMar).
+    Y_species_test = np.zeros((N, 3))
+    Y_species_test[:, 2] = 1.0  # ambient
+    pyrogen_heat_flux_arr_test = np.zeros(N)
     out = _goodman_ignition_sources_and_mass(
         P, T, T_surf, delta, has_ignited, is_burning, is_grain,
         ignition_time, r_total, r_erosive,
@@ -150,6 +155,7 @@ def test_adjacent_radiation_heats_only_neighbors_and_conserves_sink():
         0.0, 0.45, False, 0.0,
         mass_source_by_species,
         flame_spread_augment, False,
+        Y_species_test, pyrogen_heat_flux_arr_test,
     )
 
     radiation_heat_power = out[4]
@@ -197,6 +203,10 @@ def test_adjacent_radiation_sink_can_be_disabled_for_diagnostics():
     # focused test independent of the Phase B augmentation.
     flame_spread_augment = np.ones(N)
     # v0.7.1 Phase 3.5: per-species Cp args (see sibling test for notes).
+    # v0.7.3 Phase B.2/B.4: pass-through args for newly required signature.
+    Y_species_test = np.zeros((N, 3))
+    Y_species_test[:, 2] = 1.0
+    pyrogen_heat_flux_arr_test = np.zeros(N)
     out = _goodman_ignition_sources_and_mass(
         P, T, T_surf, delta, has_ignited, is_burning, is_grain,
         ignition_time, r_total, r_erosive,
@@ -211,6 +221,7 @@ def test_adjacent_radiation_sink_can_be_disabled_for_diagnostics():
         0.0, 0.45, True, 0.0,
         mass_source_by_species,
         flame_spread_augment, False,
+        Y_species_test, pyrogen_heat_flux_arr_test,
     )
 
     assert out[4] > 0.0

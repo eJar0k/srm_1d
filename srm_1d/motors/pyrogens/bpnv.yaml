@@ -15,3 +15,13 @@ heat_flux_cal_cm2_s: 69.4
 # momentum are spread along the bore. BPNV is treated as a choked sonic
 # axial-vent pyrogen → kappa_jet ~ 6-10 (Witze + Hersch/Rieser).
 kappa_jet: 8.0
+# v0.7.3 Phase B.3 / B.4: pellet-form pyrogen (typical amateur HPR
+# BKNO3 binder pellets). 'demar' delivery uses the measured
+# heat_flux_cal_cm2_s=69.4 (time-averaged). Switch to 'radiation' to
+# diagnose with the Stefan-Boltzmann pellet-emission model instead;
+# pellet_emissivity 0.7 is a defensible mid-range (lit range 0.5-0.9).
+# BPNV exhaust is K/KOH-rich but non-aluminized → absorption length 1 m.
+form: pellets
+heat_delivery_mode: demar
+pellet_emissivity: 0.7
+radiation_absorption_length_m: 1.0

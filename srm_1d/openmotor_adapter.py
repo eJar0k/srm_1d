@@ -199,6 +199,14 @@ def load_pyrogen(path_or_name):
             else float(data['heat_flux_cal_cm2_s'])
         ),
         kappa_jet=float(data.get('kappa_jet', 8.0)),
+        # v0.7.3 Phase B.3 / B.4: optional YAML fields with defensible
+        # defaults baked into the Pyrogen dataclass.
+        form=str(data.get('form', 'pellets')),
+        heat_delivery_mode=str(data.get('heat_delivery_mode', 'demar')),
+        pellet_emissivity=float(data.get('pellet_emissivity', 0.7)),
+        radiation_absorption_length_m=float(
+            data.get('radiation_absorption_length_m', 1.0)
+        ),
     )
 
 
@@ -237,7 +245,17 @@ def build_pyrogen_chamber(
     if pyrogen_burn_area is None:
         solid_volume = pyrogen_mass / pyrogen.rho
         radius = (3.0 * solid_volume / (4.0 * np.pi)) ** (1.0 / 3.0)
-        pyrogen_burn_area = 4.0 * np.pi * radius * radius
+        sphere_area = 4.0 * np.pi * radius * radius
+        # v0.7.3 Phase B.3: form-archetype multiplier on the equivalent-
+        # sphere surface area. 'chunks' = baseline (single bulk); 'pellets'
+        # = many ~mm-scale pellets give ~5× the bulk area; 'powder' = fine
+        # particles give ~20×. See [[pyrogen-form-archetypes]] memory.
+        form_multiplier = {
+            'chunks':  1.0,
+            'pellets': 5.0,
+            'powder':  20.0,
+        }.get(pyrogen.form, 1.0)
+        pyrogen_burn_area = sphere_area * form_multiplier
 
     if pyrogen_throat_area is None:
         A_main = np.pi / 4.0 * nozzle.D_throat ** 2

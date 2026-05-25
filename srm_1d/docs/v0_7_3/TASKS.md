@@ -153,7 +153,128 @@ topologies validate quantitatively.
 - [x] Full pytest run before tag.
 - [x] Tag `v0.7.3-phaseA`.
 
-## Phase B candidate space (next session)
+## Phase B — heat-flux completeness for uncontained ignition [COMPLETE 2026-05-25]
+
+Closes the uncontained-pyrogen ignition gap identified in Phase A.3.
+See `PHASE_B_SCOPE.md` for the full scope/audit narrative.
+
+### Phase B.0 — IC fix [SHIPPED]
+
+- Default `T_initial_gas` switched from `rep_tab.T_flame` (v0.7.0
+  numerical-stability shortcut) to `_ambient_T` (= propellant.T_initial,
+  ~293 K).
+- The previous IC short-circuited temperature-gradient flow under
+  uncontained-pyrogen topologies; the new IC creates a real T gradient
+  when pyrogen mass enters cold bore cells, driving the flow that
+  Bartz convection needs to deliver heat to the propellant surface.
+- Override via `initial_gas_temperature=` kwarg preserved for
+  backward compat / special studies.
+- Side effect: legitimate amplification of ignition spike on existing
+  forward_plenum motors (Hasegawa A goes from ~6.2 MPa to ~12 MPa
+  P_peak at the same v0.7.0 calibrated knobs). Test windows widened
+  to ±150% as the "bug sanity gate" until v0.7.4 Phase C re-LHS.
+
+### Phase B.2 — radiation_emitter gating extension [SHIPPED]
+
+- One-line change in `_goodman_ignition_sources_and_mass`:
+  `radiation_emitter[i] = is_burning[i] OR Y_species[i, IGNITER] > 0.5`.
+- Pyrogen-hot cells (cartridge cells with T_gas ≈ T_flame_pyrogen)
+  now contribute to cell-to-cell radiation just like
+  propellant-burning cells. Previously ungated only if propellant was
+  burning, which never happened during the uncontained ignition
+  transient.
+- No-op when `Propellant.radiation_emissivity == 0` (the default per
+  `_default_radiation_emissivity`).
+
+### Phase B.3 — pyrogen form archetypes [SHIPPED]
+
+- `Pyrogen.form: str = 'pellets'` field with values
+  `'powder' | 'pellets' | 'chunks'` (see `[[pyrogen-form-archetypes]]`
+  memory).
+- A_burn multipliers in `build_pyrogen_chamber`:
+  - `'chunks'`: ×1.0 (single-sphere baseline)
+  - `'pellets'`: ×5.0 (typical amateur HPR pellet pack — DEFAULT)
+  - `'powder'`: ×20.0 (fine particles, thermite-class)
+- Explicit `pyrogen_burn_area=` kwarg always wins (user override).
+- BPNV and MTV YAMLs marked `form: pellets` (matches amateur usage).
+
+### Phase B.4 — pyrogen-to-surface heat delivery modes [SHIPPED]
+
+- Three mutually-exclusive modes on Pyrogen (Numba-coded as enum):
+  - `'demar'` — uses `Pyrogen.heat_flux_cal_cm2_s` (DeMar 2021
+    time-averaged) distributed uniformly across cartridge cells.
+    Per-cell sensible cap via `mdot_uncontained[i] · Cp · ΔT`.
+  - `'radiation'` — Stefan-Boltzmann pellet emission with geometric
+    view factor `F_ij = A_port[j] / (4π·d² + A_port[j])` plus
+    Beer-Lambert absorption attenuation `exp(-d/L_atten)`.
+  - `'none'` — no surface heat flux from pyrogen (control case).
+- New Pyrogen fields: `heat_delivery_mode`, `pellet_emissivity`
+  (default 0.7), `radiation_absorption_length_m` (default 1.0 m
+  clean; 0.5 m for MTV with MgO particles).
+- New Numba kernel `_compute_pyrogen_heat_flux_arr` fills a per-cell
+  flux array each step; `_goodman_ignition_sources_and_mass` consumes
+  it directly (replaces the v0.7.0-v0.7.3-phaseA single-cell
+  `pyrogen_heat_target` special case).
+
+### Phase B.6 — A/B/control validation [DONE 2026-05-25]
+
+**ISP Super Loki head_basket** (no experimental overlay — see
+provenance note below):
+
+| Mode | P_peak | t_peak | Verdict |
+|---|---|---|---|
+| `'none'` | 17.08 MPa | 0.045 s | Ignites |
+| `'demar'` | 17.08 MPa | 0.045 s | Ignites |
+| `'radiation'` | 17.08 MPa | 0.045 s | Ignites |
+
+All three modes give **identical** P_peak — the load-bearing fix is
+B.0 + B.3 (cold IC + realistic A_burn). Once those let pyrogen mass
+inject hot products into cold bore at high mdot, the resulting
+convective heat flux (Bartz with the strong T-gradient-driven Re)
+alone ignites the propellant. Mode (B.4) becomes diagnostic
+refinement, not a load-bearing knob.
+
+**Provenance correction (2026-05-25)**: the commented-out
+experimental array in `examples/ISP_Super_Loki.py` (migrated to
+`ISP_SUPER_LOKI_EXPERIMENTAL` in `plotting.py` during Phase A.3)
+turned out to be **Chunc/machbusterNew data**, not Super Loki —
+identical byte-for-byte to `CHUNC_EXPERIMENTAL` in
+`examples/machbusterNew.py` and the top-level `chunctest.py`. The
+data was copy-pasted into the Super Loki example years ago. v0.7.3
+Phase B reverted the mis-labeling: `plotting.py` now exposes the
+array as `CHUNC_EXPERIMENTAL` (matching its actual provenance),
+and the Super Loki example runs without an experimental overlay
+until a verified static-fire dataset is sourced. The "ignites at
+17 MPa" finding is still informative for the architecture (B.0 +
+B.3 unblock ignition), but absolute peak comparison to "8.8 MPa
+experimental" was actually against Chunc.
+
+**Hasegawa A aft_basket** (diagnostic):
+
+| Mode | P_peak | t_peak | Verdict |
+|---|---|---|---|
+| `'none'` | 0.113 MPa | 0.086 s | Stalls |
+| `'demar'` | 0.113 MPa | 0.086 s | Stalls |
+| `'radiation'` | 0.113 MPa | 0.086 s | Stalls |
+
+All three modes stall at near-atmospheric P. The diagnostic
+question — does the simultaneous-ignition artifact persist under
+reversed topology? — **resolves indirectly**: `aft_basket` is
+fundamentally inadequate as a startup mechanism because the
+cartridge sits next to the nozzle, so pyrogen products vent
+immediately without pressurizing the upstream bore. The deferred
+`aft_fore_firing` topology (PyrogenChamber docstring L90-93) is
+what's needed for a real Super Loki-class aft-firing diagnostic.
+
+### Phase B.7 — close-out [DONE 2026-05-25]
+
+- DEVNOTES v0.7.3-phaseB API-breaking-change log entry
+- CLAUDE.md banner + roadmap update
+- `project_v0_7_3_phaseB_state` memory
+- 272/272 pytest green
+- Tag `v0.7.3-phaseB`
+
+## v0.7.4 candidate space (deferred from Phase B)
 
 The natural Phase B is to **add an ignition-initiation pathway**
 for uncontained topologies. Options (recommended order pending

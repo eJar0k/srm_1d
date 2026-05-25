@@ -32,7 +32,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-from srm_1d.openmotor_adapter import run_from_ric
+from srm_1d.openmotor_adapter import run_from_ric, load_pyrogen
 from srm_1d.plotting import (
     plot_pressure, plot_flow_snapshot, plot_summary,
     plot_flow_snapshots, plot_field_heatmap,
@@ -45,82 +45,89 @@ MOTOR_PATH = Path(__file__).resolve().parents[1] / 'motors' / 'hasegawa_a.ric'
 EXPERIMENTAL_TIME_OFFSET = 1.1  # align experimental ignition with sim t=0
 
 
-def main():
+def _run_one(mode, out):
+    """Run Hasegawa A aft_basket with one heat-delivery mode."""
+    pyrogen_obj = load_pyrogen('bpnv')
+    pyrogen_obj.heat_delivery_mode = mode
+
     result, perf, nozzle, geo, prop = run_from_ric(
         str(MOTOR_PATH),
         roughness=37.1e-6,
         kappa=0.45,
-        pyrogen='bpnv',
+        pyrogen=pyrogen_obj,
         pyrogen_mass=None,
         T_ignition=850.0,
         P_cutoff=0.05e6,
-        # v0.7.3 Phase A diagnostic — reverse the mass-injection topology
         injection_topology='aft_basket',
-        cartridge_length_m=-1.0,   # derive from pyrogen mass + bore geometry
-        snapshot_interval=0.005,   # dense coverage of the back->front cascade
+        cartridge_length_m=-1.0,
+        snapshot_interval=0.005,
         print_interval=0.2,
-    )
-
-    out = artifact_dir('hasegawa_a_aft_basket')
-
-    plot_pressure(
-        result,
-        title="Hasegawa Motor A — aft_basket diagnostic (v0.7.3 Phase A)",
-        experimental=HASEGAWA_MOTOR_A_EXPERIMENTAL,
-        time_offset=EXPERIMENTAL_TIME_OFFSET,
-        save_path=str(out / 'pressure.png'),
-    )
-
-    plot_flow_snapshot(
-        result, t_target=0.05,
-        save_path=str(out / 'flow_t0p05.png'),
-    )
-
-    plot_flow_snapshot(
-        result, t_target=2.0,
-        save_path=str(out / 'flow_t2.png'),
-    )
-
-    plot_flow_snapshots(
-        result,
-        t_targets=[0.005, 0.020, 0.050, 0.100, 0.500],
-        fields=('P', 'u_cell', 'T', 'is_burning'),
-        title="Hasegawa A aft_basket — back->front cascade",
-        save_path=str(out / 'flow_multi.png'),
-    )
-
-    plot_field_heatmap(
-        result,
-        fields=('P', 'u_cell', 'T', 'is_burning'),
-        title="Hasegawa A aft_basket — x-t heatmap (full burn)",
-        save_path=str(out / 'heatmap_full.png'),
-    )
-
-    plot_field_heatmap(
-        result,
-        fields=('P', 'u_cell', 'T', 'is_burning'),
-        t_max=0.5,
-        title="Hasegawa A aft_basket — x-t heatmap (ignition, t<=0.5s)",
-        save_path=str(out / 'heatmap_ignition.png'),
-    )
-
-    plot_summary(
-        result, performance=perf,
-        experimental=HASEGAWA_MOTOR_A_EXPERIMENTAL,
-        time_offset=EXPERIMENTAL_TIME_OFFSET,
-        title="Hasegawa A aft_basket — Simulation Summary",
-        save_path=str(out / 'summary.png'),
+        verbose=False,
     )
 
     summary = result['summary']
     print(
-        f"hasegawa_motor_a_aft_basket: "
-        f"P_peak={summary['P_peak'] / 1e6:.2f} MPa @ t={summary['t_peak']:.3f} s, "
-        f"t_burn={summary['t_burn']:.3f} s, "
+        f"Hasegawa A [aft_basket / {mode}]: "
+        f"P_peak={summary['P_peak']/1e6:.2f} MPa @ t={summary['t_peak']:.3f}s, "
         f"impulse={perf['total_impulse']:.1f} N*s"
     )
-    print(f"Plots saved under {out}")
+
+    plot_pressure(
+        result,
+        title=f"Hasegawa A — aft_basket / {mode}",
+        experimental=HASEGAWA_MOTOR_A_EXPERIMENTAL,
+        time_offset=EXPERIMENTAL_TIME_OFFSET,
+        save_path=str(out / f'pressure_{mode}.png'),
+    )
+    plot_flow_snapshots(
+        result,
+        t_targets=[0.005, 0.020, 0.050, 0.100, 0.500],
+        fields=('P', 'u', 'T', 'is_burning'),
+        title=f"Hasegawa A aft_basket — back->front cascade ({mode})",
+        save_path=str(out / f'flow_multi_{mode}.png'),
+    )
+    plot_field_heatmap(
+        result,
+        fields=('P', 'u', 'T', 'T_surf', 'is_burning'),
+        t_max=0.5,
+        title=f"Hasegawa A aft_basket — x-t heatmap (ignition, {mode})",
+        save_path=str(out / f'heatmap_ignition_{mode}.png'),
+    )
+    plot_summary(
+        result, performance=perf,
+        experimental=HASEGAWA_MOTOR_A_EXPERIMENTAL,
+        time_offset=EXPERIMENTAL_TIME_OFFSET,
+        title=f"Hasegawa A aft_basket Summary ({mode})",
+        save_path=str(out / f'summary_{mode}.png'),
+    )
     plt.close('all')
+    return summary
+
+
+def main():
+    out = artifact_dir('hasegawa_a_aft_basket')
+    print("v0.7.3 Phase B.6 — Hasegawa A aft_basket diagnostic A/B/control")
+    print("  Diagnostic Q: does the simultaneous-ignition artifact "
+          "persist under reversed (aft) mass-injection topology?")
+    print("  Forward_plenum baseline: P_peak ~ 6.20 MPa @ t ~ 0.03 s "
+          "(v0.7.0 calibrated; pre-Phase-B.0)")
+    print()
+
+    s_none = _run_one('none', out)
+    s_demar = _run_one('demar', out)
+    s_radiation = _run_one('radiation', out)
+
+    print()
+    print(f"Plots saved under {out}")
+    print()
+    print("A/B summary:")
+    print(f"  none:      P_peak = {s_none['P_peak']/1e6:7.3f} MPa "
+          f"@ t={s_none['t_peak']:.3f} s")
+    print(f"  demar:     P_peak = {s_demar['P_peak']/1e6:7.3f} MPa "
+          f"@ t={s_demar['t_peak']:.3f} s")
+    print(f"  radiation: P_peak = {s_radiation['P_peak']/1e6:7.3f} MPa "
+          f"@ t={s_radiation['t_peak']:.3f} s")
+    print("  baseline:  P_peak ~ 6.20 MPa (forward_plenum, v0.7.0)")
 
 
 if __name__ == '__main__':

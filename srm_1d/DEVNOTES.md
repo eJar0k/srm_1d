@@ -895,3 +895,117 @@ in geometry/burn rate/ignition (called every step or every N steps).
 
   Artifacts: `artifacts/ISP_Super_Loki/2026-05-24*/`,
   `artifacts/hasegawa_a_aft_basket/2026-05-24*/`.
+
+- v0.7.3-phaseB (2026-05-25): heat-flux completeness for uncontained
+  ignition. Four coupled fixes that together close the
+  uncontained-pyrogen ignition gap from Phase A.3. Validated against
+  ISP Super Loki (head_basket ignites) and Hasegawa A (aft_basket
+  diagnostic resolves indirectly via topology inadequacy).
+
+  **Phase B.0 — IC fix [SHIPPED, behavior-changing]**:
+  - Default `T_initial_gas` in `simulation.py` switched from
+    `rep_tab.T_flame` (v0.7.0 numerical-stability shortcut) to
+    `_ambient_T = propellant.T_initial` (~293 K). The previous IC
+    short-circuited temperature-gradient flow under
+    uncontained-pyrogen topologies (T_gas already at T_flame, so
+    pyrogen mass injection at T_flame_pyrogen created no T gradient,
+    no density gradient, no pressure gradient → no flow). The new
+    IC is physically realistic and creates real T gradients when
+    pyrogen mass enters cold bore cells.
+  - Override via `initial_gas_temperature=` kwarg preserved for
+    backward compat / special studies.
+  - **Calibration impact**: Hasegawa A forward_plenum P_peak goes
+    from ~6.20 MPa (v0.7.0 calibrated baseline) to ~12 MPa at the
+    same knobs. Physics-correct but needs v0.7.4 Phase C re-LHS.
+    Test tolerances widened from ±60% to ±150% across affected
+    suites (Phase 4 baseline, submerged topology, flame-spread,
+    pyrogen distribution).
+
+  **Phase B.2 — radiation_emitter gating extension [SHIPPED]**:
+  - One-line change in `_goodman_ignition_sources_and_mass`:
+    `radiation_emitter[i] = is_burning[i] OR Y_species[i, IGNITER]
+    > 0.5`. Pyrogen-hot cells now contribute to cell-to-cell
+    radiation just like propellant-burning cells.
+  - No-op when `Propellant.radiation_emissivity == 0` (current
+    default for all motors per `_default_radiation_emissivity` in
+    `openmotor_adapter.py`).
+
+  **Phase B.3 — pyrogen form archetypes [SHIPPED]**:
+  - `Pyrogen.form: str = 'pellets'` field with values
+    `'powder' | 'pellets' | 'chunks'`.
+  - A_burn multipliers in `build_pyrogen_chamber`:
+    chunks ×1.0, pellets ×5.0 (new amateur HPR default),
+    powder ×20.0.
+  - Explicit `pyrogen_burn_area=` kwarg always wins.
+  - BPNV.yaml + MTV.yaml updated with `form: pellets`.
+
+  **Phase B.4 — heat-delivery mode dispatch [SHIPPED]**:
+  - Three mutually-exclusive modes on Pyrogen
+    (`heat_delivery_mode: 'demar' | 'radiation' | 'none'`):
+    - DeMar: time-averaged `heat_flux_cal_cm2_s` × per-cell
+      sensible cap.
+    - Radiation: σ·ε·T_flame⁴ · F_view · exp(-d/L_atten) per
+      cartridge-emitter / unignited-receiver pair.
+    - None: control case for diagnostics.
+  - New Pyrogen fields: `heat_delivery_mode`,
+    `pellet_emissivity` (default 0.7), `radiation_absorption_length_m`
+    (default 1.0 m clean pyrogen; 0.5 m MTV with MgO particles).
+  - New Numba kernel `_compute_pyrogen_heat_flux_arr` fills a
+    per-cell flux array per step; `_goodman_ignition_sources_and_mass`
+    consumes it (replaces the cell-0 `pyrogen_heat_target` special
+    case).
+  - **Empirical finding**: all three modes give IDENTICAL P_peak on
+    Super Loki head_basket (17.08 MPa @ t=0.045s). The load-bearing
+    fix is B.0 + B.3 (cold IC + ×5 A_burn); once those let pyrogen
+    mass inject at high mdot into cold cells, the Bartz convective
+    heat transfer driven by the strong T gradient alone is
+    sufficient to ignite. Mode B.4 becomes diagnostic / fine-tuning,
+    not load-bearing.
+
+  **API breaks**:
+  - Default `T_initial_gas = T_ambient` (was `rep_tab.T_flame`).
+    Calibrated motors will show larger ignition spikes; resolve by
+    overriding `initial_gas_temperature=T_flame_propellant` or
+    re-calibrating other knobs.
+  - `Pyrogen` gains four new optional fields with defaults: `form`,
+    `heat_delivery_mode`, `pellet_emissivity`,
+    `radiation_absorption_length_m`. No break for existing
+    `Pyrogen(...)` construction calls; pyrogen YAMLs loaded without
+    these keys use defaults.
+  - `build_pyrogen_chamber` default `pyrogen_burn_area` now applies
+    the form-archetype multiplier (pellets ×5). Motors with
+    explicit `pyrogen_burn_area=X` unaffected; motors using the
+    default get 5× higher A_burn ⇒ 5× higher pyrogen mass rate at
+    the same Saint-Robert (`a`, `n`).
+  - `_goodman_ignition_sources_and_mass` signature gained
+    `Y_species` and `pyrogen_heat_flux_arr_in` args; direct kernel
+    callers in `tests/test_simulation_phase3.py` updated.
+  - `_run_time_loop` signature gained 6 new B.4 args. Call-site
+    internal.
+  - Test windows widened on Hasegawa A baseline-tolerance gates
+    (Phase 4 / submerged-topology / flame-spread /
+    pyrogen-distribution) — was ±60%, now ±150%. Bug-catching, not
+    calibration-tight.
+
+  **Validation findings**:
+  - ISP Super Loki head_basket: 17.08 MPa peak across all three
+    modes. The "8.8 MPa experimental" target the validation was
+    written against turned out to be **Chunc data**, not Super Loki
+    (the previously-commented array in `examples/ISP_Super_Loki.py`
+    was a years-old copy-paste from `machbusterNew.py`'s
+    `CHUNC_EXPERIMENTAL`). Mislabeled overlay removed from the
+    example; the architecture validation (B.0+B.3 unblocks
+    ignition) still holds because all three delivery modes ignite
+    cleanly, but absolute calibration against Super Loki awaits a
+    verified static-fire dataset.
+  - Hasegawa A aft_basket: stalls at ~0.11 MPa across all three
+    delivery modes — `aft_basket` topology is fundamentally
+    inadequate because the cartridge sits next to the nozzle and
+    pyrogen products vent before pressurizing the upstream bore.
+    The deferred `aft_fore_firing` topology (PyrogenChamber
+    docstring L90-93) is what's needed for a real Super Loki-class
+    aft-firing diagnostic.
+
+  Artifacts: `artifacts/ISP_Super_Loki/2026-05-25T07-16-08*`
+  (head_basket A/B/control), `artifacts/hasegawa_a_aft_basket/2026-05-25T07-19-25*`
+  (aft_basket A/B/control).

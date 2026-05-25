@@ -528,6 +528,166 @@ def _compute_uniform_band_weights(dx, i_start, i_end, N, w):
         w[i] = dx[i] * inv_total
 
 
+# v0.7.3 Phase B.4: heat-delivery mode codes for uncontained pyrogen
+# topologies. Mutually exclusive at the implementation level to avoid
+# double-counting DeMar's already-included radiative component.
+HEAT_DELIVERY_NONE      = 0  # No pyrogen surface heat flux applied
+HEAT_DELIVERY_DEMAR     = 1  # Pyrogen.heat_flux_cal_cm2_s, distributed across cartridge cells
+HEAT_DELIVERY_RADIATION = 2  # Stefan-Boltzmann pellet emission + view factor + absorption
+
+
+def _heat_delivery_code(mode):
+    if mode == 'none':
+        return HEAT_DELIVERY_NONE
+    if mode == 'demar':
+        return HEAT_DELIVERY_DEMAR
+    if mode == 'radiation':
+        return HEAT_DELIVERY_RADIATION
+    raise ValueError(f"unknown heat_delivery_mode: {mode!r}")
+
+
+@njit(cache=True)
+def _compute_pyrogen_heat_flux_arr(
+    topology_code, heat_delivery_mode_code,
+    # Common
+    is_grain, has_ignited, T_surf, C_burn, mdot_igniter, dx, N,
+    pyrogen_heat_flux_arr,
+    # Forward plenum
+    head_grain_cell, fwd_plenum_flux_w_m2,
+    # Uncontained DEMAR
+    mdot_uncontained_arr, demar_flux_w_m2,
+    Cp_pyrogen, T_ig,
+    cart_i_start, cart_i_end,
+    # Uncontained RADIATION
+    T_flame_pyrogen, pellet_emissivity, radiation_absorption_length_m,
+    x_centers, A_port,
+):
+    """v0.7.3 Phase B.4 — fill per-cell pyrogen surface heat-flux array.
+
+    Three mutually-exclusive heat-delivery modes for uncontained
+    topologies, plus the existing forward-plenum DeMar path (topology
+    code 0). The output ``pyrogen_heat_flux_arr[i]`` is the per-cell
+    surface heat flux [W/m²] applied to the propellant surface via the
+    Goodman ignition kernel.
+
+    Mode semantics:
+    - ``HEAT_DELIVERY_NONE``: array stays at 0. Recovers v0.7.3-phaseA
+      uncontained behavior (no pyrogen surface heat delivery).
+    - ``HEAT_DELIVERY_DEMAR``: DeMar 2021 time-averaged flux applied
+      uniformly across cartridge cells with grain. Per-cell sensible
+      cap: flux_capped = min(demar_flux,
+                              mdot_local · Cp_pyrogen · (T_ig - T_surf)
+                              / (C_burn · dx))
+      where mdot_local is the per-cell pyrogen mdot from
+      _compute_uncontained_pyrogen_mdot. Empirically grounded for
+      pellet pyrogens (BKNO3, MTV).
+    - ``HEAT_DELIVERY_RADIATION``: Stefan-Boltzmann pellet emission
+      from cartridge cells to all unignited grain cells via geometric
+      view factor + exponential absorption-length attenuation:
+          q[j] = sum over e in cartridge cells (
+              σ · ε · (T_flame^4 - T_surf[j]^4) · F_ij · exp(-d/L)
+          )
+      where F_ij = A_port[j] / (4π·d² + A_port[j]) saturates to 1 for
+      adjacent cells and falls as ~1/d² far field. Emission ceases per
+      cell when its pyrogen mass is depleted (mdot_uncontained[e]==0).
+      Physically modeled; extensible to powder and chunks via T_flame.
+
+    For forward_plenum (topology_code == 0), the head_grain_cell
+    receives fwd_plenum_flux_w_m2 directly; the Goodman kernel applies
+    the standard sensible cap inside _pyrogen_surface_heat_power.
+
+    See srm_1d/docs/v0_7_3/PHASE_B_SCOPE.md §B.4 for the
+    double-counting analysis between 'demar' and 'radiation' modes.
+    """
+    for i in range(N):
+        pyrogen_heat_flux_arr[i] = 0.0
+
+    # Forward plenum: existing cell-0 DeMar with sensible cap based on
+    # total plenum vent mdot.
+    if topology_code == 0:
+        if not (head_grain_cell >= 0 and mdot_igniter > 0.0 and
+                fwd_plenum_flux_w_m2 > 0.0):
+            return
+        contact_area = C_burn[head_grain_cell] * dx
+        if contact_area <= 1.0e-16:
+            return
+        dT = T_ig - T_surf[head_grain_cell]
+        if dT <= 0.0:
+            return
+        measured_power = fwd_plenum_flux_w_m2 * contact_area
+        sensible_power = mdot_igniter * Cp_pyrogen * dT
+        delivered_power = (sensible_power if sensible_power < measured_power
+                           else measured_power)
+        if delivered_power > 0.0:
+            pyrogen_heat_flux_arr[head_grain_cell] = (
+                delivered_power / contact_area
+            )
+        return
+
+    # Uncontained: branch on heat delivery mode
+    if heat_delivery_mode_code == HEAT_DELIVERY_NONE:
+        return
+
+    if heat_delivery_mode_code == HEAT_DELIVERY_DEMAR:
+        if demar_flux_w_m2 <= 0.0:
+            return
+        lo = cart_i_start if cart_i_start >= 0 else 0
+        hi = cart_i_end if cart_i_end < N else N - 1
+        for i in range(lo, hi + 1):
+            if not is_grain[i] or has_ignited[i]:
+                continue
+            if mdot_uncontained_arr[i] <= 0.0:
+                continue
+            contact_area = C_burn[i] * dx
+            if contact_area <= 1.0e-16:
+                continue
+            dT = T_ig - T_surf[i]
+            if dT <= 0.0:
+                continue
+            # Per-cell sensible cap using cell-local pyrogen mdot
+            measured_power = demar_flux_w_m2 * contact_area
+            sensible_power = mdot_uncontained_arr[i] * Cp_pyrogen * dT
+            delivered_power = (sensible_power if sensible_power < measured_power
+                               else measured_power)
+            if delivered_power > 0.0:
+                pyrogen_heat_flux_arr[i] = delivered_power / contact_area
+        return
+
+    if heat_delivery_mode_code == HEAT_DELIVERY_RADIATION:
+        if pellet_emissivity <= 0.0:
+            return
+        lo = cart_i_start if cart_i_start >= 0 else 0
+        hi = cart_i_end if cart_i_end < N else N - 1
+        T_em4 = T_flame_pyrogen ** 4
+        # Receivers: ALL unignited grain cells (including those inside
+        # the cartridge range — pellets radiate to their own host cell's
+        # propellant surface too with F_view = 1 since distance = 0).
+        for j in range(N):
+            if not is_grain[j] or has_ignited[j]:
+                continue
+            if A_port[j] <= 0.0:
+                continue
+            T_rec4 = T_surf[j] ** 4
+            if T_em4 <= T_rec4:
+                continue
+            q_total = 0.0
+            for e in range(lo, hi + 1):
+                if mdot_uncontained_arr[e] <= 0.0:
+                    continue
+                dxc = x_centers[j] - x_centers[e]
+                d_sq = dxc * dxc
+                F_view = A_port[j] / (4.0 * np.pi * d_sq + A_port[j])
+                if radiation_absorption_length_m > 0.0:
+                    d_abs = np.sqrt(d_sq)
+                    atten = np.exp(-d_abs / radiation_absorption_length_m)
+                else:
+                    atten = 1.0
+                q_em = (5.670374419e-8 * pellet_emissivity *
+                        (T_em4 - T_rec4))
+                q_total += q_em * F_view * atten
+            pyrogen_heat_flux_arr[j] = q_total
+
+
 @njit(cache=True)
 def _compute_flame_front_augment(
     is_burning, has_ignited, ignition_time, t,
@@ -733,6 +893,10 @@ def _goodman_ignition_sources_and_mass(
     # v0.7.2 Phase B-v2: flame-front h_c augmentation
     flame_spread_augment,    # [N] per-cell h_c multiplier (1.0 = no boost)
     flame_spread_enabled,    # bool — gate the augmentation off entirely
+    # v0.7.3 Phase B.2: extend radiation_emitter to pyrogen-hot cells
+    Y_species,               # [N, S] per-cell species mass fractions
+    # v0.7.3 Phase B.4: pre-computed per-cell pyrogen surface heat flux
+    pyrogen_heat_flux_arr_in, # [N] W/m², pre-capped per topology+mode
 ):
     """Goodman surface-temperature ignition and propellant source assembly.
 
@@ -763,21 +927,26 @@ def _goodman_ignition_sources_and_mass(
     normal_sidewall_thermal_power = 0.0
     erosive_sidewall_thermal_power = 0.0
     endface_thermal_power = 0.0
-    pyrogen_heat_target = -1
-    head_grain_cell = -1
-
+    # v0.7.3 Phase B.2: a cell radiates meaningfully if EITHER its
+    # propellant is burning (existing criterion) OR its bore gas is
+    # majority-pyrogen species (new criterion). Pyrogen-hot cells with
+    # T_gas ≈ T_flame_pyrogen emit Stefan-Boltzmann radiation just like
+    # propellant-burning cells; the previous `is_burning[i]`-only gating
+    # missed pyrogen-driven radiation entirely under uncontained
+    # topologies. The Y > 0.5 threshold keeps the test cheap and
+    # self-deactivates once propellant gas displaces pyrogen in cells
+    # far from the cartridge.
+    # v0.7.3 Phase B.4: pyrogen surface heat flux is now pre-computed
+    # by _compute_pyrogen_heat_flux_arr (passed in as
+    # pyrogen_heat_flux_arr_in), replacing the head_grain_cell /
+    # pyrogen_heat_target single-cell special case.
+    Y_emit_threshold = 0.5
     for i in range(N):
         pyrogen_surface_heat_flux[i] = 0.0
         radiation_heat_flux[i] = 0.0
         radiation_sink_power[i] = 0.0
-        radiation_emitter[i] = is_burning[i]
-        if head_grain_cell < 0 and is_grain[i] and C_burn[i] > 0.0:
-            head_grain_cell = i
-
-    if (head_grain_cell >= 0 and mdot_igniter > 0.0 and
-            pyrogen_surface_heat_flux_w_m2 > 0.0 and
-            (not has_ignited[head_grain_cell])):
-        pyrogen_heat_target = head_grain_cell
+        radiation_emitter[i] = (is_burning[i] or
+                                Y_species[i, 0] > Y_emit_threshold)
 
     # v0.7.1: reset per-species mass source rows. Each step recomputes
     # contributions from grain (s=1) inside this loop; pyrogen (s=0) is
@@ -811,13 +980,19 @@ def _goodman_ignition_sources_and_mass(
                     h_c = h_c * flame_spread_augment[i]
                 h_total = h_c
                 h_driver_num = h_c * T[i]
-                if i == pyrogen_heat_target:
-                    power_w, flux_w_m2 = _pyrogen_surface_heat_power(
-                        mdot_igniter, T_ig, T_surf[i], C_burn[i], dx,
-                        Cp_pyrogen, pyrogen_surface_heat_flux_w_m2,
-                    )
-                    if power_w > 0.0 and flux_w_m2 > 0.0:
-                        pyrogen_surface_heat_power = power_w
+                # v0.7.3 Phase B.4: consume the pre-computed per-cell
+                # pyrogen heat flux (already topology/mode-dispatched
+                # and sensible-capped by _compute_pyrogen_heat_flux_arr).
+                # Replaces the v0.7.0-v0.7.3-phaseA single-cell DeMar
+                # special case at i == pyrogen_heat_target. The flux
+                # may be zero (mode 'none', non-cartridge cells in
+                # uncontained 'demar', etc.) — guarded below.
+                flux_w_m2 = pyrogen_heat_flux_arr_in[i]
+                if flux_w_m2 > 0.0:
+                    contact_area = C_burn[i] * dx
+                    if contact_area > 0.0:
+                        delivered_power = flux_w_m2 * contact_area
+                        pyrogen_surface_heat_power += delivered_power
                         pyrogen_surface_heat_flux[i] = flux_w_m2
                         h_ig = flux_w_m2 / max(T_ig - T_surf[i], 1.0e-9)
                         h_total += h_ig
@@ -1024,6 +1199,13 @@ def _run_time_loop(
     cart_i_start, cart_i_end,     # cartridge cell range (inclusive); both 0 for forward_plenum
     A_burn_per_cell,              # initial burning surface per cartridge cell (uncontained)
     mdot_uncontained_arr,         # [N] scratch for per-cell uncontained mdot
+    # --- v0.7.3 Phase B.4: pyrogen-to-surface heat delivery ---
+    heat_delivery_mode_code,      # 0=none, 1=demar, 2=radiation (uncontained only)
+    demar_flux_w_m2_uncontained,  # heat_flux_cal_cm2_s converted to W/m² (uncontained DeMar)
+    T_flame_pyrogen,              # adiabatic pyrogen flame T [K] (radiation emitter T)
+    pellet_emissivity,            # Stefan-Boltzmann emissivity [-] (radiation only)
+    radiation_absorption_length_m,# Beer-Lambert attenuation length [m] (radiation only)
+    pyrogen_heat_flux_arr,        # [N] scratch buffer filled per step
 ):
     """
     The complete simulation time loop, compiled to native code.
@@ -1272,16 +1454,38 @@ def _run_time_loop(
         active_pyrogen_surface_heat_flux_w_m2 = pyrogen_surface_heat_flux_w_m2
         if diagnostic_disable_pyrogen_surface_heating:
             active_pyrogen_surface_heat_flux_w_m2 = 0.0
-        # v0.7.3 Phase A: uncontained pyrogen has no impinging "plume"
-        # on a leading-edge unignited cell — heat enters via bulk mass
-        # injection at the cartridge cells. Disable DeMar surface
-        # heating for these topologies.
-        if topology_code != 0:
-            active_pyrogen_surface_heat_flux_w_m2 = 0.0
 
         # v0.7.1 Phase 3.5: each combustion source uses its own species Cp.
         Cp_propellant_species = species_params_arr[_SPECIES_PROPELLANT, 1]
         Cp_pyrogen_species = species_params_arr[_SPECIES_IGNITER, 1]
+
+        # v0.7.3 Phase B.4: build the per-cell pyrogen surface heat
+        # flux array. Forward_plenum uses single-cell DeMar at the head
+        # grain cell; uncontained topologies dispatch on
+        # Pyrogen.heat_delivery_mode (DeMar / Radiation / None).
+        # Replaces the v0.7.0-v0.7.3-phaseA "disabled for uncontained"
+        # logic above with a mode-aware path that finally lets
+        # uncontained topologies deliver heat to the propellant
+        # surface.
+        # Find the head grain cell (smallest i with grain + C_burn > 0
+        # AND not yet ignited) for forward_plenum DeMar targeting.
+        head_grain_cell = -1
+        for i in range(N):
+            if (is_grain[i] and C_burn[i] > 0.0 and not has_ignited[i]):
+                head_grain_cell = i
+                break
+        _compute_pyrogen_heat_flux_arr(
+            topology_code, heat_delivery_mode_code,
+            is_grain, has_ignited, T_surf, C_burn, mdot_igniter, dx, N,
+            pyrogen_heat_flux_arr,
+            head_grain_cell, active_pyrogen_surface_heat_flux_w_m2,
+            mdot_uncontained_arr, demar_flux_w_m2_uncontained,
+            Cp_pyrogen_species, T_ig,
+            cart_i_start, cart_i_end,
+            T_flame_pyrogen, pellet_emissivity,
+            radiation_absorption_length_m,
+            x_centers, A_port,
+        )
 
         # v0.7.2 Phase B-v2: flame-front augmentation. Always computed
         # (cheap, O(N)); the multiply is gated INSIDE the Goodman kernel
@@ -1314,6 +1518,10 @@ def _run_time_loop(
             mass_source_by_species,
             # v0.7.2 Phase B-v2: flame-front h_c augmentation
             flame_spread_augment, flame_spread_enabled,
+            # v0.7.3 Phase B.2: pyrogen-hot cells emit radiation
+            Y_species,
+            # v0.7.3 Phase B.4: pre-computed per-cell pyrogen heat flux
+            pyrogen_heat_flux_arr,
         )
 
         # v0.7.1 Phase 3.5: pyrogen mass injection uses pyrogen Cp for the
@@ -1839,7 +2047,15 @@ def run_simulation(
 
     # Flow state
     P = np.full(N, P_ambient)
-    T_initial_gas = rep_tab.T_flame
+    # v0.7.3 Phase B.0 (2026-05-25): default bore IC switched from
+    # rep_tab.T_flame (v0.7.0 numerical-stability shortcut) to _ambient_T
+    # (= propellant.T_initial unless overridden via ambient_temperature
+    # kwarg). The previous IC short-circuited temperature-gradient flow
+    # under uncontained-pyrogen topologies (the bore was already at flame T
+    # so pyrogen mass injection at T_flame_pyrogen created no T gradient,
+    # no density gradient, no pressure gradient → no flow). Override with
+    # initial_gas_temperature= for backward compat or special studies.
+    T_initial_gas = _ambient_T
     if initial_gas_temperature is not None:
         T_initial_gas = float(initial_gas_temperature)
     rho = P / (gas.R_specific * T_initial_gas)
@@ -1849,9 +2065,10 @@ def run_simulation(
     # v0.7.1: per-cell species mass fractions. Y_species[i, s] is the
     # mass fraction of species s in cell i. Invariant: sum_s Y[i, s] = 1.
     # Initial condition: all cells start as 100% ambient (species 2).
-    # The species composition tracks separately from temperature; the
-    # numerical-stability shortcut of initializing T at the propellant
-    # T_flame is preserved in T_initial_gas above.
+    # v0.7.3 Phase B.0: this is now self-consistent — Y=ambient at
+    # T=ambient. Previously Y=ambient at T=T_flame_propellant (mildly
+    # unphysical "cold air composition at hot temperature" per v0.7.1
+    # DESIGN §3 — that workaround is now superseded).
     Y_species = np.zeros((N, S_species))
     Y_species[:, SPECIES_AMBIENT] = 1.0
 
@@ -1931,6 +2148,27 @@ def run_simulation(
     n_cart_cells = max(1, cart_i_end - cart_i_start + 1)
     A_burn_per_cell = pyrogen_chamber.A_burn_initial / n_cart_cells
     mdot_uncontained_arr = np.zeros(N)
+
+    # v0.7.3 Phase B.4: pyrogen-to-surface heat delivery resolution.
+    # The mode is read from the Pyrogen YAML; the DeMar flux conversion
+    # cal/cm²/s → W/m² happens here (1 cal = 4.184 J; 1 cal/cm²/s =
+    # 4.184e4 W/m²). For radiation mode, pellet_emissivity and
+    # radiation_absorption_length_m come straight from the Pyrogen.
+    heat_delivery_mode_code = _heat_delivery_code(
+        pyrogen_chamber.pyrogen.heat_delivery_mode
+    )
+    if pyrogen_chamber.pyrogen.heat_flux_cal_cm2_s is not None:
+        demar_flux_w_m2_uncontained = float(
+            pyrogen_chamber.pyrogen.heat_flux_cal_cm2_s
+        ) * 4.184e4
+    else:
+        demar_flux_w_m2_uncontained = 0.0
+    T_flame_pyrogen_val = float(pyrogen_chamber.pyrogen.T_flame)
+    pellet_emissivity_val = float(pyrogen_chamber.pyrogen.pellet_emissivity)
+    radiation_absorption_length_val = float(
+        pyrogen_chamber.pyrogen.radiation_absorption_length_m
+    )
+    pyrogen_heat_flux_arr = np.zeros(N)
 
     # v0.7.2 Phase B-v2: flame-front h_c augmentation working state.
     # flame_spread_augment[i] is refreshed each step by
@@ -2123,6 +2361,9 @@ def run_simulation(
         # v0.7.3 Phase A: igniter topology (uncontained vs plenum)
         topology_code, cart_i_start, cart_i_end,
         A_burn_per_cell, mdot_uncontained_arr,
+        heat_delivery_mode_code, demar_flux_w_m2_uncontained,
+        T_flame_pyrogen_val, pellet_emissivity_val,
+        radiation_absorption_length_val, pyrogen_heat_flux_arr,
     )
 
     wall_elapsed = clock.time() - wall_start

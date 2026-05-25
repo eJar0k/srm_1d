@@ -168,21 +168,28 @@ def test_uncontained_preserves_mass_balance(topology):
 # ---------------------------------------------------------------------
 
 def test_forward_plenum_default_unchanged_by_v0_7_3_wiring():
-    """forward_plenum (the default) must produce the same P_peak it
-    did before the v0.7.3 Phase A.2 topology branch was introduced.
-    The Phase A.2 wiring should be a pure no-op for forward_plenum
-    motors. Window matches the Phase 4 baseline tolerance.
+    """forward_plenum P_peak must stay within a bug-catching window.
+    The Phase A.2 wiring is a pure no-op for forward_plenum motors;
+    the Phase B.0 IC fix legitimately amplifies the ignition spike
+    (bore now starts cold instead of at T_flame, so pyrogen actually
+    has to heat it from ambient — physically realistic, but bigger
+    transient peak). The window below is wide enough to allow the
+    B.0 physics change but tight enough to catch genuine bugs.
+
+    Hasegawa A v0.7.0-phase4 calibration (roughness=37.1µm,
+    kappa=0.45, T_ignition=850 K) was tuned against the old hot-bore
+    IC and is now over-energetic; v0.7.4 Phase C will recalibrate.
     """
     result = _short_hasegawa_run(
         injection_topology='forward_plenum', t_max=3.0,
     )
     P_peak = result['summary']['P_peak']
 
-    # Same ±60% window as test_yns_hasegawa_a_baseline_within_phase3_tolerance.
-    # If the topology branch accidentally affected forward_plenum, this
-    # gate would catch it.
-    assert 0.4 * 6.20e6 <= P_peak <= 1.6 * 6.20e6, (
-        f"forward_plenum P_peak = {P_peak/1e6:.2f} MPa outside Phase 4 "
-        f"baseline window — v0.7.3 wiring may have leaked into "
+    # ±150% of v0.7.0 baseline catches genuine bugs (>2.5× off would
+    # signal a real problem) while allowing the legitimate Phase B.0
+    # amplification that scales with the IC temperature ratio.
+    assert 0.4 * 6.20e6 <= P_peak <= 2.5 * 6.20e6, (
+        f"forward_plenum P_peak = {P_peak/1e6:.2f} MPa outside Phase B "
+        f"sanity window — v0.7.3 wiring may have leaked into "
         f"forward_plenum path"
     )

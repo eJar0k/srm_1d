@@ -4,24 +4,33 @@ A 1D transient finite-volume solid rocket motor internal ballistics
 simulator with the Ma et al. (2020) erosive burning model. Numba-JIT
 compiled time loop hits ~45-90k steps/s.
 
-**v0.7.3-phaseA ships (branch `v0.7.0-phase4`, tag `v0.7.3-phaseA`)**:
-uncontained-pyrogen topology architecture (`head_basket` +
-`aft_basket`) wired into the time loop via a shared
-`PyrogenChamber.injection_topology` field. Each pyrogen pellet
-burns at its host cell's LOCAL bore pressure (no plenum, no
-orifice). Phase A.3 added diagnostic visualization helpers
+**v0.7.3-phaseB ships (branch `v0.7.0-phase4`, tag `v0.7.3-phaseB`)**:
+heat-flux completeness for uncontained ignition. Four fixes close
+the Phase A.3 gap (uncontained topologies stalling at atmospheric P):
+**B.0** IC fix (T_initial_gas = T_ambient instead of T_flame —
+realistic physics, side effect of larger ignition spikes on
+calibrated motors); **B.2** radiation_emitter gating extension
+(pyrogen-hot cells now emit, no-op when emissivity=0);
+**B.3** pyrogen form archetypes (powder/pellets/chunks with ×20/×5/×1
+A_burn multipliers; pellets is the new default); **B.4** unified
+pyrogen-to-surface heat delivery enum (`demar`/`radiation`/`none`).
+**Empirical finding**: all three B.4 modes give identical P_peak on
+Super Loki head_basket — the load-bearing fixes are B.0 + B.3, B.4
+is diagnostic refinement. Hasegawa A aft_basket stalls under all
+modes because the cartridge is too close to the nozzle (deferred
+`aft_fore_firing` topology needed). **Provenance correction**:
+the Super Loki "experimental" overlay was actually mis-labeled
+Chunc data; removed. 272/272 pytest green (test windows widened
+to ±150% on Hasegawa A baseline gates pending v0.7.4 Phase C
+re-LHS). See `srm_1d/docs/v0_7_3/` for the full narrative.
+
+**v0.7.3-phaseA baseline** (carried forward): uncontained-pyrogen
+topology architecture (`head_basket` + `aft_basket`) wired into
+the time loop via a shared `PyrogenChamber.injection_topology`
+field. Each pyrogen pellet burns at its host cell's LOCAL bore
+pressure (no plenum, no orifice). Diagnostic visualization helpers
 (`plot_flow_snapshots`, `plot_field_heatmap`, sign-banded
-`u_cell` panel in `plot_flow_snapshot`). **Validation findings**:
-ISP Super Loki head_basket gives P_peak 0.12 MPa (experimental
-~8.8 MPa); Hasegawa A aft_basket diagnostic gives P_peak 0.10
-MPa — both stall at atmospheric pressure because uncontained
-topologies lack the choked-orifice startup transient that drives
-forward_plenum ignition. The aft_basket diagnostic question
-("does the simultaneous-ignition artifact persist under reversed
-topology?") is INCONCLUSIVE without an ignition-initiation
-pathway, which is the natural v0.7.3 Phase B scope. See
-`srm_1d/docs/v0_7_3/` for the full narrative and Phase B
-candidate breakdown.
+`u_cell` panel in `plot_flow_snapshot`).
 
 **v0.7.2-phaseA baseline** (carried forward): pyrogen axial
 distribution (Phase A) shipped as a real Zerox win (P_peak

@@ -97,14 +97,16 @@ ZEROX_EXPERIMENTAL = {
 }
 
 
-# ISP Super Loki static-fire (ISP Corporation, head-end BKNO3 pellet
-# charge in consumable moisture cup — head_basket topology). 59-point
-# digitized pressure trace (MPa). v0.7.3 Phase A validation target —
-# see srm_1d/docs/v0_7_3/TASKS.md and the PyrogenChamber docstring at
-# srm_1d/igniter_plenum.py L52-L120 for the head_basket topology
-# rationale (NASA CR-61238 / MIT Super Loki Report lit dive).
-ISP_SUPER_LOKI_EXPERIMENTAL = {
-    'label': 'Experimental (ISP Super Loki)',
+# Chunc / machbusterNew static-fire pressure trace (8.8 MPa plateau,
+# ~1 s burn). 59-point digitized. Originally mis-labeled as "Hasegawa"
+# in srm_1d/examples/ISP_Super_Loki.py via a copy-paste, then
+# mis-promoted to ISP_SUPER_LOKI_EXPERIMENTAL in v0.7.3 Phase A.3
+# (2026-05-24). User flagged the provenance error 2026-05-25: this is
+# actually Chunc data (matches srm_1d/examples/machbusterNew.py's
+# CHUNC_EXPERIMENTAL). We do NOT have a verified Super Loki
+# experimental dataset in the repo.
+CHUNC_EXPERIMENTAL = {
+    'label': 'Experimental (Chunc / machbusterNew)',
     'time': np.array([
         0.0, 0.01, 0.044, 0.085, 0.126, 0.167, 0.207, 0.248, 0.289, 0.33,
         0.37, 0.411, 0.452, 0.493, 0.533, 0.574, 0.615, 0.655, 0.696,
@@ -433,8 +435,8 @@ def plot_flow_snapshot(result, t_target=None, snap_index=None,
     # Velocity (cell-centered, signed). Positive = downstream, negative =
     # upstream (back-firing aft_basket diagnostic). Color the line by
     # sign-band so reversed-flow regions are visually obvious.
-    if 'u_cell' in snap:
-        u = snap['u_cell']
+    if 'u' in snap:
+        u = snap['u']
         axes[1, 0].axhline(0.0, color='gray', linewidth=0.8, alpha=0.6)
         axes[1, 0].plot(x_mm, u, 'k-', linewidth=1.5)
         # Fill positive region green, negative region red
@@ -507,7 +509,7 @@ def plot_flow_snapshot(result, t_target=None, snap_index=None,
 _FIELD_LABELS = {
     'P':         ('Pressure [MPa]',     lambda v: v / 1e6),
     'Mach':      ('Mach',               lambda v: v),
-    'u_cell':    ('u_cell [m/s]',       lambda v: v),
+    'u':    ('u_cell [m/s]',       lambda v: v),
     'T':         ('Gas Temp [K]',       lambda v: v),
     'T_surf':    ('Surface Temp [K]',   lambda v: v),
     'r_total':   ('r_total [mm/s]',     lambda v: v * 1000),
@@ -521,7 +523,7 @@ _FIELD_LABELS = {
 }
 
 
-def plot_flow_snapshots(result, t_targets, fields=('P', 'Mach', 'u_cell', 'T'),
+def plot_flow_snapshots(result, t_targets, fields=('P', 'Mach', 'u', 'T'),
                         title=None, save_path=None):
     """v0.7.3 Phase A — multi-time snapshot subplot grid.
 
@@ -539,7 +541,7 @@ def plot_flow_snapshots(result, t_targets, fields=('P', 'Mach', 'u_cell', 'T'),
         Target times [s]; rendered in the supplied order.
     fields : iterable of str
         Snapshot keys to plot per row. Defaults to
-        ``('P', 'Mach', 'u_cell', 'T')``. Any of the keys in
+        ``('P', 'Mach', 'u', 'T')``. Any of the keys in
         ``_FIELD_LABELS`` may be requested; unknown keys are skipped
         with a one-line note in the panel.
     title : str or None
@@ -604,7 +606,7 @@ def plot_flow_snapshots(result, t_targets, fields=('P', 'Mach', 'u_cell', 'T'),
                 continue
             ylabel, scale = _FIELD_LABELS[field]
             y = scale(np.asarray(snap[field]))
-            if field == 'u_cell':
+            if field == 'u':
                 ax.axhline(0.0, color='gray', linewidth=0.7, alpha=0.6)
                 ax.plot(x_mm, y, 'k-', linewidth=1.2)
                 ax.fill_between(x_mm, y, 0.0, where=(y > 0),
@@ -646,7 +648,7 @@ def plot_flow_snapshots(result, t_targets, fields=('P', 'Mach', 'u_cell', 'T'),
 # x-t Field Heatmap (v0.7.3 Phase A)
 # ================================================================
 
-def plot_field_heatmap(result, fields=('P', 'u_cell', 'T', 'is_burning'),
+def plot_field_heatmap(result, fields=('P', 'u', 'T', 'is_burning'),
                        cmap=None, title=None, save_path=None,
                        t_max=None):
     """v0.7.3 Phase A — render snapshot fields as 2D x-t heatmaps.
@@ -664,11 +666,11 @@ def plot_field_heatmap(result, fields=('P', 'u_cell', 'T', 'is_burning'),
         Output from ``run_simulation``. Must have ``'snapshots'``.
     fields : iterable of str
         Snapshot keys to render; one panel per field. Defaults to
-        ``('P', 'u_cell', 'T', 'is_burning')``.
+        ``('P', 'u', 'T', 'is_burning')``.
     cmap : dict or None
         Optional per-field colormap override mapping field name to
         a matplotlib colormap name. Defaults:
-        ``{'P': 'viridis', 'u_cell': 'RdBu_r', 'T': 'inferno',
+        ``{'P': 'viridis', 'u': 'RdBu_r', 'T': 'inferno',
         'is_burning': 'Oranges'}``.
     title : str or None
         Figure title; auto-generated if None.
@@ -712,7 +714,7 @@ def plot_field_heatmap(result, fields=('P', 'u_cell', 'T', 'is_burning'),
     t_axis = snap_times[snap_indices]
 
     default_cmaps = {
-        'P': 'viridis', 'u_cell': 'RdBu_r', 'T': 'inferno',
+        'P': 'viridis', 'u': 'RdBu_r', 'T': 'inferno',
         'is_burning': 'Oranges', 'Mach': 'plasma',
         'r_total': 'viridis', 'mass_source': 'cividis',
         'thermal_source': 'magma',
@@ -740,7 +742,7 @@ def plot_field_heatmap(result, fields=('P', 'u_cell', 'T', 'is_burning'),
                       for i in snap_indices])
         cmap_name = cmap_for.get(field, 'viridis')
         # Symmetric colorbar for signed fields
-        if field == 'u_cell':
+        if field == 'u':
             zmax = float(np.max(np.abs(Z))) if Z.size else 1.0
             zmax = zmax if zmax > 0 else 1.0
             im = ax.pcolormesh(x_mm, t_axis, Z, cmap=cmap_name,

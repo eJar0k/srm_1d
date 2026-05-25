@@ -118,17 +118,24 @@ def test_kappa_jet_zero_and_default_differ_in_pyrogen_spread():
     species_names = result_zero['species_names']
     pyro_idx = list(species_names).index('BPNV_gas')
 
+    # v0.7.3 Phase B.0: with the cold-bore IC, pyrogen species advects
+    # readily through the entire bore under both kappa_jet=0 and
+    # kappa_jet=8, so the Y > 0.01 threshold saturates (both reach all
+    # 106 cells). Tightened to Y > 0.3 (cells where pyrogen is the
+    # dominant species) to recover the kernel's distinguishing signal:
+    # kappa_jet=8 spreads majority-pyrogen across more cells near the
+    # head end than kappa_jet=0 (which dumps all pyrogen into cell 0).
     n_pyrogen_rich_zero = int(
-        np.sum(result_zero['Y_species_final'][:, pyro_idx] > 0.01)
+        np.sum(result_zero['Y_species_final'][:, pyro_idx] > 0.3)
     )
     n_pyrogen_rich_default = int(
-        np.sum(result_default['Y_species_final'][:, pyro_idx] > 0.01)
+        np.sum(result_default['Y_species_final'][:, pyro_idx] > 0.3)
     )
 
     assert n_pyrogen_rich_default > n_pyrogen_rich_zero, (
         f"kappa_jet=8 should spread pyrogen mass across more cells "
         f"than kappa_jet=0; got {n_pyrogen_rich_default} vs "
-        f"{n_pyrogen_rich_zero} cells with Y_pyrogen > 0.01"
+        f"{n_pyrogen_rich_zero} cells with Y_pyrogen > 0.3"
     )
 
 

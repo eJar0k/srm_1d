@@ -128,6 +128,48 @@ class Pyrogen:
     # srm_1d/docs/v0_7_2/candidates/03_pyrogen_spatial_distribution.md.
     kappa_jet: float = 8.0
 
+    # v0.7.3 Phase B.3: physical form of the pyrogen charge. Sets the
+    # default surface-area multiplier in build_pyrogen_chamber (chunks
+    # = single sphere; pellets = many small pellets; powder = fine
+    # particles). Multipliers correspond to characteristic burn
+    # timescales: chunks ~100s-1000s ms, pellets ~100 ms, powder
+    # ~1-10 ms. See `[[pyrogen-form-archetypes]]` memory. Override via
+    # explicit `pyrogen_burn_area=` kwarg always wins (literal value).
+    # Default 'pellets' reflects amateur HPR majority case.
+    form: str = 'pellets'
+
+    # v0.7.3 Phase B.4: pyrogen-to-propellant heat delivery mode for
+    # uncontained topologies (head_basket, aft_basket). Mutually
+    # exclusive modes (no double-counting of the radiative component):
+    #   'demar'      — apply Pyrogen.heat_flux_cal_cm2_s as a
+    #                  time-averaged total flux distributed across
+    #                  cartridge cells. Empirically grounded for
+    #                  pellet pyrogens (BKNO3 BPNV, MTV) where DeMar
+    #                  2021 measured. Doesn't model distance falloff.
+    #   'radiation'  — Stefan-Boltzmann pellet emission:
+    #                  q = sigma * pellet_emissivity * T_flame^4 *
+    #                      F_view * exp(-d / radiation_absorption_length_m)
+    #                  where F_view is the geometric view factor
+    #                  A_port_j / (4*pi*(x_j - x_i)^2 + A_port_j).
+    #                  Physically modeled; extensible to powder/chunks.
+    #   'none'       — neither pathway. Recovers v0.7.3-phaseA
+    #                  byte-for-byte; backward-compat regression target.
+    # Default 'demar' for pellet pyrogens (best empirical grounding);
+    # powder/chunks should override to 'radiation' in their YAMLs.
+    heat_delivery_mode: str = 'demar'
+
+    # v0.7.3 Phase B.4 (radiation mode only): pellet emissivity at
+    # T_flame. Lit range 0.5-0.9 for ceramic/metal-oxide combustion
+    # products; 0.7 is a defensible mid-range default. Highly tunable.
+    pellet_emissivity: float = 0.7
+
+    # v0.7.3 Phase B.4 (radiation mode only): aggregate radiation
+    # absorption length capturing combined gas + particle attenuation.
+    # Clean (non-aluminized) pyrogen exhaust: ~1 m. Aluminized exhaust
+    # (Al2O3 droplet fog): ~0.1 m. Default 1.0 m matches clean
+    # pellet pyrogens (BKNO3, MTV without metal).
+    radiation_absorption_length_m: float = 1.0
+
     @property
     def species(self) -> "GasSpecies":
         """
