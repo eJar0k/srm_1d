@@ -128,15 +128,33 @@ class Pyrogen:
     # srm_1d/docs/v0_7_2/candidates/03_pyrogen_spatial_distribution.md.
     kappa_jet: float = 8.0
 
-    # v0.7.3 Phase B.3: physical form of the pyrogen charge. Sets the
-    # default surface-area multiplier in build_pyrogen_chamber (chunks
-    # = single sphere; pellets = many small pellets; powder = fine
-    # particles). Multipliers correspond to characteristic burn
-    # timescales: chunks ~100s-1000s ms, pellets ~100 ms, powder
-    # ~1-10 ms. See `[[pyrogen-form-archetypes]]` memory. Override via
-    # explicit `pyrogen_burn_area=` kwarg always wins (literal value).
-    # Default 'pellets' reflects amateur HPR majority case.
+    # v0.7.3 Phase B.3: physical form of the pyrogen charge.
+    # v0.7.4 Phase C.1: form is now informational only — actual A_burn
+    # is computed in build_pyrogen_chamber from the explicit physical
+    # particle dimensions below (`particle_diameter_m`,
+    # `particle_LD_ratio`). The form field is retained as a YAML
+    # convention marker (e.g., 'pellets' for BKNO3/MTV) and may be
+    # consumed by future preset / lookup logic, but the legacy
+    # ×1/×5/×20 multiplier dispatch is removed.
+    # See `[[pyrogen-form-archetypes]]` memory.
     form: str = 'pellets'
+
+    # v0.7.4 Phase C.1: explicit physical particle dimensions for the
+    # pyrogen charge. Replaces the v0.7.3 form-archetype A_burn
+    # multipliers with first-principles geometry:
+    #   sphere    (LD_ratio <= 1):  A = 6 · m / (ρ · d)
+    #   cylinder  (LD_ratio  > 1):  A = m · (4·λ + 2) / (ρ · λ · d)
+    # where λ = particle_LD_ratio. The user supplies a characteristic
+    # diameter d for each pyrogen, plus L/D = 1.0 (sphere) for
+    # powders and L/D >= 2.0 for pellets / slivers. Defensible defaults
+    # (per amateur HPR practice):
+    #   - BKNO3 (BPNV) pellets: d ≈ 5 mm, L/D ≈ 3 (cylinder)
+    #   - MTV pellets:          d ≈ 5 mm, L/D ≈ 3 (cylinder)
+    #   - Cu/Al thermite:       d ≈ 100-200 µm sphere (mesh-dependent;
+    #                                                  agglomeration uncertain)
+    # Override via explicit `pyrogen_burn_area=` kwarg always wins.
+    particle_diameter_m: float = 5.0e-3
+    particle_LD_ratio: float = 3.0
 
     # v0.7.3 Phase B.4: pyrogen-to-propellant heat delivery mode for
     # uncontained topologies (head_basket, aft_basket). Mutually

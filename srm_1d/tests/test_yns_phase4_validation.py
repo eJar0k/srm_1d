@@ -263,11 +263,10 @@ def test_yns_hasegawa_a_baseline_within_phase3_tolerance():
 
     # P_peak: ±150% of v0.7.0 baseline. The original Phase 4 window
     # was ±10%; widened to ±50% then ±60% to accommodate Phase B
-    # spike amplification; widened again to ±150% in v0.7.3 Phase B.0
-    # because the IC fix (bore IC = T_ambient instead of T_flame) is a
-    # realistic physics change that legitimately amplifies the
-    # transient ignition spike. v0.7.4 Phase C will recalibrate
-    # roughness/kappa/T_ignition against the new IC.
+    # spike amplification; widened to ±150% in v0.7.3 Phase B.0 (IC
+    # fix). v0.7.4 Phase C.1 (geometry refactor) keeps the BPNV
+    # seed Saint-Robert in the YAML; the literature value is
+    # documented but deferred to v0.7.4 Phase C re-LHS.
     p_low = 0.4 * _V070_HASEGAWA_PEAK_P_PA
     p_high = 2.5 * _V070_HASEGAWA_PEAK_P_PA
     assert p_low <= P_peak <= p_high, (

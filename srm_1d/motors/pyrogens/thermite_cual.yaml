@@ -1,0 +1,117 @@
+# Copper-aluminum thermite (CuO + Al), stoichiometric (2 Al + 3 CuO → Al2O3 + 3 Cu).
+#
+# Primary references:
+# - Reese et al. 2013, "CuO/Al Thermites for Solid Rocket Motor Ignition,"
+#   J. Propulsion & Power Vol 29 No 5 (often cited as "Reese 2015"
+#   because print issue postdates online appearance).
+# - Fischer & Grubelich 1996, Sandia SAND96-2826C (heat-of-reaction tables).
+# - INL Digital Library, "Quantification of Heat Flux from a Reacting
+#   Thermite Spray" (peak heat flux measurement).
+# - See srm_1d/docs/v0_7_3/references/pyrogen_physical_params_lit_dive.md §3.
+# - srm_1d/docs/post_v0_7_1/references/copper_thermite_igniter_literature.md.
+#
+# ============================================================================
+# ARCHITECTURAL WARNING (v0.7.4 Phase C.1)
+# ============================================================================
+# Cu/Al thermite is NOT a Saint-Robert pyrogen. Three reasons:
+#   1. Pressure-independent deflagration (n ≈ 0); thermite rate is set by
+#      Al-particle-melting and CuO-decomposition kinetics, not pressure-
+#      coupled mass diffusion. Reese 2013, Fischer/Grubelich 1996, and
+#      the nanothermite literature all confirm n ≈ 0 across 0.1-10 MPa.
+#   2. No surface-regression geometry. A Cu/Al pellet has an irregular
+#      reaction front with copper droplets ejected before full conversion.
+#      "Linear burn rate" is an average, not a regression-rate quantity.
+#   3. Energy delivery is condensed-phase. ~90% of chemical energy
+#      reaches the propellant grain as molten Cu/Al2O3 droplet
+#      impingement + thermal radiation — NOT as advecting gas. srm_1d's
+#      current Pyrogen model injects gaseous mass + enthalpy + momentum,
+#      which mass-balance-violates (no gas to advect) and heat-balance-
+#      violates (no enthalpy in gas) for thermite.
+#
+# The values below COERCE the current Pyrogen architecture to run, with
+# documented compromises:
+#   - n = 0 (pressure-independent)
+#   - a chosen so r ≈ 15 mm/s at any P (Reese loose-pressed central value)
+#   - heat_delivery_mode = 'radiation' (matches the physical mechanism)
+#   - rho left at typical 30% TMD value; this OVER-estimates available
+#     gas mass by ~10× because real gas yield is ~10% of consumed mass.
+#     If you want mass-balance-correct timing, scale rho down by 10×
+#     (effective rho ≈ 350 kg/m^3); this is documented hack territory.
+#
+# **Clean v0.8 path**: separate Thermite dataclass with
+# mass_delivery_mode='droplet' + heat_delivery_mode='surface_flux_only'.
+# Tracked in memory `[[reference_copper_thermite_igniter]]`. This YAML
+# is a temporary workaround so users can experiment now.
+#
+# DO NOT use this pyrogen for validated motor runs without
+# understanding the limitations above.
+# ============================================================================
+
+name: Cu/Al thermite (CuO + Al stoichiometric)
+
+# Saint-Robert: pressure-independent (n=0). r_b ≈ 15 mm/s (Reese 2013
+# loose-pressed central value) at all P. Set a so that r = a * P^0 = a:
+# a = 0.015 m/s.
+a: 0.015
+n: 0.0
+
+# Bulk density. Reese 2013 tested at 30-90% TMD; theoretical max density
+# (TMD) of stoichiometric Cu/Al thermite is ~5.1 g/cm^3. Mid-range
+# 70% TMD = 3570 kg/m^3 is a defensible default. NOTE: see warning above
+# about mass-balance — gas yield is ~10% so this OVER-estimates injected
+# gas mass.
+rho: 3570.0
+
+# Adiabatic flame temperature (Reese 2013, Fischer/Grubelich 1996).
+# Capped in some configurations by Cu vaporization at ~2840 K.
+T_flame: 2843.0
+
+# Gas-product effective molar mass. Cu vapor (M=0.0635) dominates the
+# gas-phase products; rest is Al2O3 droplets that don't advect with gas.
+M: 0.064
+
+# Gamma for the Cu-vapor-dominated gas phase: monatomic-rich → γ ≈ 1.3.
+gamma: 1.3
+
+# Impetus: low because most chemical energy goes into condensed-phase
+# products. Estimated from heat-of-reaction (~4.0 MJ/kg) × gas fraction
+# (~10%) → low gas-pressure work.
+impetus_W: 500.0
+
+# Heat flux measurement (INL spray-flux study, peak ~10-30 MW/m^2 at
+# 5 mm standoff). Converting 10 MW/m^2 ≈ 250 cal/(cm^2·s). This is the
+# defensible peak value; time-averaged over the 75 ms action time would
+# be lower. v0.7.3-phaseB 'demar' mode uses this as a constant
+# time-averaged flux — for thermite the time profile is wrong (75 ms
+# pulse, not steady-state) but the magnitude is correct.
+heat_flux_cal_cm2_s: 250.0
+
+# Kappa_jet: thermite produces minimal gas, so the axial-distribution
+# exponential-decay model (v0.7.2 Phase A, designed for sonic gas
+# vents) is degenerate. Set to 0 to fall back to cell-0-only injection.
+kappa_jet: 0.0
+
+# v0.7.3 Phase B.3 / B.4: form is fine powder.
+form: powder
+# **Mode default**: 'radiation' because (a) thermite physics is
+# dominated by Stefan-Boltzmann radiation from molten Cu droplets and
+# Al2O3 fog, not gas-side convection, and (b) DeMar didn't measure
+# thermite — Reese measured peak surface flux, which is best modeled
+# via σ·ε·T^4 with high emissivity. Switch to 'demar' for the heat-
+# flux-magnitude comparison (using INL 250 cal/cm^2/s).
+heat_delivery_mode: radiation
+# High emissivity: hot Cu droplets (ε ≈ 0.7) + Al2O3 fog (ε ≈ 0.9).
+pellet_emissivity: 0.85
+# Heavily particle-laden exhaust → very short absorption length.
+# Reese 2013 standoff = 5 mm gives factor-2 attenuation, consistent
+# with L_atten ≈ 5e-3 m. Pardue 1992 supports ~0.01-0.1 m for
+# aluminized exhausts; we use the short end.
+radiation_absorption_length_m: 0.05
+
+# v0.7.4 Phase C.1: particle dimensions. Reese 2013 SEM showed -325 mesh
+# (≤44 µm) CuO and Al powders pre-mix. Post-burn agglomerate / droplet
+# size in high-speed imaging was 10-50 µm. User's amateur convention
+# also uses -325 mesh powders. We default to 50 µm sphere as the
+# upper-bound effective particle size after dry-mix agglomeration.
+particle_diameter_m: 50.0e-6
+particle_LD_ratio: 1.0

@@ -45,10 +45,17 @@ MOTOR_PATH = Path(__file__).resolve().parents[1] / 'motors' / 'hasegawa_a.ric'
 EXPERIMENTAL_TIME_OFFSET = 1.1  # align experimental ignition with sim t=0
 
 
-def _run_one(mode, out):
-    """Run Hasegawa A aft_basket with one heat-delivery mode."""
+def _run_one(mode, out, particle_d=5.0e-3, particle_LD=3.0):
+    """Run Hasegawa A aft_basket with one heat-delivery mode.
+
+    v0.7.4 Phase C.1: particle_d and particle_LD exposed as run-script
+    knobs (default BPNV-pellet 5 mm × L/D=3). Override to A/B sweep
+    particle geometry without editing the YAML.
+    """
     pyrogen_obj = load_pyrogen('bpnv')
     pyrogen_obj.heat_delivery_mode = mode
+    pyrogen_obj.particle_diameter_m = particle_d
+    pyrogen_obj.particle_LD_ratio = particle_LD
 
     result, perf, nozzle, geo, prop = run_from_ric(
         str(MOTOR_PATH),

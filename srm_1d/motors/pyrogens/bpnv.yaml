@@ -1,9 +1,28 @@
 # Boron/KNO3/Viton (BPNV), 25:60:15 by mass.
 # DeMar 2021 reports W ~= 5000 psi*in^3/g and heat flux ~= 69 cal/cm^2/s.
-# Saint-Robert a is an approximate Phase 1 seed value pending measured data.
+#
+# Saint-Robert values: seed `a=2.0e-5, n=0.50` PRESERVED in this
+# YAML pending v0.7.4 Phase C re-LHS calibration.
+#
+# **Literature target (NOT YET ADOPTED — calibration debt)**:
+# Mizushima et al. 2016, "Burning Rate Measurements of 3.2-mm-dia.
+# BKNO3 Pellets in Low Pressures," J. Japan Soc. Aeron. Sp. Sci.
+# 64(2). Measured r = 71.1 · P^0.589 (mm/s, MPa), valid 5 kPa -
+# 7 MPa. SI conversion: a = 3.50e-5 m/(s·Pa^n), n = 0.589. With
+# the BPNV binder correction (Mizushima used B:KNO3:NC=28:70:2 at
+# 2% binder; BPNV is 25:60:15 with 15% Viton): expected band
+# a ∈ (2.8e-5, 3.5e-5), n = 0.589.
+#
+# Why deferred: v0.7.4 Phase C.1 (2026-05-25) verified that swapping
+# the seed → literature values triggers numerical collapse on the
+# Hasegawa A example at default v0.7.0 calibration knobs. The new
+# n=0.589 amplifies pressure-feedback transients enough that other
+# knobs (roughness, kappa, T_ignition) need re-tuning before the
+# lit value can be adopted. Re-LHS is the v0.7.4 Phase C scope.
+# See srm_1d/docs/v0_7_3/references/pyrogen_physical_params_lit_dive.md §1.
 name: BPNV
 a: 2.0e-5
-n: 0.5
+n: 0.50
 rho: 1700.0
 T_flame: 2800.0
 M: 0.030
@@ -25,3 +44,15 @@ form: pellets
 heat_delivery_mode: demar
 pellet_emissivity: 0.7
 radiation_absorption_length_m: 1.0
+# v0.7.4 Phase C.1: explicit particle geometry replaces the v0.7.3 ×5
+# pellets multiplier. Lit-cited via pyrogen physical params dive
+# (srm_1d/docs/v0_7_3/references/pyrogen_physical_params_lit_dive.md §1).
+# Industry-standard NASA/JAXA BKNO3 igniter pellet is 3.2 mm × 3.2 mm
+# right cylinder (L/D = 1.0), measured by Mizushima 2016.
+# Amateur HPR practice (QuickBurst/Apogee ProCast straw-cast) is
+# wider: 1.5-5 mm diameter, L/D 1-3. We default to the industry-
+# standard 3.2 mm × L/D=1.0 as the highest-confidence value;
+# override per-run via run_from_ric(particle_diameter_m=, ...) if
+# the motor uses larger amateur-cast pellets.
+particle_diameter_m: 3.2e-3
+particle_LD_ratio: 1.0

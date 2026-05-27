@@ -1,10 +1,27 @@
 # Magnesium/Teflon/Viton (MTV).
 # DeMar 2021 reports faster action and higher heat flux than BPNV, but
 # substantially higher electrostatic sensitivity. Not the default.
-# Saint-Robert a is an approximate Phase 1 seed value pending measured data.
+#
+# Saint-Robert values: seed `a=3.0e-5, n=0.50` PRESERVED in this YAML
+# pending v0.7.4 Phase C re-LHS calibration.
+#
+# **Literature target (NOT YET ADOPTED — calibration debt)**:
+# - Koch 2002 PEP 27 (MTV-IV thermochemistry and combustion)
+# - Kuwahara/Koch 1999 PEP 24 (2.02 mm/s @ 0.1 MPa, ρ=1.60 datum)
+# - Williams 2013 PEP (heat-flux measurement, ~30% radiative fraction)
+#
+# MTV's defining property is the LOW pressure exponent (n ≈ 0.2-0.4
+# across Mg-fraction and Viton-binder variants) — much lower than
+# the n=0.5 seed. Recommended center: a = 2.0e-5, n = 0.30.
+# Validity range for direct measurement is 0.02-0.1 MPa (flare-grade);
+# extrapolation to SRM-bore-pressure (1-10 MPa) is physically
+# defensible (low-n is a fundamental property, not a low-P artifact)
+# but not directly measured. Re-LHS in v0.7.4 Phase C should pin the
+# calibration-stable values within these bounds.
+# See srm_1d/docs/v0_7_3/references/pyrogen_physical_params_lit_dive.md §2.
 name: MTV
 a: 3.0e-5
-n: 0.5
+n: 0.50
 rho: 1800.0
 T_flame: 3000.0
 M: 0.032
@@ -25,3 +42,13 @@ form: pellets
 heat_delivery_mode: demar
 pellet_emissivity: 0.7
 radiation_absorption_length_m: 0.5
+# v0.7.4 Phase C.1: explicit particle geometry replaces the v0.7.3 ×5
+# pellets multiplier. Lit-cited via pyrogen physical params dive
+# (srm_1d/docs/v0_7_3/references/pyrogen_physical_params_lit_dive.md §2).
+# MTV ignition pellets follow the same NASA convention as BKNO3:
+# 3.2 mm × 3.2 mm right cylinder (L/D=1.0). Per Koch & Clément 2007
+# review, decoy-flare-grade MTV uses larger 6 mm pellets, but igniter-
+# grade MTV pellets match the BKNO3 standard. Override via
+# run_from_ric(particle_diameter_m=, ...) for decoy-flare-style use.
+particle_diameter_m: 3.2e-3
+particle_LD_ratio: 1.0

@@ -80,17 +80,30 @@ class PyrogenChamber:
     ignored for the uncontained-burn computation but still validated
     at the Python boundary so existing motor configs don't break.
 
-    This split mirrors the physical reality identified in the Super
-    Loki literature dive (NASA CR-61238, MIT Super Loki Report,
-    Smithsonian/NASM): the ISP Super Loki igniter is a head-end
-    BKNO3 pellet charge in a consumable plastic moisture cup, with
-    NO defined orifice or pressure-containing aft cap. Modeling it
-    as a plenum-with-orifice would be wrong physics; modeling it as
-    head_basket (uncontained, at local bore P) is the appropriate
-    fit. A future ``'aft_fore_firing'`` topology could add an opt-in
-    upstream momentum injection at face i_start (mdot * user-supplied
-    v_exit_userspec) for aft-cartridge designs where the pellet
-    burns directionally — deferred from v0.7.3 Phase A.
+    This split represents general physical practice for amateur
+    high-power-rocketry pyrogen configurations. The ``head_basket``
+    topology models a head-end BKNO3 / MTV pellet pack glued or taped
+    to the forward bulkhead — a plausible amateur build. A future
+    ``'aft_fore_firing'`` topology (deferred from v0.7.3 Phase A)
+    would add opt-in upstream momentum injection at face i_start to
+    model nozzle-inserted igniter cartridges (the classic Super Loki
+    factory configuration per NASA CR-61238 cross-section, the
+    AeroTech FirstFire / Firestar line, and amateur Loki Research-
+    style HPR pyrogens).
+
+    **Provenance correction (2026-05-25)**: previous versions of
+    this docstring cited "NASA CR-61238, MIT Super Loki Report,
+    Smithsonian/NASM" as support for modeling ISP Super Loki as
+    head_basket. The lit dive in
+    ``docs/v0_7_3/references/super_loki_igniter_lit_dive.md`` could
+    not corroborate that citation chain — the public Super Loki
+    sources describe the factory igniter as "separable and installed
+    at the launch site" (i.e. nozzle-inserted, not head-end basket).
+    The RCS Rocket Motor Components Super Loki recreation that
+    ``examples/ISP_Super_Loki.py`` models does NOT ship with an
+    igniter; the user assembles their own. head_basket is therefore
+    a defensible amateur-build choice, but not "the" factory
+    topology.
 
     Topology options (``injection_topology``):
 
@@ -100,13 +113,14 @@ class PyrogenChamber:
     - ``'head_basket'``: uncontained pyrogen in cells ``[0, i_end]``
       where ``i_end`` is set by ``cartridge_length_m``. Cells burn at
       local bore P; mass + enthalpy enter their host cells. No
-      momentum injection. ISP Super Loki uses this topology.
+      momentum injection. Models amateur head-end pellet packs.
 
     - ``'aft_basket'``: uncontained pyrogen in cells
       ``[i_start, N-1]``. Same physics as head_basket, just at the
-      aft end of the bore. User-flagged as the cleanest test of
-      whether the simultaneous-ignition artifact is driven by
-      mass-injection position (head vs aft).
+      aft end of the bore. Diagnostic value: tests whether the
+      simultaneous-ignition artifact is driven by mass-injection
+      position (head vs aft). Empirically inadequate as a startup
+      mechanism on its own — see v0.7.3 Phase B validation findings.
 
     Cartridge length: if ``cartridge_length_m < 0`` (default), derived
     from pyrogen mass and bore geometry as

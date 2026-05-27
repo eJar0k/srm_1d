@@ -75,7 +75,7 @@ def load_ric(filepath):
             "Install with: pip install pyyaml"
         )
 
-    with open(filepath, 'r') as f:
+    with open(filepath, 'r', encoding='utf-8') as f:
         # openMotor .ric files contain Python-specific YAML tags
         # (!!python/object/apply, !!python/tuple) that safe_load
         # rejects. Use a custom loader that converts these to plain
@@ -132,7 +132,7 @@ def load_transport(transport_path):
         raise ImportError(
             "PyYAML is required to read transport YAML files."
         )
-    with open(transport_path, 'r') as f:
+    with open(transport_path, 'r', encoding='utf-8') as f:
         data = yaml.safe_load(f)
     required = {'mu', 'k', 'Cp'}
     missing = required - set(data.keys())
@@ -174,7 +174,7 @@ def load_pyrogen(path_or_name):
             "of the built-in pyrogen names such as 'bpnv' or 'mtv'."
         )
 
-    with open(candidate, 'r') as f:
+    with open(candidate, 'r', encoding='utf-8') as f:
         data = yaml.safe_load(f)
 
     required = {'name', 'a', 'n', 'rho', 'T_flame', 'M', 'gamma'}
@@ -207,6 +207,10 @@ def load_pyrogen(path_or_name):
         radiation_absorption_length_m=float(
             data.get('radiation_absorption_length_m', 1.0)
         ),
+        # v0.7.4 Phase C.1: explicit particle dimensions (replaces
+        # form-archetype A_burn multipliers).
+        particle_diameter_m=float(data.get('particle_diameter_m', 5.0e-3)),
+        particle_LD_ratio=float(data.get('particle_LD_ratio', 3.0)),
     )
 
 
@@ -243,19 +247,25 @@ def build_pyrogen_chamber(
         pyrogen_volume = 1.5 * pyrogen_mass / pyrogen.rho
 
     if pyrogen_burn_area is None:
-        solid_volume = pyrogen_mass / pyrogen.rho
-        radius = (3.0 * solid_volume / (4.0 * np.pi)) ** (1.0 / 3.0)
-        sphere_area = 4.0 * np.pi * radius * radius
-        # v0.7.3 Phase B.3: form-archetype multiplier on the equivalent-
-        # sphere surface area. 'chunks' = baseline (single bulk); 'pellets'
-        # = many ~mm-scale pellets give ~5× the bulk area; 'powder' = fine
-        # particles give ~20×. See [[pyrogen-form-archetypes]] memory.
-        form_multiplier = {
-            'chunks':  1.0,
-            'pellets': 5.0,
-            'powder':  20.0,
-        }.get(pyrogen.form, 1.0)
-        pyrogen_burn_area = sphere_area * form_multiplier
+        # v0.7.4 Phase C.1: compute total burning surface area from
+        # physical particle geometry (replaces v0.7.3 Phase B.3
+        # ×1/×5/×20 form-archetype multipliers).
+        d = float(pyrogen.particle_diameter_m)
+        ld = float(pyrogen.particle_LD_ratio)
+        if d <= 0.0:
+            raise ValueError(
+                f"Pyrogen '{pyrogen.name}': particle_diameter_m must be "
+                f"positive; got {d}"
+            )
+        if ld <= 1.0:
+            # Sphere of diameter d: A_total = 6·m / (ρ·d)
+            pyrogen_burn_area = 6.0 * pyrogen_mass / (pyrogen.rho * d)
+        else:
+            # Cylinder D=d, L=ld·d: A_total = m·(4λ+2) / (ρ·λ·d)
+            pyrogen_burn_area = (
+                pyrogen_mass * (4.0 * ld + 2.0)
+                / (pyrogen.rho * ld * d)
+            )
 
     if pyrogen_throat_area is None:
         A_main = np.pi / 4.0 * nozzle.D_throat ** 2
@@ -587,6 +597,8 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
                  pyrogen_heat_flux_cal_cm2_s=None,
                  injection_topology='forward_plenum',
                  cartridge_length_m=-1.0,
+                 particle_diameter_m=None,
+                 particle_LD_ratio=None,
                  T_ignition=850.0, k_solid=None,
                  radiation_emissivity=None, verbose=True, **sim_overrides):
     """
@@ -668,6 +680,14 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
     # oversized pyrogen volume).
     if pyrogen_heat_flux_cal_cm2_s is not None:
         pyrogen_obj.heat_flux_cal_cm2_s = float(pyrogen_heat_flux_cal_cm2_s)
+
+    # v0.7.4 Phase C.1: per-run particle-geometry overrides. Lets a run
+    # script tweak particle dimensions without editing the pyrogen YAML
+    # (matches the user-flagged tunability requirement).
+    if particle_diameter_m is not None:
+        pyrogen_obj.particle_diameter_m = float(particle_diameter_m)
+    if particle_LD_ratio is not None:
+        pyrogen_obj.particle_LD_ratio = float(particle_LD_ratio)
 
     args['pyrogen_chamber'] = build_pyrogen_chamber(
         pyrogen_obj, geo, nozzle,

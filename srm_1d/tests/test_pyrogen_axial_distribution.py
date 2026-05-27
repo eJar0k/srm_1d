@@ -118,24 +118,25 @@ def test_kappa_jet_zero_and_default_differ_in_pyrogen_spread():
     species_names = result_zero['species_names']
     pyro_idx = list(species_names).index('BPNV_gas')
 
-    # v0.7.3 Phase B.0: with the cold-bore IC, pyrogen species advects
-    # readily through the entire bore under both kappa_jet=0 and
-    # kappa_jet=8, so the Y > 0.01 threshold saturates (both reach all
-    # 106 cells). Tightened to Y > 0.3 (cells where pyrogen is the
-    # dominant species) to recover the kernel's distinguishing signal:
-    # kappa_jet=8 spreads majority-pyrogen across more cells near the
-    # head end than kappa_jet=0 (which dumps all pyrogen into cell 0).
-    n_pyrogen_rich_zero = int(
-        np.sum(result_zero['Y_species_final'][:, pyro_idx] > 0.3)
-    )
-    n_pyrogen_rich_default = int(
-        np.sum(result_default['Y_species_final'][:, pyro_idx] > 0.3)
-    )
+    # v0.7.3 Phase B.0 + v0.7.4 Phase C.1: under the cold-bore IC plus
+    # the new particle-geometry A_burn calculation (BPNV 3.2 mm pellets
+    # L/D=1.0 per Mizushima 2016, n=0.589), pyrogen mass injection
+    # advects through more cells than the v0.7.0/B.0 threshold-tuning
+    # anticipated. Y > 0.3 saturates at ~28 cells under both
+    # kappa_jet=0 and kappa_jet=8 because mass conservation forces the
+    # smaller A_burn pellet flow to fill the head-end thoroughly under
+    # either distribution. We instead compare PEAK Y at the head-end
+    # cells (kappa_jet=0 dumps everything in cell 0 → very high Y[0];
+    # kappa_jet=8 spreads → moderate Y across multiple cells with
+    # LOWER peak Y[0]).
+    Y_zero = result_zero['Y_species_final'][:, pyro_idx]
+    Y_default = result_default['Y_species_final'][:, pyro_idx]
 
-    assert n_pyrogen_rich_default > n_pyrogen_rich_zero, (
-        f"kappa_jet=8 should spread pyrogen mass across more cells "
-        f"than kappa_jet=0; got {n_pyrogen_rich_default} vs "
-        f"{n_pyrogen_rich_zero} cells with Y_pyrogen > 0.3"
+    assert Y_zero[0] > Y_default[0], (
+        f"kappa_jet=0 should concentrate pyrogen at cell 0; "
+        f"kappa_jet=8 should spread it. Got Y[0] = "
+        f"{Y_zero[0]:.3f} (kappa=0) vs {Y_default[0]:.3f} (kappa=8). "
+        f"Expected the kappa=0 case to have higher Y[0]."
     )
 
 

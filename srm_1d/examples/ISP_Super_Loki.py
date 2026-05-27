@@ -1,14 +1,29 @@
 """
-ISP_Super_Loki.py -- run the 'ISP_Super_Loki.ric' through the v0.7.3
-Phase A head_basket topology.
+ISP_Super_Loki.py -- run the 'ISP_Super_Loki.ric' through head_basket.
 
-Super Loki's physical igniter is a head-end BKNO3 pellet charge in a
-consumable moisture cup — NO defined orifice or pressure-containing
-aft cap. Modeling it as ``forward_plenum`` is wrong physics; the
-v0.7.3 Phase A ``head_basket`` topology (uncontained pyrogen, each
-pellet burning at local bore pressure) is the appropriate fit. See
-the ``PyrogenChamber`` docstring at
-``srm_1d/igniter_plenum.py`` L52-L120 for the architectural split.
+**Provenance note (v0.7.4 Phase C.1)**: this example models the
+**RCS Rocket Motor Components surplus Super Loki recreation** with
+the **8522 HTPB analog propellant** (developed by Industrial Solid
+Propulsion to replace the original 1968-1993 polysulfide formula).
+The "ISP" in the filename refers to Industrial Solid Propulsion,
+NOT a single "ISP Corporation". See lit dive at
+``srm_1d/docs/v0_7_3/references/super_loki_igniter_lit_dive.md``.
+
+**Igniter assumption**: the RCS Super Loki does NOT ship with an
+igniter; the user assembles their own. This example models an
+**amateur head-end BKNO3 pellet pack glued to the forward bulkhead**
+(=  head_basket topology). This is one of several plausible amateur
+configurations — see PyrogenChamber docstring L82-100 for the full
+discussion. The factory 1968-era Super Loki igniter was nozzle-
+inserted; that configuration would map to the deferred
+``aft_fore_firing`` topology, not head_basket.
+
+**Validation status**: no verified Super Loki experimental data is
+in the repo. The previous overlay (commented-out array in this
+file's history) was mis-labeled Chunc data. NASA CR-61238 (1968)
+contains a polysulfide-era pressure trace that could be digitized
+as a partial reference (15-20% peak deviation expected from the
+HTPB analog).
 
 Usage:
     python -m srm_1d.examples.ISP_Super_Loki
@@ -32,12 +47,20 @@ CASE_NAME = 'ISP_Super_Loki'
 MOTOR_PATH = Path(__file__).resolve().parents[1] / 'motors' / 'ISP_Super_Loki.ric'
 
 
-def _run_one(mode, output_dir):
-    """Run Super Loki with one heat-delivery mode and save artifacts."""
+def _run_one(mode, output_dir, particle_d=5.0e-3, particle_LD=3.0):
+    """Run Super Loki with one heat-delivery mode and save artifacts.
+
+    v0.7.4 Phase C.1: particle_d and particle_LD are exposed as run-
+    script knobs (default to MTV-pellet 5 mm × L/D=3). Overriding them
+    here is the cleanest way to A/B sweep particle geometry without
+    editing the YAML.
+    """
     # Build the pyrogen Pyrogen object explicitly so we can override
-    # heat_delivery_mode per A/B run.
+    # heat_delivery_mode + particle geometry per A/B run.
     pyrogen_obj = load_pyrogen('mtv')
     pyrogen_obj.heat_delivery_mode = mode
+    pyrogen_obj.particle_diameter_m = particle_d
+    pyrogen_obj.particle_LD_ratio = particle_LD
 
     result, perf, nozzle, geo, prop = run_from_ric(
         str(MOTOR_PATH),
