@@ -592,9 +592,23 @@ def _compute_pyrogen_heat_flux_arr(
       cell when its pyrogen mass is depleted (mdot_uncontained[e]==0).
       Physically modeled; extensible to powder and chunks via T_flame.
 
-    For forward_plenum (topology_code == 0), the head_grain_cell
-    receives fwd_plenum_flux_w_m2 directly; the Goodman kernel applies
-    the standard sensible cap inside _pyrogen_surface_heat_power.
+    For forward_plenum (topology_code == 0): cell-0 dispatch is
+    mode-aware (v0.7.3.3, building on v0.7.3-phaseB's mode-dispatch
+    architecture for uncontained topologies):
+    - DEMAR (default): DeMar 2021 lumped flux with sensible cap based
+      on total plenum vent mdot. Preserves v0.7.0-v0.7.3.2 behavior.
+    - RADIATION: Stefan-Boltzmann emission at cell-0 from the
+      pyrogen plume,
+        q = σ · pellet_emissivity · (T_flame_pyrogen^4 - T_surf[0]^4)
+      No sensible cap (radiative emission is energy-balanced by
+      Stefan-Boltzmann, not by the mass-advection enthalpy budget).
+      View factor and gas absorption assumed unity at the cell-0
+      impingement zone (gas-path length << radiation_absorption_length_m
+      for forward_plenum's compact plume).
+    - NONE: no surface flux; useful for diagnostic isolation runs.
+
+    Mutually exclusive at the implementation level so DeMar's
+    already-radiative contribution doesn't double-count.
 
     See srm_1d/docs/v0_7_3/PHASE_B_SCOPE.md §B.4 for the
     double-counting analysis between 'demar' and 'radiation' modes.
@@ -602,26 +616,44 @@ def _compute_pyrogen_heat_flux_arr(
     for i in range(N):
         pyrogen_heat_flux_arr[i] = 0.0
 
-    # Forward plenum: existing cell-0 DeMar with sensible cap based on
-    # total plenum vent mdot.
+    # Forward plenum: mode-aware cell-0 dispatch.
     if topology_code == 0:
-        if not (head_grain_cell >= 0 and mdot_igniter > 0.0 and
-                fwd_plenum_flux_w_m2 > 0.0):
+        if not (head_grain_cell >= 0 and mdot_igniter > 0.0):
             return
-        contact_area = C_burn[head_grain_cell] * dx
-        if contact_area <= 1.0e-16:
+        if heat_delivery_mode_code == HEAT_DELIVERY_NONE:
             return
-        dT = T_ig - T_surf[head_grain_cell]
-        if dT <= 0.0:
+        if heat_delivery_mode_code == HEAT_DELIVERY_DEMAR:
+            if fwd_plenum_flux_w_m2 <= 0.0:
+                return
+            contact_area = C_burn[head_grain_cell] * dx
+            if contact_area <= 1.0e-16:
+                return
+            dT = T_ig - T_surf[head_grain_cell]
+            if dT <= 0.0:
+                return
+            measured_power = fwd_plenum_flux_w_m2 * contact_area
+            sensible_power = mdot_igniter * Cp_pyrogen * dT
+            delivered_power = (sensible_power if sensible_power < measured_power
+                               else measured_power)
+            if delivered_power > 0.0:
+                pyrogen_heat_flux_arr[head_grain_cell] = (
+                    delivered_power / contact_area
+                )
             return
-        measured_power = fwd_plenum_flux_w_m2 * contact_area
-        sensible_power = mdot_igniter * Cp_pyrogen * dT
-        delivered_power = (sensible_power if sensible_power < measured_power
-                           else measured_power)
-        if delivered_power > 0.0:
-            pyrogen_heat_flux_arr[head_grain_cell] = (
-                delivered_power / contact_area
-            )
+        if heat_delivery_mode_code == HEAT_DELIVERY_RADIATION:
+            if pellet_emissivity <= 0.0:
+                return
+            T_em4 = T_flame_pyrogen ** 4
+            T_rec4 = T_surf[head_grain_cell] ** 4
+            if T_em4 <= T_rec4:
+                return
+            # σ · ε · (T_em^4 - T_rec^4); F_view ≈ 1 and gas
+            # absorption negligible for the forward_plenum compact
+            # plume → cell-0 impingement zone.
+            q = 5.670374419e-8 * pellet_emissivity * (T_em4 - T_rec4)
+            pyrogen_heat_flux_arr[head_grain_cell] = q
+            return
+        # Unknown mode → no flux (defensive).
         return
 
     # Uncontained: branch on heat delivery mode
