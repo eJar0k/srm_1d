@@ -268,8 +268,25 @@ def build_pyrogen_chamber(
             )
 
     if pyrogen_throat_area is None:
-        A_main = np.pi / 4.0 * nozzle.D_throat ** 2
-        pyrogen_throat_area = min(max(0.01 * A_main, 1.0e-6), 5.0e-5)
+        # v0.7.3.2 (2026-05-27): switch from A_throat = 0.01 * A_main
+        # (which gave 9 mm² for Hasegawa A, far too small under
+        # Phase B.0's cold-bore IC — drove plenum P_ig past 600 MPa
+        # equilibrium and tripped numerical collapse within ~2 ms)
+        # to a Kn-based sizing rule:
+        #     A_throat = A_burn / Kn_design
+        # where Kn_design = 100 is the Sutton 9e §14.5 mid-range for
+        # pellet-form BKNO3 / MTV pyrogens at the 5-30 MPa working
+        # pressure target. With A_burn ≈ 46 cm² for Hasegawa A
+        # (Mizushima 3.2 mm pellets), this gives A_throat ≈ 46 mm²
+        # — close to the calibrated test value (38.5 mm²).
+        # Lower bound 1 mm² preserves choked-flow validity at the
+        # very small pyrogens; upper bound 100 mm² prevents the
+        # opposite degenerate (no throat confinement).
+        # See srm_1d/docs/v0_7_4/references/frozen_collapse_investigation.md
+        # for the regression timeline and physical motivation.
+        Kn_design_pyrogen = 100.0
+        pyrogen_throat_area = pyrogen_burn_area / Kn_design_pyrogen
+        pyrogen_throat_area = min(max(pyrogen_throat_area, 1.0e-6), 1.0e-4)
 
     return PyrogenChamber(
         pyrogen=pyrogen,

@@ -39,7 +39,7 @@ from srm_1d.plotting import (
     plot_pressure, plot_flow_snapshot, plot_summary,
     HASEGAWA_MOTOR_A_EXPERIMENTAL,
 )
-from srm_1d.run_artifacts import artifact_dir
+from srm_1d.run_artifacts import artifact_dir, verify_run_health
 
 
 MOTOR_PATH = Path(__file__).resolve().parents[1] / 'motors' / 'hasegawa_a.ric'
@@ -84,6 +84,12 @@ def main():
 
     plt.close('all')
     print(f"\nAll plots saved to {out}")
+    # v0.7.3.2 run-health gate: surfaces collapsed runs that would
+    # otherwise save misleading plots and trick the user into reading
+    # a stale-looking artifact dir as a successful calibration. Don't
+    # raise — the artifacts are still useful for debugging — but
+    # banner clearly when something is wrong.
+    verify_run_health(result, motor_name='Hasegawa A (canonical)')
 
 
 if __name__ == '__main__':

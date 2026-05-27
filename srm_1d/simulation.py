@@ -1831,9 +1831,17 @@ def run_simulation(
     roughness=50e-6,
     kappa=0.45,
     # --- Solver ---
-    cfl_target=0.5,
+    # v0.7.3.2 (2026-05-27): cfl_target tightened 0.5 → 0.3 and
+    # source_cfl_factor tightened 0.10 → 0.05 to absorb Phase B.0
+    # cold-bore IC transient dynamics. Sutton-default Hasegawa A was
+    # silently collapsing under the looser 0.5/0.10 settings because
+    # the pyrogen-plenum-into-cold-cell-0 transient happens faster
+    # than those dt caps allow. The tighter settings match the
+    # calibrated test config (test_yns_phase4_validation
+    # _short_hasegawa_a_run) which has been stable since v0.7.1.
+    cfl_target=0.3,
     dt_max=0.002,
-    source_cfl_factor=0.10,
+    source_cfl_factor=0.05,
     burn_update_interval=None,
     # --- Ignition ---
     T_ignition=850.0,

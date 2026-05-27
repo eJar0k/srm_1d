@@ -159,3 +159,106 @@ def save_figure(fig, path, *, dpi: int = 150, verbose: bool = True) -> Path:
     if verbose:
         print(f"Saved {out_path}")
     return out_path
+
+
+# ================================================================
+# Run-health check (v0.7.3.2)
+# ================================================================
+
+_TERMINATION_NAMES = {
+    0: "t_max reached",
+    1: "complete burnout",
+    2: "pressure cutoff",
+    3: "history array full",
+    4: "numerical collapse",
+}
+
+_COLLAPSE_CODE = 4
+
+
+def verify_run_health(
+    result, *,
+    motor_name: str = '',
+    min_t_burn_s: float = 0.1,
+    raise_on_fail: bool = False,
+) -> bool:
+    """Print a clear PASS / FAIL banner based on the simulation summary.
+
+    Designed to prevent silent collapsed-run completion: example scripts
+    currently save PNGs whether or not the underlying simulation
+    actually ran cleanly, and "plots saved" is therefore an unsafe
+    proxy for "ran clean." This helper inspects
+    ``result['summary']['termination_code']`` plus ``t_burn`` and
+    surfaces the result in stdout.
+
+    A run is HEALTHY when:
+    - ``termination_code != 4`` (no numerical collapse); AND
+    - ``t_burn >= min_t_burn_s`` (ran long enough to be meaningful;
+      default 0.1 s rules out the < 1 ms collapse-trip case).
+
+    Parameters
+    ----------
+    result : dict
+        Result dict from ``run_simulation`` or ``run_from_ric``.
+    motor_name : str, optional
+        Tag used in the banner (e.g., 'Hasegawa A forward_plenum').
+    min_t_burn_s : float, optional
+        Minimum simulated burn time for the run to be considered
+        non-degenerate. Default 0.1 s.
+    raise_on_fail : bool, optional
+        If True, raise ``RuntimeError`` on an unhealthy run. Default
+        False (just print the banner). Set to True in CI / pytest
+        contexts where the failure should hard-stop.
+
+    Returns
+    -------
+    bool
+        True if the run is healthy, False otherwise.
+
+    Raises
+    ------
+    RuntimeError
+        If ``raise_on_fail=True`` and the run is unhealthy.
+
+    Notes
+    -----
+    Use ASCII-only banner markers (``[PASS]`` / ``[FAIL]``) so the
+    output is readable on Windows cp1252 consoles without UnicodeEncodeError.
+    """
+    summary = result.get('summary', {})
+    term_code = summary.get('termination_code', None)
+    t_burn = float(summary.get('t_burn', 0.0))
+    p_peak_pa = summary.get('P_peak', float('nan'))
+    p_peak = float(p_peak_pa) / 1e6 if p_peak_pa is not None else float('nan')
+
+    term_str = _TERMINATION_NAMES.get(term_code, f"unknown(code={term_code})")
+    tag = f" [{motor_name}]" if motor_name else ''
+
+    is_collapse = term_code == _COLLAPSE_CODE
+    is_too_short = t_burn < min_t_burn_s
+    is_healthy = not is_collapse and not is_too_short
+
+    if is_healthy:
+        print()
+        print(f"[PASS]{tag} run healthy: termination='{term_str}', "
+              f"t_burn={t_burn:.3f} s, P_peak={p_peak:.2f} MPa")
+        return True
+
+    reasons = []
+    if is_collapse:
+        reasons.append(f"numerical collapse (termination_code={term_code})")
+    if is_too_short:
+        reasons.append(
+            f"t_burn={t_burn:.4f} s < {min_t_burn_s} s (likely degenerate)"
+        )
+    reason_str = '; '.join(reasons)
+
+    print()
+    print(f"[FAIL]{tag} run UNHEALTHY: {reason_str}")
+    print(f"  termination='{term_str}', P_peak={p_peak:.2f} MPa")
+    print(f"  *** Saved plots from this run may be MISLEADING (collapsed state). ***")
+    if raise_on_fail:
+        raise RuntimeError(
+            f"Run health check failed{tag}: {reason_str}"
+        )
+    return False
