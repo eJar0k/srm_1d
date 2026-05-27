@@ -92,11 +92,19 @@ EFFECTIVE_TRANSPORT = str(MOTORS_DIR / 'hasegawa_a.transport.yaml')
 
 EXPERIMENTAL_TIME_OFFSET = 0.0
 
-# 8 physical cores on the user's machine. 4 = true half (leaves
-# 4 logical CPUs free under HT-on for foreground responsiveness).
-DEFAULT_WORKERS = 4
+# 8 physical cores; 16 logical CPUs with hyperthreading.
+# DEFAULT_WORKERS = 16 saturates all logical CPUs for the long sweep
+# (user-confirmed 2026-05-27: "use all workers available"). Drop to
+# 8 (= physical core count) for normal foreground use; lower
+# (e.g., 4) for smoke tests when keeping the machine responsive.
+DEFAULT_WORKERS = 16
 
-N_SAMPLES = int(os.environ.get('SRM_LHS_SAMPLES', '1'))
+# Default samples per cell tuned for ~6 hr wall time at 16 workers
+# with the 6-cell grid: per-run ~30-60s wall single-thread, so
+# 16 workers ≈ ~1500-3000 samples/hr → 6 hr × 16 cores ≈ 6000-9000
+# samples total ≈ 1000-1500 per cell. We target 1000 per cell;
+# override via SRM_LHS_SAMPLES for smoke tests or shorter runs.
+N_SAMPLES = int(os.environ.get('SRM_LHS_SAMPLES', '1000'))
 _WORKERS_ENV = os.environ.get('SRM_LHS_WORKERS')
 if _WORKERS_ENV is None:
     MAX_WORKERS = DEFAULT_WORKERS
@@ -134,14 +142,21 @@ SEGMENT_WEIGHTS = {
     'mse_taildown':   0.20,
 }
 
-# Cell definitions — name, mode, transport_path, label, color.
+# Cell definitions — name, topology, mode, transport_path, label, color.
+# 4 forward_plenum cells (the 2x2 mode x transport grid) +
+# 2 head_basket cells (frozen vs effective; mode='demar' for both since
+#   that's the BPNV YAML default — gives a clean direct comparison
+#   against the forward_plenum demar cells).
 # v0.7.3.2 architecture fix (Kn-throat + tighter CFL) unblocked
-# frozen cells; all 4 are now active.
+# frozen cells; v0.7.3.3 made mode-axis active for forward_plenum.
 CELLS = [
-    ('demar_frozen',        'demar',     FROZEN_TRANSPORT,    'DeMar x Frozen',        '#1f77b4'),
-    ('demar_effective',     'demar',     EFFECTIVE_TRANSPORT, 'DeMar x Effective',     '#ff7f0e'),
-    ('radiation_frozen',    'radiation', FROZEN_TRANSPORT,    'Radiation x Frozen',    '#2ca02c'),
-    ('radiation_effective', 'radiation', EFFECTIVE_TRANSPORT, 'Radiation x Effective', '#d62728'),
+    # cell_name             topology          mode         transport            label                          color
+    ('demar_fwd_frozen',    'forward_plenum', 'demar',     FROZEN_TRANSPORT,    'fwd_plenum DeMar x Frozen',     '#1f77b4'),
+    ('demar_fwd_effective', 'forward_plenum', 'demar',     EFFECTIVE_TRANSPORT, 'fwd_plenum DeMar x Effective',  '#ff7f0e'),
+    ('rad_fwd_frozen',      'forward_plenum', 'radiation', FROZEN_TRANSPORT,    'fwd_plenum Rad x Frozen',       '#2ca02c'),
+    ('rad_fwd_effective',   'forward_plenum', 'radiation', EFFECTIVE_TRANSPORT, 'fwd_plenum Rad x Effective',    '#d62728'),
+    ('demar_hb_frozen',     'head_basket',    'demar',     FROZEN_TRANSPORT,    'head_basket DeMar x Frozen',    '#9467bd'),
+    ('demar_hb_effective',  'head_basket',    'demar',     EFFECTIVE_TRANSPORT, 'head_basket DeMar x Effective', '#8c564b'),
 ]
 
 
@@ -149,8 +164,9 @@ CELLS = [
 # Per-cell sweep runner
 # ============================================================
 
-def run_cell(cell_name, mode, transport_path, label, fitness_fn, metrics_fn):
-    """Run LHS sweep for one cell of the 2x2 grid."""
+def run_cell(cell_name, topology, mode, transport_path, label,
+             fitness_fn, metrics_fn):
+    """Run LHS sweep for one cell of the 6-cell grid."""
     cell_dir = OUTPUT_ROOT / cell_name
     cell_dir.mkdir(parents=True, exist_ok=True)
     csv_path = str(cell_dir / 'lhs.csv')
@@ -163,7 +179,8 @@ def run_cell(cell_name, mode, transport_path, label, fitness_fn, metrics_fn):
     pyrogen_obj.heat_delivery_mode = mode
 
     transport_basename = Path(transport_path).name
-    print(f"\n[cell {cell_name}] mode='{mode}', transport='{transport_basename}'")
+    print(f"\n[cell {cell_name}] topology='{topology}', mode='{mode}', "
+          f"transport='{transport_basename}'")
     print(f"  LHS samples = {N_SAMPLES}, workers = {MAX_WORKERS}")
     print(f"  Pyrogen.heat_delivery_mode = {pyrogen_obj.heat_delivery_mode}")
     print(f"  Pyrogen.particle_diameter_m = {pyrogen_obj.particle_diameter_m}")
@@ -183,7 +200,7 @@ def run_cell(cell_name, mode, transport_path, label, fitness_fn, metrics_fn):
         # Locked sim kwargs
         pyrogen=pyrogen_obj,
         transport_path=transport_path,
-        injection_topology='forward_plenum',
+        injection_topology=topology,
         t_max=6.0, P_cutoff=0.05e6,
         snapshot_interval=2.0, print_interval=20.0,
     )
@@ -192,8 +209,8 @@ def run_cell(cell_name, mode, transport_path, label, fitness_fn, metrics_fn):
     return sorted_rows, cell_dir
 
 
-def render_best_diagnostics(rank1, t_exp, p_exp, mode, transport_path,
-                            cell_dir, label):
+def render_best_diagnostics(rank1, t_exp, p_exp, topology, mode,
+                            transport_path, cell_dir, label):
     """Render the top-fit pressure trace for this cell."""
     pyrogen_obj = load_pyrogen('bpnv')
     pyrogen_obj.heat_delivery_mode = mode
@@ -202,7 +219,7 @@ def render_best_diagnostics(rank1, t_exp, p_exp, mode, transport_path,
     result, perf, *_ = run_from_ric(
         MOTOR_PATH,
         transport_path=transport_path,
-        injection_topology='forward_plenum',
+        injection_topology=topology,
         t_max=6.0, P_cutoff=0.05e6,
         snapshot_interval=2.0, print_interval=20.0,
         pyrogen=pyrogen_obj,
@@ -239,7 +256,7 @@ def render_comparison(cell_results, t_exp, p_exp):
     fig, ax = plt.subplots(figsize=(13, 7))
     ax.plot(t_exp, p_exp, 'k.-', linewidth=2.5, markersize=4,
             label='Experimental (Hasegawa)', zorder=10)
-    for cell_name, mode, _tp, label, color in CELLS:
+    for cell_name, _topology, mode, _tp, label, color in CELLS:
         rank1 = cell_results[cell_name]['rank1']
         result = cell_results[cell_name]['result']
         t_sim = result['time']
@@ -270,7 +287,7 @@ def render_rank1_knobs_md(cell_results):
         '| Cell | Mode | Transport | fitness | roughness [um] | kappa | T_ignition [K] | k_solid [W/m/K] | t_offset [ms] |',
         '|------|------|-----------|---------|----------------|-------|----------------|-----------------|----------------|',
     ]
-    for cell_name, mode, transport_path, label, _color in CELLS:
+    for cell_name, topology, mode, transport_path, label, _color in CELLS:
         r = cell_results[cell_name]['rank1']
         t_off = r.get('t_offset_applied_s', 0.0) or 0.0
         lines.append(
@@ -303,7 +320,7 @@ def render_sanity_check(cell_results):
         '|------|------|-----------|--------------|------------|-------------|',
     ]
     peak_p_per_cell = {}
-    for cell_name, mode, transport_path, label, _color in CELLS:
+    for cell_name, topology, mode, transport_path, label, _color in CELLS:
         result = cell_results[cell_name]['result']
         summary = result['summary']
         peak_p = summary['P_peak'] / 1e6
@@ -427,16 +444,17 @@ def main():
     print('=' * 60)
 
     cell_results = {}
-    for cell_name, mode, transport_path, label, _color in CELLS:
+    for cell_name, topology, mode, transport_path, label, _color in CELLS:
         sorted_rows, cell_dir = run_cell(
-            cell_name, mode, transport_path, label,
+            cell_name, topology, mode, transport_path, label,
             fitness_fn, metrics_fn,
         )
         rank1 = sorted_rows[0]
         # Render the top-fit pressure trace + capture the result
         # dict for the comparison overlay.
         _diag_path, result = render_best_diagnostics(
-            rank1, t_exp, p_exp, mode, transport_path, cell_dir, label,
+            rank1, t_exp, p_exp, topology, mode, transport_path,
+            cell_dir, label,
         )
         cell_results[cell_name] = {
             'rank1': rank1,
@@ -458,7 +476,7 @@ def main():
         sanity_path = render_sanity_check(cell_results)
         print(f"Smoke-test sanity check: {sanity_path}")
         print()
-        print("Pre-flight smoke test complete. Review the 4 traces in")
+        print(f"Pre-flight smoke test complete. Review the {len(CELLS)} traces in")
         print(f"  {OUTPUT_ROOT}/comparison.png")
         print("and the sanity-check log before scheduling the full sweep.")
     else:
