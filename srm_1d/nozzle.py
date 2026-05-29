@@ -520,6 +520,6 @@ def print_performance_summary(perf, nozzle):
         D_f = perf['D_throat_final'] * 1000
         delta = perf['throat_change_mm']
         direction = "eroded" if delta > 0 else "slagged"
-        print(f"  Throat:         {D_i:.2f} → {D_f:.2f} mm "
+        print(f"  Throat:         {D_i:.2f} -> {D_f:.2f} mm "
               f"({direction} {abs(delta):.3f} mm)")
     print(f"{'='*65}")
