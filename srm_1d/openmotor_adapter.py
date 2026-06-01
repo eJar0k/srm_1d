@@ -223,6 +223,8 @@ def build_pyrogen_chamber(
     pyrogen_burn_law='0d',
     injection_topology='forward_plenum',
     cartridge_length_m=-1.0,
+    basket_fill_fraction=0.5,
+    pellet_packing_fraction=0.60,
 ):
     """
     Build a PyrogenChamber using v0.7.0 default sizing rules.
@@ -297,6 +299,8 @@ def build_pyrogen_chamber(
         burn_law=pyrogen_burn_law,
         injection_topology=injection_topology,
         cartridge_length_m=cartridge_length_m,
+        basket_fill_fraction=basket_fill_fraction,
+        pellet_packing_fraction=pellet_packing_fraction,
     )
 
 
@@ -614,6 +618,8 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
                  pyrogen_heat_flux_cal_cm2_s=None,
                  injection_topology='forward_plenum',
                  cartridge_length_m=-1.0,
+                 basket_fill_fraction=0.5,
+                 pellet_packing_fraction=0.60,
                  particle_diameter_m=None,
                  particle_LD_ratio=None,
                  T_ignition=850.0, k_solid=None,
@@ -729,6 +735,8 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
         pyrogen_burn_law=pyrogen_burn_law,
         injection_topology=injection_topology,
         cartridge_length_m=cartridge_length_m,
+        basket_fill_fraction=basket_fill_fraction,
+        pellet_packing_fraction=pellet_packing_fraction,
     )
     args['T_ignition'] = T_ignition
     args['verbose'] = verbose

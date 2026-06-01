@@ -1,0 +1,27 @@
+# Magnesium/Teflon/Viton (MTV) — FAST/STEEP A/B VARIANT.
+#
+# This file is IDENTICAL to mtv.yaml EXCEPT for the burn-rate law:
+# it preserves the OLD pre-v0.7.4 seed `a=3.0e-5, n=0.50` for direct
+# A/B comparison against the literature-corrected mtv.yaml
+# (`a=4.4e-5, n=0.35`, Kubota & Serizawa 1987).
+#
+# The old seed over-predicts MTV burn rate ~6-8× (30→120 mm/s @1→16 MPa)
+# and is too pressure-sensitive (n=0.5 vs Kubota's igniter-grade ~0.35).
+# Kept ONLY as a diagnostic baseline; do NOT use for validation runs.
+# See reference_mtv_burn_rate_literature memory + mtv.yaml provenance.
+name: MTV_fast
+a: 3.0e-5
+n: 0.50
+rho: 1800.0
+T_flame: 3000.0
+M: 0.032
+gamma: 1.22
+impetus_W: 4700.0
+heat_flux_cal_cm2_s: 110.0
+kappa_jet: 8.0
+form: pellets
+heat_delivery_mode: demar
+pellet_emissivity: 0.7
+radiation_absorption_length_m: 0.5
+particle_diameter_m: 3.2e-3
+particle_LD_ratio: 1.0

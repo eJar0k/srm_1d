@@ -296,6 +296,45 @@ in geometry/burn rate/ignition (called every step or every N steps).
       ignition-model audit that motivated this concluded the Chunc spike is
       the *erosive* over-response (Root B), not an ignition/energy artifact;
       see `docs/v0_7_4/`.
+    - **MTV pyrogen burn-rate recalibration (`motors/pyrogens/mtv.yaml`):**
+      `a=3.0e-5→4.4e-5`, `n=0.50→0.35`, anchored to Kubota & Serizawa 1987
+      (J.Prop.Power 3(4):303, DOI 10.2514/3.22990; PDF in `docs/references/`)
+      igniter-grade 60/40 Mg/TF strand-burner data, reconciled with the
+      Kuwahara 0.1 MPa flare datum. The old seed over-predicted MTV burn rate
+      ~6-8× (30→120 mm/s @1→16 MPa) and was too pressure-sensitive. The old
+      fast/steep seed is preserved verbatim as `motors/pyrogens/mtv_fast.yaml`
+      for A/B diagnostics (do NOT use for validation). Cut the Chunc
+      head_basket ignition spike 2.02×→1.55× at the Sutton 0.9 g charge;
+      plateau + ignition preserved. Diagnostic: the spike tracks burn-rate
+      MAGNITUDE, not the pressure-exponent feedback. Affects only Chunc among
+      FIRED motors (L1843/Super Loki/L3035 are unfired). `bpnv` likely shares
+      the too-fast seed — same-check pending.
+    - **Realistic basket cartridge geometry (opt-in defaults, baskets only):**
+      `PyrogenChamber.basket_fill_fraction` (default 0.5, basket cross-section
+      ÷ bore) + `pellet_packing_fraction` (default 0.60, loose-pellet bulk ÷
+      solid density). `resolve_cartridge_length` now derives
+      `L_cart = m / ((φ_pack·ρ)·(f_area·A_port_avg))`, replacing the old
+      solid-puck `L_cart = m/(ρ·A_port_avg)` (which absurdly packed the
+      pyrogen across the entire bore at full density). `run_from_ric` +
+      `build_pyrogen_chamber` gain passthrough kwargs. NOTE: cartridge
+      distribution is proven NEUTRAL on the spike (total pyrogen mdot is
+      conserved regardless of `n_cart`) — this is a physical-correctness fix,
+      not a spike lever. Particle diameter is the single unifying knob (sets
+      specific surface area 6/ρd → A_burn → mdot); fill/packing/(L/D≈1) are
+      fixed structural assumptions. forward_plenum unaffected.
+    - **Finding (informs next work):** with the as-fired Chunc charge (6 g MTV,
+      vs Sutton's 0.9 g — Sutton Eq.15-4 is a central AP/Al fit with a ±2×
+      band, verified verbatim RPE 9th p.581), the spike re-inflates to 3.19×
+      even with the corrected burn rate, via the ignition-SIMULTANEITY channel
+      (more pyrogen → harder/more-synchronous grain lighting → bigger erosive
+      surge; pyrogen is ~4% of power at the peak = trigger, not pressurizer).
+      Bed flame-spread is fast (τ_bed≈5-10 ms; Kubota/JPL TR 32-33), so an
+      igniter bed-ignition ramp is second-order. Convergent conclusion (3
+      independent lines + snap-on static data): ignition is genuinely fast and
+      physical; the residual is the erosive over-response (Root B). Next lever:
+      a Beddini/King turbulent-transition ESTABLISHMENT gate on the Ma erosive
+      term (state-based, returns to 1.0 once the core is developed so the
+      plateau is untouched). See `docs/v0_7_4/`.
 - v0.2.0: GrainSegment.D_bore_initial → D_bore_fwd + D_bore_aft
 - v0.2.0: seg_D_bore_init (N_seg) → cell_D_bore_init (N)
 - v0.2.0: igniter_duration removed → igniter_a, igniter_n, igniter_rho, igniter_A_burn

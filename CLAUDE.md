@@ -24,6 +24,21 @@ over-response (Root B)** — Ma's quasi-steady erosive firing instantly
 off the genuine peak-G at the smallest-bore condition. Next lever:
 transient/unsteady erosive closure. 291/291 pytest green. Full narrative
 in `srm_1d/docs/v0_7_4/` (README = research synthesis, TASKS = outcome).
+**Post-audit work (2026-06-01, uncommitted→committing)**: (1) **MTV
+burn-rate recal** — `mtv.yaml` `a=3e-5→4.4e-5, n=0.5→0.35` (Kubota 1987,
+the old seed was 6-8× too fast); old seed kept as `mtv_fast.yaml` for A/B.
+Cut Chunc head_basket spike 2.02×→1.55× at Sutton 0.9 g. (2) **Realistic
+basket geometry** — `PyrogenChamber.basket_fill_fraction=0.5` +
+`pellet_packing_fraction=0.60` replace the solid-puck `L_cart`; distribution
+proven NEUTRAL on spike (correctness only); particle diameter is the unifying
+specific-surface knob. (3) **Finding**: at the as-fired 6 g charge (Sutton
+gives 0.9 g — Eq.15-4 is a central AP/Al ±2× fit) the spike re-inflates to
+3.19× via ignition-simultaneity; bed flame-spread is fast (τ_bed≈5-10 ms) so
+an igniter ramp is 2nd-order. Convergent: ignition is genuinely fast/physical,
+residual is Root B. **Next lever: Beddini/King turbulent-transition
+ESTABLISHMENT gate on the Ma erosive term** (state-based `f_estab(Re_c/Re_c,th)`,
+returns to 1.0 once core is developed → plateau untouched; King 1992 NTRS
+19920001907 has the form). `bpnv` same-check pending.
 
 **v0.7.3-phaseB ships (branch `v0.7.0-phase4`, tag `v0.7.3-phaseB`)**:
 heat-flux completeness for uncontained ignition. Four fixes close

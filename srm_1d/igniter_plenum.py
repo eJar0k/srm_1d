@@ -141,6 +141,20 @@ class PyrogenChamber:
     # v0.7.3 Phase A — submerged-igniter topology fields
     injection_topology: str = 'forward_plenum'
     cartridge_length_m: float = -1.0  # < 0 => derive from pyrogen mass
+    # v0.7.4 — realistic basket cartridge geometry (replaces the solid-puck
+    # L_cart). Used by head_basket / aft_basket only when cartridge_length_m
+    # < 0. A real floating igniter / basket fills only a FRACTION of the bore
+    # cross-section, and loose pellets pack at a fraction of solid density:
+    #   L_cart = m / ( (pellet_packing_fraction·ρ) · (basket_fill_fraction·A_port) )
+    basket_fill_fraction: float = 0.5      # basket cross-section ÷ bore cross-section
+    pellet_packing_fraction: float = 0.60  # bulk(tap) density ÷ solid density
+    #   Packing is shape-dependent and ~size-INDEPENDENT for monodisperse
+    #   convex particles (random loose packing ≈ 0.60 for spheres / L≈D
+    #   cylinders; size enters only weakly via wall effects). The strong
+    #   size-dependence lives in the burn AREA (A/m = 6/ρd), set separately
+    #   by particle_diameter_m. So particle diameter is the single unifying
+    #   knob: it sets specific surface area, while fill/packing are fixed
+    #   structural assumptions.
 
     def __post_init__(self):
         if self.m_pyrogen_initial <= 0.0:
@@ -157,12 +171,31 @@ class PyrogenChamber:
                 f"injection_topology must be one of {_VALID_TOPOLOGIES}; "
                 f"got '{self.injection_topology}'"
             )
+        if not (0.0 < self.basket_fill_fraction <= 1.0):
+            raise ValueError(
+                "basket_fill_fraction must be in (0, 1]; "
+                f"got {self.basket_fill_fraction}"
+            )
+        if not (0.0 < self.pellet_packing_fraction <= 1.0):
+            raise ValueError(
+                "pellet_packing_fraction must be in (0, 1]; "
+                f"got {self.pellet_packing_fraction}"
+            )
 
     def resolve_cartridge_length(self, A_port_avg):
         """Return cartridge length in meters, deriving from pyrogen mass
         if not user-specified.
 
-        L_cart = m_pyrogen / (rho_pyrogen * A_port_avg)
+        v0.7.4 — realistic packed-bed cartridge (replaces the old solid-puck
+        ``L_cart = m / (ρ · A_port_avg)`` which assumed the pyrogen filled the
+        entire bore cross-section at full material density):
+
+            L_cart = m / ( (φ_pack·ρ) · (f_area·A_port_avg) )
+
+        where ``φ_pack = pellet_packing_fraction`` (loose-pellet bulk density
+        ÷ solid density) and ``f_area = basket_fill_fraction`` (basket
+        cross-section ÷ bore cross-section). Both < 1 → the cartridge is
+        longer (and spans more cells) than the old puck assumption.
 
         A_port_avg is bore-volume-weighted port area (caller supplies).
         """
@@ -173,7 +206,9 @@ class PyrogenChamber:
                 "Cannot derive cartridge length from pyrogen mass: "
                 "A_port_avg must be positive"
             )
-        return float(self.m_pyrogen_initial / (self.pyrogen.rho * A_port_avg))
+        rho_bulk = self.pellet_packing_fraction * self.pyrogen.rho
+        A_basket = self.basket_fill_fraction * A_port_avg
+        return float(self.m_pyrogen_initial / (rho_bulk * A_basket))
 
     def resolve_injection_cells(self, x_centers, dx, N, A_port):
         """Compute (i_start, i_end) cell-index range for pyrogen
