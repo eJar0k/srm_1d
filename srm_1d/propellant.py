@@ -284,6 +284,36 @@ class Propellant:
     flame_spread_tau: float = 1.0e-3   # [s] window after upstream ignition
     flame_spread_boost: float = 3.0    # h_c multiplier when boost active
 
+    # v0.7.4 Phase F (DEFAULT DISABLED, opt-in): flame-spread front gate.
+    # When True, ignition propagates as a FRONT from the igniter at a
+    # physically-derived thermal flame-spread velocity
+    #     v_flame = q''_front / (rho_p * Cps * (T_ignition - T_initial))
+    # and grain cells AHEAD of the front are NOT surface-heated by the
+    # bulk gas (the flame has not impinged yet — heating them toward
+    # T_ignition off the spuriously-hot bore fill is the simultaneous-
+    # ignition artifact). Suppresses the ignition spike on high-L:D
+    # motors (Chunc) bottom-up. No velocity knob: v_flame is derived
+    # See docs/v0_7_4/. flame_front_velocity sets the lateral flame-spread
+    # speed [m/s]; literature value for AP/HTPB convective flame spread is
+    # ~1-10 m/s (Peretz-Kuo-Caveny-Summerfield 1973; Kumar & Kuo). A single
+    # bounded physical constant, held across motors — NOT a per-motor fit.
+    # (The earlier per-step "derived" form v=q''/(rho*Cps*dT) was a
+    # burn/regression velocity ~mm/s, the wrong quantity; see docs/v0_7_4/.)
+    flame_front_enabled: bool = False
+    flame_front_velocity: float = 3.0   # [m/s] lateral flame-spread speed
+
+    # v0.7.4 Phase Z (DEFAULT DISABLED, opt-in): Zeldovich-Novozhilov
+    # lumped dynamic burn-rate relaxation. When True, each burning cell's
+    # rate relaxes toward the quasi-steady Ma value over the condensed-
+    # phase thermal-wave time tau = kappa_zn * alpha_s / r^2 (≈ few ms at
+    # ignition, self-attenuating at the high-r plateau), blunting the
+    # instantaneous burn-rate response that feeds the ignition spike. Ma
+    # 2020 remains the erosive model of record — Z-N lags its output, it
+    # does NOT replace it. kappa_zn ≈ 1 is parameter-free (Greatrix 2008 /
+    # Lengelle 1975). See docs/v0_7_4/.
+    zn_enabled: bool = False
+    kappa_zn: float = 1.0   # O(1) prefactor on tau = kappa_zn*alpha_s/r^2
+
     def select_tab(self, P) -> PropellantTab:
         """
         Hard-switchover tab lookup. Mirrors openMotor's

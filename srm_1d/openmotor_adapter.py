@@ -617,7 +617,10 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
                  particle_diameter_m=None,
                  particle_LD_ratio=None,
                  T_ignition=850.0, k_solid=None,
-                 radiation_emissivity=None, verbose=True, **sim_overrides):
+                 radiation_emissivity=None,
+                 flame_front_enabled=None, flame_front_velocity=None,
+                 zn_enabled=None, kappa_zn=None,
+                 verbose=True, **sim_overrides):
     """
     Load a .ric file, run the 1D simulation, compute performance.
 
@@ -674,6 +677,17 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
         prop.k_solid = float(k_solid)
     if radiation_emissivity is not None:
         prop.radiation_emissivity = float(radiation_emissivity)
+    # v0.7.4 Phase F: opt-in flame-spread front gate (default off in the
+    # Propellant; a run script / sweep passes True to enable it).
+    if flame_front_enabled is not None:
+        prop.flame_front_enabled = bool(flame_front_enabled)
+    if flame_front_velocity is not None:
+        prop.flame_front_velocity = float(flame_front_velocity)
+    # v0.7.4 Phase Z: opt-in Z-N dynamic burn-rate relaxation.
+    if zn_enabled is not None:
+        prop.zn_enabled = bool(zn_enabled)
+    if kappa_zn is not None:
+        prop.kappa_zn = float(kappa_zn)
 
     if pyrogen is None:
         candidate = stem + '.pyrogen.yaml'

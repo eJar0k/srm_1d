@@ -278,6 +278,24 @@ in geometry/burn rate/ignition (called every step or every N steps).
 
 ## API Breaking Changes Log
 
+- v0.7.4 (ADDITIVE / non-breaking + one behavior bug fix):
+    - New opt-in `Propellant` fields (all default OFF/identity):
+      `flame_front_enabled` + `flame_front_velocity` (Phase F flame-spread
+      front gate); `zn_enabled` + `kappa_zn` (Phase Z Zeldovich-Novozhilov
+      dynamic burn-rate relaxation, τ=κ·α_s/r²). `run_from_ric` gains
+      matching passthrough kwargs.
+    - **Behavior bug fix (always on): gas-side energy balance.** Unignited
+      grain walls now act as a convective heat-loss sink on the bore gas
+      (`thermal_source[i] -= h_c·(T_gas−T_surf)·C_burn[i]`), mirroring the
+      existing radiation sink; and the uncontained-topology pyrogen
+      radiation delivered to walls is now debited from the cartridge gas
+      (it was DOUBLE-COUNTED — full pyrogen enthalpy injected as gas AND
+      radiated to walls with no debit). Both effects are quantitatively
+      negligible (wall heat-loss *power* is small during the low-Re fill),
+      so calibrations are unaffected, but the books are now correct. The
+      ignition-model audit that motivated this concluded the Chunc spike is
+      the *erosive* over-response (Root B), not an ignition/energy artifact;
+      see `docs/v0_7_4/`.
 - v0.2.0: GrainSegment.D_bore_initial → D_bore_fwd + D_bore_aft
 - v0.2.0: seg_D_bore_init (N_seg) → cell_D_bore_init (N)
 - v0.2.0: igniter_duration removed → igniter_a, igniter_n, igniter_rho, igniter_A_burn

@@ -1,35 +1,46 @@
-# Hasegawa Motor C — wider bore variant.
 data:
   config:
-    ambPressure: 101325.0
+    ambPressure: 101356.5
+    burnoutThrustThres: 0.1
+    burnoutWebThres: 2.540005e-05
+    flowSeparationWarnPercent: 0.05
+    mapDim: 750
+    maxMachNumber: 0.7
+    maxMassFlux: 1406.4697609
+    maxPressure: 10342500.0
+    minPortThroat: 2.0
+    sepPressureRatio: 0.4
+    timestep: 0.025
   grains:
-    - type: BATES
-      properties:
-        coreDiameter: 0.060
-        diameter: 0.080
-        length: 1.260
-        inhibitedEnds: Both
+  - properties:
+      coreDiameter: 0.06
+      diameter: 0.08
+      inhibitedEnds: Both
+      length: 1.26
+    type: BATES
   nozzle:
-    throat: 0.034
-    exit: 0.050
-    efficiency: 0.95
+    convAngle: 60.0
     divAngle: 15.0
-    convAngle: 30.0
-    throatLength: 0.0
+    efficiency: 0.95
     erosionCoeff: 0.0
+    exit: 0.05
     slagCoeff: 0.0
+    throat: 0.034
+    throatLength: 0.0
   propellant:
-    name: Hasegawa Propellant 1 (69AP/17HTPB/14Al)
     density: 1700.0
+    name: Hasegawa A Prop
     tabs:
-      - minPressure: 0.0
-        maxPressure: 20000000.0
-        a: 4.821e-5
-        n: 0.3
-        k: 1.19
-        t: 3041.0
-        m: 25.4
-version:
-  - 0
-  - 6
-  - 0
+    - a: 4.821e-05
+      k: 1.19
+      m: 25.4
+      maxPressure: 10000000.0
+      minPressure: 0.0
+      n: 0.3
+      t: 3041.0
+type: !!python/object/apply:uilib.fileIO.fileTypes
+- 3
+version: !!python/tuple
+- 0
+- 6
+- 1

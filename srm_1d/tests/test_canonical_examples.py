@@ -81,6 +81,48 @@ def test_canonical_hasegawa_motor_a_does_not_collapse():
     )
 
 
+def test_canonical_chunc_does_not_collapse():
+    """Canonical Chunc (machbusterNew, head_basket + mtv radiation, frozen
+    transport) must run to completion without numerical collapse. Chunc is
+    the v0.7.4 ignition-spike diagnostic; this gates that the default
+    (flame-front + Z-N OFF) path stays healthy as those features land.
+    """
+    pytest.importorskip("numba")
+    from srm_1d.openmotor_adapter import run_from_ric, load_pyrogen
+
+    pyro = load_pyrogen('mtv')
+    pyro.heat_delivery_mode = 'radiation'
+    result, _perf, _nz, _geo, _prop = run_from_ric(
+        'srm_1d/motors/machbusterNew.ric',
+        transport_path='srm_1d/motors/machbusterNew.frozen.transport.yaml',
+        pyrogen=pyro,
+        injection_topology='head_basket',
+        roughness=37.1e-6, kappa=0.45, T_ignition=850.0,
+        P_cutoff=0.05e6, cfl_target=0.3, t_max=3.0,
+        snapshot_interval=0.5, print_interval=20.0, verbose=False,
+    )
+
+    summary = result['summary']
+    term_code = summary['termination_code']
+    t_burn = float(summary['t_burn'])
+    p_peak = float(summary.get('P_peak', 0.0)) / 1e6
+
+    assert term_code != 4, (
+        f"Canonical Chunc collapsed (termination_code=4); "
+        f"t_burn={t_burn:.4f}s, P_peak={p_peak:.2f} MPa."
+    )
+    assert t_burn > 0.5, (
+        f"Canonical Chunc produced suspiciously short burn "
+        f"(t_burn={t_burn:.4f}s); P_peak={p_peak:.2f} MPa."
+    )
+    # Chunc plateau is ~8.8 MPa; the (uncorrected) baseline spike reaches
+    # ~16-17 MPa, so a wide sanity band catches only collapse/degeneracy.
+    assert 4.0 < p_peak < 40.0, (
+        f"Canonical Chunc P_peak={p_peak:.2f} MPa outside the (4, 40) MPa "
+        f"sanity band — likely degenerate."
+    )
+
+
 def test_verify_run_health_passes_clean_runs():
     """verify_run_health should return True for a normally-terminated
     run with reasonable t_burn."""

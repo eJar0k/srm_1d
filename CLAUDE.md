@@ -4,6 +4,27 @@ A 1D transient finite-volume solid rocket motor internal ballistics
 simulator with the Ma et al. (2020) erosive burning model. Numba-JIT
 compiled time loop hits ~45-90k steps/s.
 
+**v0.7.4 work-in-progress (branch `v0.7.0-phase4`, NOT tagged)**:
+ignition-transient spike work — two opt-in (default-OFF) features plus
+one always-on energy-balance bug fix. **Phase F** flame-spread front
+(`Propellant.flame_front_enabled`, `flame_front_velocity≈3 m/s`):
+ignition propagates as a front from the igniter; cells ahead are not
+bulk-heated. **Phase Z** Zeldovich-Novozhilov dynamic burn-rate
+relaxation (`zn_enabled`, `kappa_zn≈1`; `τ=κ·α_s/r²`). Each cut the
+Chunc ignition spike ~35% but they DON'T stack (F+Z≈F); residual ~1.25×
+overshoot remains. **Energy-balance bug fix (always on)**: the bore gas
+now loses heat to unignited walls — a convective wall-loss sink AND the
+previously DOUBLE-COUNTED pyrogen radiation (full enthalpy injected as
+gas *and* radiated to walls) is now debited. Effect negligible (wall
+heat-loss power is small during the low-Re fill) but correct.
+**Audit conclusion**: the Goodman kernel, the `T_ceiling` clip, and the
+wall sinks are NOT the spike cause; the gas reaching flame temperature
+is physically correct; **the spike is the EROSIVE burn-rate
+over-response (Root B)** — Ma's quasi-steady erosive firing instantly
+off the genuine peak-G at the smallest-bore condition. Next lever:
+transient/unsteady erosive closure. 291/291 pytest green. Full narrative
+in `srm_1d/docs/v0_7_4/` (README = research synthesis, TASKS = outcome).
+
 **v0.7.3-phaseB ships (branch `v0.7.0-phase4`, tag `v0.7.3-phaseB`)**:
 heat-flux completeness for uncontained ignition. Four fixes close
 the Phase A.3 gap (uncontained topologies stalling at atmospheric P):

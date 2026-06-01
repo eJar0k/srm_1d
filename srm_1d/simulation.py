@@ -81,6 +81,11 @@ N_SNAP_CHANNELS = 17
 CAL_CM2_S_TO_W_M2 = 41840.0
 STEFAN_BOLTZMANN = 5.670374419e-8
 
+# v0.7.4 Phase Z: burn-rate floor [m/s] in the Z-N relaxation time
+# tau = kappa_zn * alpha_solid / max(r_dyn, ZN_R_FLOOR)^2, guarding the
+# divide-by-zero at ignition. Internal constant, not a calibration knob.
+ZN_R_FLOOR = 1.0e-4
+
 # ================================================================
 # v0.7.1 species indices (used inside @njit kernels — Numba resolves
 # module-level constants at compile time). Mirrors the run_simulation
@@ -774,6 +779,97 @@ def _compute_flame_front_augment(
 
 
 @njit(cache=True)
+def _advance_flame_front(
+    is_burning, x_centers, flame_front_velocity,
+    x_front, front_direction, front_seed_idx,
+    cart_i_start, cart_i_end, dt, N, ignitable,
+):
+    """v0.7.4 Phase F — advance the flame-spread front at a bounded
+    literature velocity, fill the ``ignitable`` exposure mask, and return
+    the new ``x_front``.
+
+    The front advances at ``flame_front_velocity`` [m/s] — a single
+    physical constant (AP/HTPB lateral flame spread is ~1-10 m/s; Peretz-
+    Kuo-Caveny-Summerfield 1973; Kumar & Kuo 1984), held across motors and
+    decoupled from the acoustic/fill speed (~300-1000 m/s) that otherwise
+    over-speeds ignition. The earlier per-step ``q''/(rho*Cps*dT)`` form
+    was a burn/regression velocity (~mm/s) — the wrong quantity — and is
+    abandoned; see docs/v0_7_4/.
+
+    Once ANY cell is burning (a front exists), ``x_front`` advances by
+    ``front_direction * flame_front_velocity * dt`` each step. A grain
+    cell is ``ignitable`` if (a) it lies in the cartridge/igniter range
+    ``[cart_i_start, cart_i_end]`` (induction-privileged — lit directly by
+    the igniter), (b) it is the seed cell, or (c) the front has reached its
+    center (``x_centers[i] <= x_front`` fore→aft / ``>=`` aft→fore). The
+    caller withholds ALL surface heating (convective + pyrogen + radiation)
+    from cells that are not ignitable, so ignition follows the front rather
+    than the bulk-fill / broad pyrogen radiation.
+
+    ``flame_front_velocity`` is a velocity, so the physical spread speed is
+    grid-independent. Before any cell burns the front sits at the seed and
+    only the cartridge region is exposed (induction).
+    """
+    any_burning = False
+    for i in range(N):
+        if is_burning[i]:
+            any_burning = True
+            break
+    if any_burning and flame_front_velocity > 0.0:
+        x_front = x_front + front_direction * flame_front_velocity * dt
+
+    lo = cart_i_start if cart_i_start >= 0 else 0
+    hi = cart_i_end if cart_i_end < N else N - 1
+    for i in range(N):
+        if i == front_seed_idx or (lo <= i <= hi):
+            ignitable[i] = True
+        elif front_direction > 0:
+            ignitable[i] = x_centers[i] <= x_front
+        else:
+            ignitable[i] = x_centers[i] >= x_front
+    return x_front
+
+
+@njit(cache=True)
+def _advance_zn_burn_rate(r_dyn, r_qs, is_burning, alpha_solid,
+                          kappa_zn, r_floor, dt, N):
+    """v0.7.4 Phase Z — lumped Zeldovich-Novozhilov dynamic burn-rate
+    relaxation. Each burning cell's rate relaxes toward the quasi-steady
+    Ma value ``r_qs`` over the condensed-phase thermal-wave time:
+
+        tau   = kappa_zn * alpha_solid / max(r_dyn, r_floor)^2
+        r_dyn = r_qs + (r_dyn - r_qs) * exp(-dt / tau)
+
+    The analytic exponential update is unconditionally stable and never
+    overshoots. ``tau ~ 1/r^2`` self-attenuates as the burn rate climbs, so
+    the high-r plateau is preserved while the low-r ignition transient
+    (tau ~ ms) is smoothed. Greatrix 2008 lag form (Eq. 14); timescale per
+    Lengelle 1975 / Greatrix Eq. 19. ``r_qs`` is the existing Ma-2020 total
+    — Z-N lags it, it does NOT replace the erosive model.
+
+    First-touch: a just-ignited cell (``r_dyn == 0``) seeds directly to
+    ``r_qs`` (no ramp-from-zero artifact). Cells that are not burning reset
+    to 0 so a re-ignition seeds cleanly.
+    """
+    for i in range(N):
+        if not is_burning[i]:
+            r_dyn[i] = 0.0
+            continue
+        rq = r_qs[i]
+        if r_dyn[i] <= 0.0 or alpha_solid <= 0.0 or kappa_zn <= 0.0:
+            r_dyn[i] = rq
+            continue
+        r_eff = r_dyn[i]
+        if r_eff < r_floor:
+            r_eff = r_floor
+        tau = kappa_zn * alpha_solid / (r_eff * r_eff)
+        if tau <= 0.0:
+            r_dyn[i] = rq
+            continue
+        r_dyn[i] = rq + (r_dyn[i] - rq) * np.exp(-dt / tau)
+
+
+@njit(cache=True)
 def _compute_T_ceiling_arr(
     Y, species_params, T_ceiling_arr, N, T_initial_gas,
     Y_min=0.05,
@@ -929,6 +1025,10 @@ def _goodman_ignition_sources_and_mass(
     Y_species,               # [N, S] per-cell species mass fractions
     # v0.7.3 Phase B.4: pre-computed per-cell pyrogen surface heat flux
     pyrogen_heat_flux_arr_in, # [N] W/m², pre-capped per topology+mode
+    # v0.7.4 Phase F: flame-spread front exposure gate
+    flame_front_enabled,     # bool — gate ALL surface heating to the front
+    ignitable,               # [N] bool — cell exposed (cartridge or behind front)
+    topology_code,           # 0=forward_plenum (single-cell DeMar induction exempt)
 ):
     """Goodman surface-temperature ignition and propellant source assembly.
 
@@ -997,7 +1097,28 @@ def _goodman_ignition_sources_and_mass(
             r_total[i] = 0.0
             r_erosive[i] = 0.0
         else:
-            if not has_ignited[i]:
+            # v0.7.4 Phase F: withhold bulk-gas surface heating from grain
+            # cells the flame front has not yet reached. Cells receiving
+            # pyrogen igniter flux (cartridge/induction) are exempt so the
+            # seed can light. A gated-out unignited cell skips the whole
+            # heating + ignition sub-block → T_surf stays frozen at
+            # T_initial (no pre-heat, no ignition until the front arrives).
+            # flame_front_enabled=False → heat_cell is always True →
+            # byte-for-byte the prior behaviour. For forward_plenum
+            # (topology 0) the single-cell DeMar plume target is the
+            # induction site and stays exempt; for head_basket/aft_basket
+            # the cartridge cells are already in `ignitable`, so the broad
+            # pyrogen RADIATION flux must NOT exempt distant cells (that
+            # was the v1 bypass that made the gate a no-op for Chunc).
+            if not flame_front_enabled:
+                heat_cell = True
+            elif ignitable[i]:
+                heat_cell = True
+            elif topology_code == 0 and pyrogen_heat_flux_arr_in[i] > 0.0:
+                heat_cell = True
+            else:
+                heat_cell = False
+            if (not has_ignited[i]) and heat_cell:
                 h_c = _bare_heat_transfer_coeff(
                     Re[i], D_hyd[i], x_centers[i], f_darcy[i],
                     Pr, k_thermal, T[i], T_surf[i], kappa,
@@ -1012,6 +1133,15 @@ def _goodman_ignition_sources_and_mass(
                     h_c = h_c * flame_spread_augment[i]
                 h_total = h_c
                 h_driver_num = h_c * T[i]
+                # v0.7.4 energy-balance fix: capture the BARE convective
+                # coefficient and the gas-wall ΔT (pre-Goodman-update) for
+                # the convective wall heat-loss sink applied after the
+                # update. Only the convective channel is debited here:
+                # adjacent-cell propellant radiation has its own sink
+                # (radiation_sink_power) and the pyrogen flux is the
+                # pyrogen's energy budget (handled separately).
+                h_conv = h_c
+                dT_conv = T[i] - T_surf[i]
                 # v0.7.3 Phase B.4: consume the pre-computed per-cell
                 # pyrogen heat flux (already topology/mode-dispatched
                 # and sensible-capped by _compute_pyrogen_heat_flux_arr).
@@ -1088,6 +1218,22 @@ def _goodman_ignition_sources_and_mass(
                 )
                 delta[i] = new_delta
                 T_surf[i] = new_T_surf
+
+                # v0.7.4 energy-balance fix: convective wall heat-loss sink.
+                # The bore gas convectively heated this UNIGNITED wall by
+                # q = h_conv*(T_gas - T_surf)*C_burn [W/m]; debit it from the
+                # gas so the system is NOT adiabatic-at-the-walls during the
+                # ignition transient (the gas must cool as it pumps energy
+                # into cold boundaries). Mirrors the existing radiation sink.
+                # Clamped to heating (dT_conv > 0). Vanishes naturally once
+                # the cell ignites (this block only runs while unignited) and
+                # the wall becomes a transpiring source — no Boolean switch,
+                # no temperature/ignition lever beyond the existing T_ignition
+                # gate. thermal_source[i] may go negative for cells with hot
+                # advected gas but no local source (a net energy sink) — PISO
+                # handles this and the bore gas cools correctly.
+                if h_conv > 0.0 and dT_conv > 0.0 and C_burn[i] > 0.0:
+                    thermal_source[i] -= h_conv * dT_conv * C_burn[i]
 
                 if _surface_has_ignited(T_surf[i], T_ignition):
                     has_ignited[i] = True
@@ -1238,6 +1384,16 @@ def _run_time_loop(
     pellet_emissivity,            # Stefan-Boltzmann emissivity [-] (radiation only)
     radiation_absorption_length_m,# Beer-Lambert attenuation length [m] (radiation only)
     pyrogen_heat_flux_arr,        # [N] scratch buffer filled per step
+    # --- v0.7.4 Phase F: flame-spread front gate ---
+    flame_front_enabled,          # bool — opt-in front gate
+    flame_front_velocity,         # [m/s] lateral flame-spread speed
+    ignitable,                    # [N] bool scratch — front-exposure mask
+    # --- v0.7.4 Phase Z: Z-N dynamic burn-rate relaxation ---
+    zn_enabled,                   # bool — opt-in relaxation
+    kappa_zn,                     # O(1) prefactor on tau = kappa_zn*alpha_s/r^2
+    r_dyn,                        # [N] persistent relaxed burn rate
+    r_qs_persist,                 # [N] held quasi-steady total target
+    r_ero_qs_persist,             # [N] held quasi-steady erosive target
 ):
     """
     The complete simulation time loop, compiled to native code.
@@ -1298,6 +1454,44 @@ def _run_time_loop(
     solid_alpha = 0.0
     if k_solid > 0.0 and rho_propellant > 0.0 and Cps > 0.0:
         solid_alpha = k_solid / (rho_propellant * Cps)
+
+    # v0.7.4 Phase F: seed the flame-spread front from the igniter topology.
+    #   forward_plenum(0)/head_basket(1): seed at the head of the cartridge
+    #     range, spread fore→aft (front_direction +1).
+    #   aft_basket(2): seed at the aft of the cartridge range, spread
+    #     aft→fore (front_direction -1).
+    # x_front starts at the seed cell centre; it only advances once a cell
+    # is actually burning (induction lights the seed via pyrogen flux).
+    if topology_code == 2:
+        front_seed_idx = cart_i_end
+        front_direction = -1
+    else:
+        front_seed_idx = cart_i_start
+        front_direction = 1
+    if front_seed_idx < 0:
+        front_seed_idx = 0
+    elif front_seed_idx >= N:
+        front_seed_idx = N - 1
+    # v0.7.4 Phase F: snap the seed to the first GRAIN cell in the
+    # propagation direction. A head_basket cartridge often sits in a
+    # non-grain head cavity (cart_i_start maps to the motor head, but the
+    # grain starts a few cells aft); without this snap the seed + cartridge
+    # cells are all non-grain, nothing can ignite, and the front never
+    # starts (the whole grain stays gated). forward_plenum is unaffected —
+    # its DeMar head-cell exemption already lights the real grain cell.
+    if front_direction > 0:
+        for i in range(front_seed_idx, N):
+            if is_grain[i]:
+                front_seed_idx = i
+                break
+    else:
+        for i in range(front_seed_idx, -1, -1):
+            if is_grain[i]:
+                front_seed_idx = i
+                break
+    x_front = x_centers[front_seed_idx]
+    for i in range(N):
+        ignitable[i] = True  # default exposed; gate active only when enabled
 
     # v0.7.1: workspace for pre-PISO density snapshot. Used by
     # _advect_species after PISO updates rho in-place. Face areas are
@@ -1404,6 +1598,34 @@ def _run_time_loop(
                 else:
                     r_total[i] = r_total_new[i]
                     r_erosive[i] = r_erosive_new[i]
+            # v0.7.4 Phase Z: snapshot the quasi-steady targets for the
+            # relaxation. Refreshed on each burn-rate update and held
+            # constant between updates (same cadence the baseline already
+            # holds r_total between updates).
+            if zn_enabled:
+                for i in range(N):
+                    r_qs_persist[i] = r_total[i]
+                    r_ero_qs_persist[i] = r_erosive[i]
+
+        # v0.7.4 Phase Z: relax the dynamic burn rate toward the quasi-steady
+        # target EVERY step (dt-accurate), then overwrite r_total / r_erosive
+        # so both consumers — the mass-source assembly and the next step's
+        # advance_bore_regression — see r_dyn with no further plumbing. The
+        # held r_qs_persist (not r_total) is the relaxation target, so the
+        # overwrite cannot poison it between burn updates. Disabled →
+        # untouched (byte-for-byte the prior behaviour).
+        if zn_enabled:
+            _advance_zn_burn_rate(
+                r_dyn, r_qs_persist, is_burning, solid_alpha,
+                kappa_zn, ZN_R_FLOOR, dt, N,
+            )
+            for i in range(N):
+                r_total[i] = r_dyn[i]
+                if r_qs_persist[i] > 1.0e-12:
+                    r_erosive[i] = r_dyn[i] * (r_ero_qs_persist[i]
+                                               / r_qs_persist[i])
+                else:
+                    r_erosive[i] = 0.0
 
         # ============================================
         # STEP 3: IGNITION + SOURCE ASSEMBLY
@@ -1529,6 +1751,17 @@ def _run_time_loop(
             flame_spread_tau, flame_spread_boost, N, flame_spread_augment,
         )
 
+        # v0.7.4 Phase F: advance the flame-spread front and refresh the
+        # `ignitable` exposure mask. Skipped when disabled — `ignitable`
+        # then stays all-True and is never read (the Goodman heating gate
+        # short-circuits on flame_front_enabled=False).
+        if flame_front_enabled:
+            x_front = _advance_flame_front(
+                is_burning, x_centers, flame_front_velocity,
+                x_front, front_direction, front_seed_idx,
+                cart_i_start, cart_i_end, dt, N, ignitable,
+            )
+
         (n_burning, n_ignited, mass_sum,
          pyrogen_surface_heat_power, radiation_heat_power,
          radiation_sink_total_power,
@@ -1554,6 +1787,8 @@ def _run_time_loop(
             Y_species,
             # v0.7.3 Phase B.4: pre-computed per-cell pyrogen heat flux
             pyrogen_heat_flux_arr,
+            # v0.7.4 Phase F: flame-spread front exposure gate
+            flame_front_enabled, ignitable, topology_code,
         )
 
         # v0.7.1 Phase 3.5: pyrogen mass injection uses pyrogen Cp for the
@@ -1604,8 +1839,7 @@ def _run_time_loop(
                 pyrogen_surface_heat_sink_power = pyrogen_surface_heat_sink * dx
             else:
                 # Uncontained (head_basket / aft_basket): per-cell
-                # mdot directly from the cartridge cells. No surface
-                # heat sink (no DeMar plume impingement in uncontained).
+                # mdot directly from the cartridge cells.
                 for i in range(N):
                     mdot_cell = mdot_uncontained_arr[i]
                     if mdot_cell <= 0.0:
@@ -1615,6 +1849,27 @@ def _run_time_loop(
                     mass_source_by_species[i, _SPECIES_IGNITER] += mass_source_i
                     thermal_source[i] += mass_source_i * T_ig * Cp_pyrogen_species
                     mass_sum += mass_source_i
+                # v0.7.4 energy-balance fix (item 2a): the pyrogen radiation
+                # delivered to the propellant walls (pyrogen_surface_heat_power,
+                # accumulated in the Goodman kernel) is energy LEAVING the
+                # pyrogen products. The full pyrogen enthalpy was injected as
+                # gas above AND the pellets radiate to the walls — that double-
+                # counts the pyrogen energy unless the radiated portion is
+                # debited from the gas. Distribute the debit across the
+                # cartridge (emitter) cells proportional to their pyrogen mdot
+                # and clamp the total to the injected enthalpy so we never
+                # extract more than the pyrogen added.
+                if pyrogen_surface_heat_power > 0.0 and mdot_igniter > 0.0:
+                    sink_total = pyrogen_surface_heat_power
+                    if sink_total > pyrogen_enthalpy_power:
+                        sink_total = pyrogen_enthalpy_power
+                    for i in range(N):
+                        mdot_cell = mdot_uncontained_arr[i]
+                        if mdot_cell <= 0.0:
+                            continue
+                        share = mdot_cell / mdot_igniter
+                        thermal_source[i] -= (sink_total * share) / dx
+                    pyrogen_surface_heat_sink_power = sink_total
 
         # Refresh the source-aware CFL cap from THIS step's complete
         # thermal_source. The next iteration's dt will use this as an
@@ -2225,6 +2480,25 @@ def run_simulation(
     flame_spread_tau = float(getattr(propellant, 'flame_spread_tau', 1.0e-3))
     flame_spread_boost = float(getattr(propellant, 'flame_spread_boost', 3.0))
 
+    # v0.7.4 Phase F: flame-spread front exposure mask. Refreshed each step
+    # by _advance_flame_front inside _run_time_loop when enabled; allocated
+    # here as a hot-loop scratch buffer (bool, init True = exposed).
+    flame_front_enabled = bool(getattr(propellant, 'flame_front_enabled', False))
+    flame_front_velocity = float(getattr(propellant, 'flame_front_velocity', 3.0))
+    ignitable = np.ones(N, dtype=np.bool_)
+
+    # v0.7.4 Phase Z: Z-N dynamic burn-rate relaxation state. r_dyn is the
+    # persistent relaxed rate; r_qs_persist / r_ero_qs_persist hold the
+    # quasi-steady Ma targets between burn-rate updates. tau_establishment
+    # is forced off when Z-N is enabled (they would double-damp the spike).
+    zn_enabled = bool(getattr(propellant, 'zn_enabled', False))
+    kappa_zn = float(getattr(propellant, 'kappa_zn', 1.0))
+    r_dyn = np.zeros(N)
+    r_qs_persist = np.zeros(N)
+    r_ero_qs_persist = np.zeros(N)
+    if zn_enabled:
+        tau_establishment = 0.0
+
     theoretical_propellant_mass = (
         geo.total_propellant_volume() * propellant.rho_propellant
     )
@@ -2404,6 +2678,10 @@ def run_simulation(
         heat_delivery_mode_code, demar_flux_w_m2_uncontained,
         T_flame_pyrogen_val, pellet_emissivity_val,
         radiation_absorption_length_val, pyrogen_heat_flux_arr,
+        # v0.7.4 Phase F: flame-spread front gate
+        flame_front_enabled, flame_front_velocity, ignitable,
+        # v0.7.4 Phase Z: Z-N dynamic burn-rate relaxation
+        zn_enabled, kappa_zn, r_dyn, r_qs_persist, r_ero_qs_persist,
     )
 
     wall_elapsed = clock.time() - wall_start

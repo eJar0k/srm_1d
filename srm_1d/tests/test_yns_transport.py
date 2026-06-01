@@ -199,7 +199,7 @@ def test_yns_hasegawa_a_short_run_invariants():
     species_names = result['species_names']
     assert Y.shape[1] == 3, "Expected 3 species"
     assert species_names == ['BPNV_gas',
-                             'Hasegawa Propellant 1 (69AP/17HTPB/14Al)_gas',
+                             'Hasegawa A Prop_gas',
                              'ambient_air']
 
     # Y invariants per cell
