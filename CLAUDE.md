@@ -4,7 +4,7 @@ A 1D transient finite-volume solid rocket motor internal ballistics
 simulator with the Ma et al. (2020) erosive burning model. Numba-JIT
 compiled time loop hits ~45-90k steps/s.
 
-**v0.7.4 work-in-progress (branch `v0.7.0-phase4`, NOT tagged)**:
+**v0.7.4 SHIPS (branch `v0.7.0-phase4`, tag `v0.7.4`)**:
 ignition-transient spike work — two opt-in (default-OFF) features plus
 one always-on energy-balance bug fix. **Phase F** flame-spread front
 (`Propellant.flame_front_enabled`, `flame_front_velocity≈3 m/s`):
