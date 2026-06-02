@@ -331,10 +331,27 @@ in geometry/burn rate/ignition (called every step or every N steps).
       Bed flame-spread is fast (τ_bed≈5-10 ms; Kubota/JPL TR 32-33), so an
       igniter bed-ignition ramp is second-order. Convergent conclusion (3
       independent lines + snap-on static data): ignition is genuinely fast and
-      physical; the residual is the erosive over-response (Root B). Next lever:
-      a Beddini/King turbulent-transition ESTABLISHMENT gate on the Ma erosive
-      term (state-based, returns to 1.0 once the core is developed so the
-      plateau is untouched). See `docs/v0_7_4/`.
+      physical; the residual is the erosive over-response (Root B).
+    - **CLOSE-OUT (2026-06-01, user decision = document as known limitation):**
+      exhaustive differential diagnosis proved the residual spike is NOT
+      igniter mass/topology/IC, NOT our ignition kernel (Hasegawa A/B/C —
+      Ma's exact validation motors — are FAITHFUL: 1.15× / 0.68× / no-spike),
+      NOT burn-rate magnitude (fixed), NOT ignition sequencing (flame-front
+      v-sweep: only suppresses at ≥80 ms ignition = the rejected slanted
+      regime; convective speeds 30–200 m/s give baseline 3.0–3.2×), NOT a
+      *derivable* erosive lag (Beddini 1986/1978 give NO parameter-free τ —
+      only a steady x/R gate that doesn't gate the aft spike; any flow-state
+      gate reads "developed" at the high-flow spike → a working temporal lag
+      needs a TUNED τ, violating the no-tuning dogma), and NOT numerical
+      resolution (every-step burn+geometry update + CFL 0.15 → identical
+      3.17×; baseline dt≈1.9 µs already far finer than the transient). It IS
+      the genuine, faithful **Ma quasi-steady erosive response to the
+      transient mass-flux during fast ignition of a HIGH-L/D motor** — a
+      regime Ma's paper EXCLUDED from every error figure and never
+      benchmarked. Under the no-tuning constraint there is no literature
+      closure; the simulator is faithful to Ma, not broken. Documented as a
+      known QS-erosive limitation; no tuned closure added. Full record +
+      elimination table: `docs/v0_7_4/IGNITION_SPIKE_CLOSEOUT.md`.
 - v0.2.0: GrainSegment.D_bore_initial → D_bore_fwd + D_bore_aft
 - v0.2.0: seg_D_bore_init (N_seg) → cell_D_bore_init (N)
 - v0.2.0: igniter_duration removed → igniter_a, igniter_n, igniter_rho, igniter_A_burn

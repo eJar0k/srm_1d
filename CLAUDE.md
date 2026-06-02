@@ -34,11 +34,19 @@ proven NEUTRAL on spike (correctness only); particle diameter is the unifying
 specific-surface knob. (3) **Finding**: at the as-fired 6 g charge (Sutton
 gives 0.9 g — Eq.15-4 is a central AP/Al ±2× fit) the spike re-inflates to
 3.19× via ignition-simultaneity; bed flame-spread is fast (τ_bed≈5-10 ms) so
-an igniter ramp is 2nd-order. Convergent: ignition is genuinely fast/physical,
-residual is Root B. **Next lever: Beddini/King turbulent-transition
-ESTABLISHMENT gate on the Ma erosive term** (state-based `f_estab(Re_c/Re_c,th)`,
-returns to 1.0 once core is developed → plateau untouched; King 1992 NTRS
-19920001907 has the form). `bpnv` same-check pending.
+an igniter ramp is 2nd-order. **INVESTIGATION CLOSED (2026-06-01, user decision
+= document as known limitation).** Exhaustive differential diagnosis proved the
+spike is NOT: igniter mass/topology/IC, our ignition kernel (Hasegawa A/B/C —
+Ma's exact validation motors — are FAITHFUL: 1.15×/0.68×/no-spike), burn-rate
+magnitude (fixed), ignition sequencing (flame-front can't suppress at physical
+speeds), a derivable erosive lag (Beddini gives NO parameter-free τ → would need
+tuning), or numerical resolution (every-step burn+geom + cfl 0.15 identical). It
+IS the genuine, faithful **Ma quasi-steady erosive response to transient mass-
+flux during fast ignition of a HIGH-L/D motor** — a regime Ma EXCLUDED from every
+error figure and never benchmarked. Under the no-tuning dogma there is NO
+literature closure; the sim is faithful to Ma, not broken. Full record +
+elimination table: `docs/v0_7_4/IGNITION_SPIKE_CLOSEOUT.md`. (`bpnv` same-check
+moot — Hasegawa is fine.)
 
 **v0.7.3-phaseB ships (branch `v0.7.0-phase4`, tag `v0.7.3-phaseB`)**:
 heat-flux completeness for uncontained ignition. Four fixes close
