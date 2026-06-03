@@ -1,6 +1,0 @@
-# Combustion gas transport for Krush Shit Propellant.
-# RPA-derived FROZEN values.
-# Loaded automatically by openmotor_adapter when reading L3035.ric.
-mu: 8.998e-5
-k: 0.2892
-Cp: 1927.0
