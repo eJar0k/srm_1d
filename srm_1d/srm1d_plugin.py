@@ -50,6 +50,39 @@ def _om():
     return SolverPlugin, register_solver, SimulationResult
 
 
+def _transient_config_schema():
+    """Build the srm_1d transient solver's run-parameter schema as an
+    openMotor ``PropertyCollection``. Property keys match ``run_simulation``
+    keyword arguments so the GUI-collected dict can be passed straight through
+    as the solver ``config`` (→ ``simulate_motor`` overrides). Defaults mirror
+    ``run_simulation``'s. ``ambPressure`` is intentionally absent — it stays in
+    the shared global config (the adapter reads it from the motor)."""
+    _setup_openmotor_path()
+    from motorlib.properties import (  # type: ignore
+        PropertyCollection, FloatProperty,
+    )
+    schema = PropertyCollection()
+    schema.props['t_max'] = FloatProperty('Max Simulation Time', 's', 0.01, 600.0)
+    schema.props['P_cutoff'] = FloatProperty('Pressure Cutoff', 'Pa', 1.0e3, 5.0e6)
+    schema.props['cfl_target'] = FloatProperty('CFL Target', '', 0.01, 1.0)
+    # Roughness is edited in micrometers (its own unit category, default um),
+    # converted to metres at the run boundary (see ROUGHNESS_KEY handling).
+    schema.props['roughness'] = FloatProperty('Surface Roughness', 'um', 0.0, 1000.0)
+    # kappa is the Gnielinski (Ma Eq. 9) temperature-ratio exponent in the
+    # turbulent Nusselt correction (T_gas/T_surface)^kappa; recommended ~0.45
+    # for heated gas. It is NOT an erosive-burning coefficient.
+    schema.props['kappa'] = FloatProperty('Gnielinski Temp-Ratio Exponent', '', 0.0, 2.0)
+    schema.props['T_ignition'] = FloatProperty('Ignition Temperature', 'K', 300.0, 2000.0)
+    # Seed defaults (FloatProperty clamps to range; values mirror run_simulation,
+    # roughness expressed in um). NOTE: transport variant is a per-propellant
+    # property (propellant editor / .ric), not a run-control param.
+    schema.setProperties({
+        't_max': 10.0, 'P_cutoff': 0.5e6, 'cfl_target': 0.3,
+        'roughness': 50.0, 'kappa': 0.45, 'T_ignition': 850.0,
+    })
+    return schema
+
+
 def simulate_motor(motor, igniter_pyrogen=None, callback=None, **sim_overrides):
     """Run srm_1d on an openMotor ``Motor`` and return an openMotor
     ``SimulationResult``. Reusable headlessly without the registry.
@@ -339,7 +372,15 @@ def register():
 
         def simulate(self, motor, config=None, callback=None):
             overrides = dict(config) if isinstance(config, dict) else {}
+            # The config screen edits roughness in micrometers (its own unit
+            # category); run_simulation wants metres. Convert at this boundary
+            # so simulate_motor / run_simulation stay SI.
+            if 'roughness' in overrides:
+                overrides['roughness'] = overrides['roughness'] * 1.0e-6
             return simulate_motor(motor, callback=callback, **overrides)
+
+        def get_config_schema(self):
+            return _transient_config_schema()
 
     return register_solver(Srm1dTransientSolver())
 

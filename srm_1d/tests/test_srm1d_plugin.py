@@ -71,6 +71,42 @@ def test_srm1d_solver_runs_via_registry(om):
     assert sr.channels['dThroat'].getData()[0] == pytest.approx(0.0)
 
 
+def test_solver_config_schema(om):
+    """The transient solver advertises a run-config schema; the QS solver
+    uses the standard global config (no schema)."""
+    solvers, _ = om
+    qs = solvers.get_solver(solvers.QUASI_STEADY)
+    assert qs.get_config_schema() is None
+
+    schema = solvers.get_solver('srm_1d-transient').get_config_schema()
+    assert schema is not None
+    keys = set(schema.props.keys())
+    assert {'t_max', 'P_cutoff', 'cfl_target', 'roughness', 'kappa',
+            'T_ignition'} <= keys
+    # Every key is a valid run_simulation override; defaults mirror the solver.
+    defaults = schema.getProperties()
+    assert defaults['t_max'] == 10.0
+    assert defaults['cfl_target'] == 0.3
+    assert defaults['kappa'] == 0.45
+    # Roughness is in micrometers (own unit category), default 50 um.
+    assert schema.props['roughness'].unit == 'um'
+    assert defaults['roughness'] == 50.0
+
+
+def test_solver_config_schema_drives_run(om):
+    """Values collected from the schema flow through `config` into the run."""
+    solvers, om_motor = om
+    motor = _canonical_motor(om_motor)
+    schema = solvers.get_solver('srm_1d-transient').get_config_schema()
+    schema.setProperty('t_max', 0.03)
+    schema.setProperty('P_cutoff', 1.0)
+    config = schema.getProperties()
+
+    sr = solvers.get_solver('srm_1d-transient').simulate(motor, config=config)
+    assert sr.success
+    assert sr.channels['time'].getLast() <= 0.05   # honored the small t_max
+
+
 def test_per_grain_channels_populated(om):
     """Phase 6 task 3: the per-grain multi-value channels are populated,
     share the per-step time base, and carry one value per grain."""
@@ -180,6 +216,24 @@ def test_motor_round_trips_igniter_block(om):
     out = motor2.getDict()['igniter']
     assert out['pyrogen']['name'] == 'TestPyro'
     assert out['injection_topology'] == 'head_basket'
+
+
+def test_motor_round_trips_solver_configs(om):
+    """Per-motor solver run-config overrides round-trip through the Motor
+    (getDict/applyDict), mirroring how the motor carries its other config."""
+    solvers, om_motor = om
+    motor = _canonical_motor(om_motor)
+    assert motor.solverConfigs == {}                      # default empty
+    motor.solverConfigs = {'srm_1d-transient': {'t_max': 1.5, 'roughness': 40.0}}
+
+    d = motor.getDict()
+    assert d['solverConfigs']['srm_1d-transient']['t_max'] == 1.5
+    motor2 = om_motor.Motor(d)
+    assert motor2.solverConfigs['srm_1d-transient']['roughness'] == 40.0
+
+    # Absent block loads as empty (backward compatible).
+    d.pop('solverConfigs')
+    assert om_motor.Motor(d).solverConfigs == {}
 
 
 def test_motor_without_igniter_keeps_defaults(om):

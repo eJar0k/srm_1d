@@ -247,6 +247,52 @@ lists both solvers, and switching/cancel/progress are GUI-verified by the
 user. (The progress bar's taildown fill is heuristic — flagged for a
 standards-based burn-time revisit, see Deferred.)
 
+## Phase 7 — capability-gated GUI panels (v0.8.x, IN PROGRESS)
+
+Porting QS-only GUI surfaces to be solver-aware. First slice landed
+2026-06-02 (offscreen-verified; user verifies from-source):
+
+1. **Per-solver config schema + screen.** `SolverPlugin.get_config_schema()`
+   (default `None` = uses the global `MotorConfig`); `Srm1dTransientSolver`
+   returns a `PropertyCollection` of its run params (`t_max`, `P_cutoff`,
+   `cfl_target`, `roughness`, `kappa`, `T_ignition`, `snapshot_interval` —
+   keys match `run_simulation` kwargs; `ambPressure` stays in the shared
+   global config; transport variant stays a per-propellant property). The
+   **Preferences → General** tab gains a **Solver** dropdown that swaps the
+   entire field set between registered solvers (`preferencesMenu` builds an
+   independent editable collection per solver; quasi-steady edits `general`,
+   plugin solvers edit their schema). Per-solver values persist in
+   `Preferences.solverConfigs` (tolerant load; no version bump).
+   `SimulationManager._simThread` passes the active solver's saved config to
+   `solver.simulate(config=...)` (→ `simulate_motor` overrides → run). Gated
+   by `tests/test_srm1d_plugin.py::test_solver_config_schema[_drives_run]`.
+   **Refinements (2026-06-02):** kappa relabeled **"Gnielinski Temp-Ratio
+   Exponent"** (Ma Eq.9 `(T_gas/T_surface)^κ`, NOT erosive); `snapshot_interval`
+   dropped (pending deprecation); **roughness in µm** with its own `units.py`
+   'Surface Roughness' category (selectable in the Units tab; converted µm→m
+   at the run boundary). **Shared-values design (user-chosen option 2):** each
+   solver pane shows a bold **"Shared settings"** section (`maxPressure/
+   maxMassFlux/maxMachNumber/minPortThroat/ambPressure/mapDim`, values synced
+   across panes via `CollectionEditor.loadGrouped`) plus a solver-specific
+   section.
+2. **Active-solver coupling (DONE).** Active solver is a persisted preference
+   (`Preferences.activeSolver`); `PreferencesManager.setActiveSolver` is the
+   single setter (saves + emits `activeSolverChanged`). The Sim→Solver menu,
+   the Preferences dropdown, and the per-motor config dropdown all read/write
+   it and stay in sync; `SimulationManager` resolves it from preferences.
+3. **Per-motor config — true per-motor override (DONE).** `Motor` carries
+   `solverConfigs` (dict keyed by solver), serialized in `getDict`/`applyDict`
+   and seeded by the `0.6.1→0.7.0` migration (mirrors the igniter block — oM
+   pattern). The grain-table **Config** row opens the solver-aware editor
+   (`MotorEditor.loadMotorConfig`): shared + QS fields edit the motor's own
+   `MotorConfig`; the srm_1d section edits this motor's per-motor override
+   (persists in the `.ric` + flows through `getCurrentMotor`/history like all
+   motor edits). `SimulationManager` prefers per-motor over the global default.
+   Shared logic in `widgets/solverConfigController.py` (used by both screens —
+   DRY). Gated by `test_motor_round_trips_solver_configs`.
+4. **TODO (next):** continue porting QS features into srm_1d mode
+   (capability-gated axial-viz / igniter / transport panels).
+
 **Tag gate:** cut **v0.8.0** only from a base containing **v0.7.5** (the
 cross-motor re-LHS) — see Cross-line sync below. The re-LHS is STAGED but
 HELD (user pausing CPU): worktree `../srm_1d-v075-lhs` on `v0.7.0-phase4`,
