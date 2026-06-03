@@ -23,7 +23,7 @@ is physically correct; **the spike is the EROSIVE burn-rate
 over-response (Root B)** — Ma's quasi-steady erosive firing instantly
 off the genuine peak-G at the smallest-bore condition. Next lever:
 transient/unsteady erosive closure. 291/291 pytest green. Full narrative
-in `srm_1d/docs/v0_7_4/` (README = research synthesis, TASKS = outcome).
+in `docs/v0_7_4/` (README = research synthesis, TASKS = outcome).
 **Post-audit work (2026-06-01, uncommitted→committing)**: (1) **MTV
 burn-rate recal** — `mtv.yaml` `a=3e-5→4.4e-5, n=0.5→0.35` (Kubota 1987,
 the old seed was 6-8× too fast); old seed kept as `mtv_fast.yaml` for A/B.
@@ -66,7 +66,7 @@ modes because the cartridge is too close to the nozzle (deferred
 the Super Loki "experimental" overlay was actually mis-labeled
 Chunc data; removed. 272/272 pytest green (test windows widened
 to ±150% on Hasegawa A baseline gates pending v0.7.4 Phase C
-re-LHS). See `srm_1d/docs/v0_7_3/` for the full narrative.
+re-LHS). See `docs/v0_7_3/` for the full narrative.
 
 **v0.7.3-phaseA baseline** (carried forward): uncontained-pyrogen
 topology architecture (`head_basket` + `aft_basket`) wired into
@@ -84,7 +84,7 @@ v2 (flame-front) formulations amplified rather than smoothed the
 spike. Structural ignition-kernel artifact persists for Hasegawa
 A / BALLSstick / Chunc — PISO's local-Re tracking already
 captures upstream-mass-flux contributions, so the Kashiwagi/Han
-augmentation double-counts. See `srm_1d/docs/v0_7_2/`.
+augmentation double-counts. See `docs/v0_7_2/`.
 
 **v0.7.1.1 baseline** (carried forward): N-species bore-gas refactor
 (SPINBALL-style "infinite-gases mixture") + EFFECTIVE RPA transport
@@ -97,12 +97,18 @@ deeper docs at the bottom.
 
 ## Quick start
 
-```bash
-# Tests (pyenv 3.10.5 -- has numba, pytest, scikit-fmm installed; 206 tests)
-"C:/Users/ejarocki/.pyenv/pyenv-win/versions/3.10.5/python.exe" -m pytest srm_1d/tests/
+**v0.8.0 flat layout (run everything from the repo root).** The package
+is `srm_1d/` at the repo root; `tests/`, `examples/`, `tools` (now
+`srm_1d/tools/`), `docs/`, `motors/`, `static_fire_data/` are siblings.
+`pip install -e .` is set up in the pyenv 3.10.5 env (a root `conftest.py`
+also puts the repo root on `sys.path`, so pytest works without the install).
 
-# Hasegawa A example (loads srm_1d/motors/hasegawa_a.ric)
-"C:/Users/ejarocki/.pyenv/pyenv-win/versions/3.10.5/python.exe" -m srm_1d.examples.hasegawa_motor_a
+```bash
+# Tests (pyenv 3.10.5 -- has numba, pytest, scikit-fmm installed)
+"C:/Users/ejarocki/.pyenv/pyenv-win/versions/3.10.5/python.exe" -m pytest tests/
+
+# Hasegawa A example (loads motors/hasegawa_a.ric) -- run as a module from repo root
+"C:/Users/ejarocki/.pyenv/pyenv-win/versions/3.10.5/python.exe" -m examples.hasegawa_motor_a
 ```
 
 System Python (3.14 on PATH) does NOT have these deps; always use the
@@ -111,7 +117,8 @@ pyenv 3.10.5 path explicitly.
 ## Module map (one-liners)
 
 ```
-srm_1d/
+srm_1d/                  <- importable package (core, ships); everything below
+│                            tools/ is repo-root sibling, dev-only (not shipped)
 ├── solver.py            PISO + TDMA + adaptive CFL (pure numerics, no project deps)
 ├── burn_rate.py         Ma 2020: Haaland → Gnielinski → bisection. Multi-tab Saint-Robert lookup.
 ├── propellant.py        Propellant + tabs (PropellantTab) + GasProperties + GasSpecies + Pyrogen + thermo utilities
@@ -123,10 +130,15 @@ srm_1d/
 ├── simulation.py        run_simulation wrapper + @njit _run_time_loop (pyrogen + Goodman); v0.7.1: _advect_species, _compute_mixture_cell, _refresh_mixture_arrays, _compute_T_ceiling_arr
 ├── plotting.py          matplotlib plots (pressure, thrust, flow snapshots, summary)
 ├── openmotor_adapter.py .ric reader, transport YAML loader, convert_propellant/_geometry/_nozzle, CSV export
-├── motors/              Canonical motor data: <motor>.ric + <motor>.transport.yaml pairs
-├── tools/sensitivity.py Latin Hypercube parameter sweeps with parallel execution
-├── examples/            hasegawa_motor_a, bates_4seg, hasegawa_a_lhs, Zerox_test, ZeroxOptimizer
-└── tests/               15 files, 206 tests
+├── pyrogens/            Runtime pyrogen material library (bpnv/mtv/...; package-data, ships)
+├── srm1d_plugin.py      openMotor SolverPlugin adapter (registry boundary)
+└── tools/sensitivity.py Latin Hypercube sweeps + tools/ignition_diagnostics.py (ship as srm_1d.tools)
+
+repo root (siblings, dev-only — NOT in the package/wheel):
+├── motors/              Motor data: <motor>.ric (transport embedded per-tab; sidecars retired)
+├── examples/            hasegawa_motor_a, bates_4seg, hasegawa_a_lhs, machbusterNew, ... (run: python -m examples.X)
+├── tests/               pytest suite (run: python -m pytest tests/)
+├── docs/, static_fire_data/, pyproject.toml, conftest.py
 ```
 
 ## Dev workflow
@@ -143,7 +155,7 @@ srm_1d/
   erosion_coeff, etc.); adapter converts at the boundary. (See
   `feedback_openmotor_alignment` memory.)
 - **Named motors live as data**, not Python factories: add a
-  `<motor>.ric` + sibling `<motor>.transport.yaml` to `srm_1d/motors/`,
+  `<motor>.ric` + sibling `<motor>.transport.yaml` to `motors/`,
   load via `run_from_ric`. Parametric geometry uses
   `build_snapped_geometry` directly.
 - **Repo: github.com/eJar0k/srm_1d** (private).
@@ -246,14 +258,14 @@ srm_1d/
 - `srm_1d/ARCHITECTURE.md` -- function-level map of every module
 - `srm_1d/DEVNOTES.md` -- full gotchas, calibration state, complete
   API breaking-change log per minor version, performance profile
-- `srm_1d/docs/v0_7_0/` -- v0.7.0 hot-gas plenum design package:
+- `docs/v0_7_0/` -- v0.7.0 hot-gas plenum design package:
   `DESIGN.md` (implemented architecture), `TASKS.md` (phase status),
   `references/` (extracted papers + Goodman integral derivation +
   Sutton/DeMar summaries).
-- `srm_1d/docs/v0_7_1/` -- v0.7.1 N-species design package:
+- `docs/v0_7_1/` -- v0.7.1 N-species design package:
   `DESIGN.md` (mixture architecture, Phase plan, ambient species
   decision), `TASKS.md` (Phases 1+2+3+3.5+4+5 complete, tagged).
-- `srm_1d/docs/v0_7_2/` -- v0.7.2 ignition-model rework design
+- `docs/v0_7_2/` -- v0.7.2 ignition-model rework design
   package: `README.md` (problem statement + decision criteria),
   `candidates/01..04_*.md` (4 original candidate design docs: Z-N
   dynamic burn rate, spatial ignition-front coupling, pyrogen axial
@@ -265,7 +277,7 @@ srm_1d/
   attempted twice (v1 cumulative-G, v2 flame-front gating) and
   shipped DISABLED by default after both amplified rather than
   smoothed the spike.
-- `srm_1d/docs/v0_7_3/` -- v0.7.3 uncontained-pyrogen topology
+- `docs/v0_7_3/` -- v0.7.3 uncontained-pyrogen topology
   package: `README.md` (problem statement + Phase A architecture +
   Phase B candidate space), `TASKS.md` (Phase A.1/A.1.1/A.2/A.3
   complete — tagged `v0.7.3-phaseA`). Validation findings: ISP
@@ -273,7 +285,7 @@ srm_1d/
   and Hasegawa A aft_basket (P_peak 0.10 MPa) both stall at
   atmospheric P, exposing the ignition-initiation gap. Cross-
   version architectural anchor is `docs/v0_7_2/candidates_post_phaseA.md`.
-- `srm_1d/docs/post_v0_7_0/references/` -- SPINBALL research that
+- `docs/post_v0_7_0/references/` -- SPINBALL research that
   motivated v0.7.1: Cavallini 2009 + DiGiacinto 2008 extractions plus
   the `spinball_walkthrough.md` decision document (recommends Z-N
   dynamic burn rate as the spike-taildown candidate; N-species is the
@@ -325,8 +337,8 @@ srm_1d/
      ignition-initiation work lands so the abstraction is informed
      by real requirements.
 
-   Cross-version anchor: `srm_1d/docs/v0_7_2/candidates_post_phaseA.md`.
-   v0.7.3 Phase B narrative: `srm_1d/docs/v0_7_3/TASKS.md`.
+   Cross-version anchor: `docs/v0_7_2/candidates_post_phaseA.md`.
+   v0.7.3 Phase B narrative: `docs/v0_7_3/TASKS.md`.
 2. **Cross-motor effective-transport recalibration** -- v0.7.1 only
    flipped Hasegawa A to effective; Zerox/BALLSstick/machbusterNew/
    ChaseRed/L3035/ivanO25k YAMLs are still frozen. After v0.7.2's

@@ -402,7 +402,7 @@ def migrate_all_motors(motors_dir, variant='frozen', write=True, verbose=True):
 
 def _builtin_pyrogen_path(name):
     return os.path.join(
-        os.path.dirname(__file__), 'motors', 'pyrogens', f'{name}.yaml'
+        os.path.dirname(__file__), 'pyrogens', f'{name}.yaml'
     )
 
 
@@ -565,7 +565,7 @@ def build_pyrogen_chamber(
 # ================================================================
 # A motor's igniter is a ``data.igniter`` block mirroring how the motor
 # embeds its propellant: an embedded pyrogen MATERIAL datasheet (the
-# reusable library item, same field set as srm_1d/motors/pyrogens/*.yaml)
+# reusable library item, same field set as srm_1d/pyrogens/*.yaml)
 # plus the per-motor chamber SIZING / topology. ``-1.0`` sizing values are
 # the "auto" sentinel (Sutton sizing / derive at build). openMotor ignores
 # the unknown ``data.igniter`` key on load (Phase 5 wires its GUI to it).

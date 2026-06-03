@@ -11,6 +11,12 @@ __pycache__/
 # Test runner cache
 .pytest_cache/
 
+# Packaging / build artifacts (pip install -e . etc.)
+*.egg-info/
+build/
+dist/
+.eggs/
+
 # Generated plots from example/test runs
 *.png
 

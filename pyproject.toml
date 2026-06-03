@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "srm_1d"
+version = "0.8.0"
+description = "1D transient finite-volume solid rocket motor internal ballistics simulator with the Ma et al. (2020) erosive burning model"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "eJar0k" }]
+keywords = ["solid-rocket-motor", "internal-ballistics", "erosive-burning", "PISO", "rocketry"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Intended Audience :: Science/Research",
+]
+dependencies = [
+    "numpy",
+    "scipy",
+    "numba",
+    "pyyaml",
+    "matplotlib",
+]
+
+[project.optional-dependencies]
+# Fast-marching grain regression (FmmGrain) and openMotor Custom grains.
+fmm = ["scikit-fmm", "scikit-image"]
+dev = ["pytest"]
+
+[project.urls]
+Homepage = "https://github.com/eJar0k/srm_1d"
+
+# Flat layout: the importable package lives at the repo root as srm_1d/.
+# Only srm_1d (and its subpackages, e.g. srm_1d.tools) ships; tests/,
+# examples/, docs/, motors/, static_fire_data/ are dev-only and excluded.
+[tool.setuptools.packages.find]
+include = ["srm_1d*"]
+
+[tool.setuptools.package-data]
+# The pyrogen material library is runtime data loaded by openmotor_adapter.
+srm_1d = ["pyrogens/*.yaml"]
