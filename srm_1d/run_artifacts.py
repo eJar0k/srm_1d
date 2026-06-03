@@ -198,8 +198,9 @@ def verify_run_health(
 
     Parameters
     ----------
-    result : dict
-        Result dict from ``run_simulation`` or ``run_from_ric``.
+    result : dict or SimulationChannels
+        Result from ``run_simulation`` / ``run_from_ric``, or the
+        channel-model equivalent.
     motor_name : str, optional
         Tag used in the banner (e.g., 'Hasegawa A forward_plenum').
     min_t_burn_s : float, optional
@@ -225,7 +226,8 @@ def verify_run_health(
     Use ASCII-only banner markers (``[PASS]`` / ``[FAIL]``) so the
     output is readable on Windows cp1252 consoles without UnicodeEncodeError.
     """
-    summary = result.get('summary', {})
+    from .channels import as_channels
+    summary = as_channels(result).summary
     term_code = summary.get('termination_code', None)
     t_burn = float(summary.get('t_burn', 0.0))
     p_peak_pa = summary.get('P_peak', float('nan'))

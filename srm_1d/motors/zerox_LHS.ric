@@ -27,6 +27,34 @@ data:
       inhibitedEnds: Top
       length: 0.6565913131826265
     type: BATES
+  igniter:
+    basket_fill_fraction: 0.5
+    burn_area: -1.0
+    burn_law: 0d
+    cartridge_length_m: -1.0
+    injection_topology: forward_plenum
+    mass: -1.0
+    pellet_packing_fraction: 0.6
+    pyrogen:
+      Cp_gas: null
+      M: 0.03
+      T_flame: 2800.0
+      a: 2.0e-05
+      form: pellets
+      gamma: 1.25
+      heat_delivery_mode: demar
+      heat_flux_cal_cm2_s: 69.4
+      impetus_W: 5000.0
+      kappa_jet: 8.0
+      n: 0.5
+      name: BPNV
+      particle_LD_ratio: 1.0
+      particle_diameter_m: 0.0032
+      pellet_emissivity: 0.7
+      radiation_absorption_length_m: 1.0
+      rho: 1700.0
+    throat_area: -1.0
+    volume: -1.0
   nozzle:
     convAngle: 50.0
     divAngle: 15.0
@@ -41,15 +69,21 @@ data:
     name: Risky Batman V3 Jan2024 (LHS-calibrated)
     tabs:
     - a: 4.6343518757893865e-06
+      cpEffective: 2052.0
+      cpFrozen: 2052.0
       k: 1.19889
+      kThermalEffective: 0.3455
+      kThermalFrozen: 0.3455
       m: 23.7923
       maxPressure: 13100500.000000002
       minPressure: 0.0
+      mu: 8.604e-05
       n: 0.456
       t: 2883.66
+    transportVariant: frozen
 type: !!python/object/apply:uilib.fileIO.fileTypes
 - 3
 version: !!python/tuple
 - 0
-- 6
+- 7
 - 0

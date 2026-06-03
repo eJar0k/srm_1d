@@ -38,6 +38,34 @@ data:
       inhibitedEnds: Both
       length: 0.20955041910083821
     type: Conical
+  igniter:
+    basket_fill_fraction: 0.5
+    burn_area: -1.0
+    burn_law: 0d
+    cartridge_length_m: -1.0
+    injection_topology: forward_plenum
+    mass: -1.0
+    pellet_packing_fraction: 0.6
+    pyrogen:
+      Cp_gas: null
+      M: 0.03
+      T_flame: 2800.0
+      a: 2.0e-05
+      form: pellets
+      gamma: 1.25
+      heat_delivery_mode: demar
+      heat_flux_cal_cm2_s: 69.4
+      impetus_W: 5000.0
+      kappa_jet: 8.0
+      n: 0.5
+      name: BPNV
+      particle_LD_ratio: 1.0
+      particle_diameter_m: 0.0032
+      pellet_emissivity: 0.7
+      radiation_absorption_length_m: 1.0
+      rho: 1700.0
+    throat_area: -1.0
+    volume: -1.0
   nozzle:
     convAngle: 60.0
     divAngle: 10.0
@@ -52,15 +80,21 @@ data:
     name: RCS - 8522
     tabs:
     - a: 1.912458279795643e-05
+      cpEffective: 1878.0
+      cpFrozen: 1878.0
       k: 1.216
+      kThermalEffective: 0.2506
+      kThermalFrozen: 0.2506
       m: 25.278
       maxPressure: 13790000.000000002
       minPressure: 0.0
+      mu: 8.389e-05
       n: 0.405
       t: 3016.0
+    transportVariant: frozen
 type: !!python/object/apply:uilib.fileIO.fileTypes
 - 3
 version: !!python/tuple
 - 0
-- 6
-- 1
+- 7
+- 0

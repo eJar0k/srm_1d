@@ -278,6 +278,54 @@ in geometry/burn rate/ignition (called every step or every N steps).
 
 ## API Breaking Changes Log
 
+- v0.8.0 (openMotor frontend integration — one return-type break, rest
+  additive/data-format; full narrative in `docs/v0_8_0/`):
+    - **BREAK — `run_simulation` / `run_from_ric` now return a
+      `SimulationChannels`, not a plain dict.** The container **proxies item
+      access / iteration to the underlying results dict** (`__getitem__`,
+      `__contains__`, `__iter__`, `get`, `keys/items/values`), so every legacy
+      `result['P_head']` / `result['summary']` consumer keeps working unchanged.
+      New surface: `.channels[name]` (unit-aware scalar/per-grain `Channel`)
+      and `.axial[name]` (`AxialChannel`, time×N_cells). Migration for code
+      that *type-checked* the dict: call `as_channels(result)` or read
+      `result.raw`. (Phase 1; `srm_1d/channels.py`.)
+    - **DATA FORMAT — gas transport moved into the propellant per-tab schema.**
+      `PropellantTab` carries `mu` + `kThermalFrozen/cpFrozen` +
+      `kThermalEffective/cpEffective`; `Propellant.transportVariant`
+      (`frozen` default) selects the active set. `.ric` appVersion bumped
+      `(0,6,1)→(0,7,0)` with a seeding migration. **The transport sidecar
+      YAML is retired in `run_from_ric`** — transport is read from the `.ric`;
+      `transport_path=` / `gas_props=` remain explicit overrides only. A
+      sentinel/missing transport **hard-faults (D7)** rather than fabricating
+      values. Migrator `build_transport_library` / `migrate_all_motors` ran
+      on all repo motors (0 sentinels). (Phase 3.)
+    - **DATA FORMAT — igniter is now first-class motor data (`data.igniter`).**
+      A motor embeds its igniter the way it embeds its propellant: a `pyrogen`
+      material block (`a/n/rho/T_flame/M/gamma` + particle geometry +
+      heat-delivery) plus chamber sizing/topology. `run_from_ric` **reads the
+      motor's own igniter when no `pyrogen=` kwarg is given** (self-describing);
+      an explicit `pyrogen='bpnv'` takes the legacy kwarg-sizing path. New
+      adapter API: `load_igniter` / `default_igniter_block`. (Phase 4.)
+    - **ADDITIVE — `motorlib` solver-plugin contract.** `motorlib/solvers.py`
+      registry (`register_solver`/`get_solver`/`list_solvers`/
+      `discover_external_solvers`) + `SolverPlugin` base; the built-in
+      quasi-steady solver is wrapped + registered (coexistence, D6).
+      `srm_1d/srm1d_plugin.py` registers `Srm1dTransientSolver` on import and
+      maps srm_1d channels into an openMotor `SimulationResult` (scalar +
+      per-grain channels). openMotor's `Motor` now carries `igniter`/
+      `igniterPyrogen` and serializes `data.igniter` via `getDict`/`applyDict`
+      (older dicts load with defaults). (Phases 5–6.)
+    - **ADDITIVE — `run_simulation(progress_state=None)` + `_run_time_loop`
+      live-progress / cooperative-cancel.** The `@njit` loop is now
+      `nogil=True` and takes a shared `float64[2]` (`[0]` = progress 0..1
+      written each step, `[1]` = cancel flag read each step; new
+      `termination_code 5` = "canceled by user"). `run_simulation` auto-
+      allocates the array when run headlessly, so existing callers are
+      unaffected. The plugin runs the loop in a worker thread and forwards
+      progress to openMotor's GUI callback (Stop button wired). **NOTE: any
+      external @njit caller of `_run_time_loop` must pass the new trailing
+      `progress_state` arg.** (Phase 6.)
+
 - v0.7.4 (ADDITIVE / non-breaking + one behavior bug fix):
     - New opt-in `Propellant` fields (all default OFF/identity):
       `flame_front_enabled` + `flame_front_velocity` (Phase F flame-spread

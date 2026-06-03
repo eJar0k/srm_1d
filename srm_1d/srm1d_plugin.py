@@ -1,0 +1,352 @@
+"""
+srm1d_plugin.py — v0.8.0 Phase 5: srm_1d as an openMotor solver plugin (D1).
+
+Registers srm_1d's 1-D PISO transient solver against openMotor's solver
+registry (``motorlib.solvers``) so the GUI / simulation manager can select
+it alongside the built-in quasi-steady solver. Importing this module
+performs the registration.
+
+The solver consumes an openMotor ``Motor`` (via ``Motor.getDict()`` — the
+same ``{nozzle, propellant, grains, config}`` shape the ``.ric`` adapter
+already converts, now carrying per-tab transport from Phase 3), runs
+``run_simulation``, and maps the resulting channels back into an openMotor
+``SimulationResult`` so the GUI renders it natively.
+
+Scope: the scalar per-step channels (time, pressure, force, exit pressure,
+throat change, Kn) and the per-grain multi-value channels (mass, massFlow,
+massFlux, regression, web, machNumber) are populated — the latter aggregated
+from srm_1d's per-cell axial snapshots via the cell→segment map and
+interpolated onto the per-step time grid (Phase 6 task 3). The igniter is
+read from the motor's own ``data.igniter`` block (Phase 6 task 4), falling
+back to the built-in BPNV pyrogen for motors that predate the block. The GUI
+solver picker (D6) is Phase 6 task 1, verified live in the openMotor app.
+"""
+
+import threading
+import time as _time
+
+import numpy as np
+
+from .fmm_grain import _setup_openmotor_path
+
+SOLVER_NAME = 'srm_1d-transient'
+
+# The transient solver emits one sample per solver step (10^5+ for a typical
+# burn). openMotor's graph widget re-converts (per-point, in Python) and
+# re-plots the whole series on every channel switch, so handing it the raw
+# resolution causes multi-second hangs. We decimate the per-step channels to
+# this many points for the GUI SimulationResult (a display artifact), while
+# always preserving the peak-pressure / peak-thrust / endpoint samples so
+# peak P, burn time, and impulse stay faithful. srm_1d's own full-resolution
+# channels are untouched (analysis / CSV use those).
+GUI_MAX_POINTS = 5000
+
+
+def _om():
+    """Lazily import the openMotor modules this plugin builds on."""
+    _setup_openmotor_path()
+    from motorlib.solvers import SolverPlugin, register_solver  # type: ignore
+    from motorlib.simResult import SimulationResult  # type: ignore
+    return SolverPlugin, register_solver, SimulationResult
+
+
+def simulate_motor(motor, igniter_pyrogen=None, callback=None, **sim_overrides):
+    """Run srm_1d on an openMotor ``Motor`` and return an openMotor
+    ``SimulationResult``. Reusable headlessly without the registry.
+
+    The igniter is read from the motor's own ``data.igniter`` block (Phase 4
+    self-describing motors, now carried by openMotor's ``Motor`` — Phase 6
+    task 4). Passing ``igniter_pyrogen='<name>'`` forces a named library
+    pyrogen with auto chamber sizing instead, overriding the motor's block.
+    Motors that predate the block fall back to the BPNV default.
+
+    ``callback`` (the openMotor progress callback) is driven live: the @njit
+    time loop publishes a 0..1 progress metric into a shared array while it
+    runs (GIL released via ``nogil``), a poller thread here forwards it to
+    ``callback``, and a truthy callback return requests a cooperative cancel.
+    """
+    from .openmotor_adapter import (
+        ric_to_sim_args, build_pyrogen_chamber, load_pyrogen, load_igniter,
+    )
+    from .simulation import run_simulation
+    from .nozzle import compute_motor_performance
+
+    motor_dict = motor.getDict()
+    # Transport is read from the propellant's per-tab schema (gas_props=None);
+    # a sentinel/missing transport hard-faults (D7), consistent with the .ric path.
+    args = ric_to_sim_args(motor_dict, gas_props=None, **sim_overrides)
+    geo = args.pop('geo')
+    prop = args.pop('propellant')
+    nozzle = args['nozzle']
+
+    # Igniter resolution: explicit override > motor's own block > BPNV default.
+    if igniter_pyrogen is not None:
+        pyro, sizing = load_pyrogen(igniter_pyrogen), {}
+    else:
+        loaded = load_igniter(motor_dict)
+        if loaded is not None:
+            pyro, sizing = loaded
+        else:
+            pyro, sizing = load_pyrogen('bpnv'), {}
+    args['pyrogen_chamber'] = build_pyrogen_chamber(pyro, geo, nozzle, **sizing)
+    args.setdefault('verbose', False)
+
+    if callback is None:
+        result = run_simulation(geo, prop, **args)
+    else:
+        result = _run_with_progress(run_simulation, geo, prop, args, callback)
+
+    perf = compute_motor_performance(result, nozzle, prop)
+    return _result_to_om_simresult(motor, result, perf, geo, prop)
+
+
+def _run_with_progress(run_simulation, geo, prop, args, callback,
+                       poll_interval=0.05):
+    """Run ``run_simulation`` in a worker thread while polling its shared
+    ``progress_state`` array and forwarding progress to ``callback``. A truthy
+    callback return sets the cancel flag the @njit loop reads each step.
+
+    The loop releases the GIL (``nogil=True``), so this thread runs
+    concurrently and sees progress update live. Returns the worker's result;
+    re-raises any exception the worker hit."""
+    progress_state = np.zeros(2, dtype=np.float64)
+    args['progress_state'] = progress_state
+    holder = {}
+
+    def _worker():
+        try:
+            holder['result'] = run_simulation(geo, prop, **args)
+        except BaseException as exc:  # propagate to the caller's thread
+            holder['error'] = exc
+
+    # Tail smoothing. The @njit metric jumps to ~0.98 quickly then crawls the
+    # last ~2% over a large fraction of wall time (the most-regressed cell
+    # asymptotes to burnthrough at the low-pressure taildown), so the raw bar
+    # stalls near completion. Once it crosses TAIL_GATE we ignore the crawling
+    # physics value and fill the remainder at a steady, wall-clock rate so the
+    # bar advances visibly. The fill duration is proportional to how long the
+    # burn took to reach the gate, so fast and slow motors both feel right.
+    TAIL_GATE = 0.9
+    TAIL_CAP = 0.99           # hold here until the run actually completes
+    displayed = 0.0
+    tail_start = None
+    fill_rate = None
+    start = _time.monotonic()
+
+    worker = threading.Thread(target=_worker, daemon=True)
+    worker.start()
+    while worker.is_alive():
+        phys = float(progress_state[0])
+        now = _time.monotonic()
+        if phys < TAIL_GATE:
+            if phys > displayed:
+                displayed = phys           # follow physics through the burn
+        else:
+            if tail_start is None:         # entering the tail — calibrate
+                tail_start = now
+                fill_dur = max(2.0, 0.6 * (now - start))
+                fill_rate = (TAIL_CAP - TAIL_GATE) / fill_dur
+            ramp = TAIL_GATE + fill_rate * (now - tail_start)
+            if ramp > TAIL_CAP:
+                ramp = TAIL_CAP
+            if ramp > displayed:
+                displayed = ramp           # steady wall-clock fill
+        if callback(displayed):
+            progress_state[1] = 1.0         # request cooperative cancel
+        _time.sleep(poll_interval)
+    worker.join()
+    if progress_state[1] <= 0.5:
+        callback(1.0)                       # completed → fill the bar
+
+    if 'error' in holder:
+        raise holder['error']
+    return holder['result']
+
+
+def _per_grain_series(result, geo, prop):
+    """Aggregate srm_1d's per-cell axial snapshot fields to per-grain series,
+    sampled on the snapshot time base (Phase 6 task 3).
+
+    Returns ``(snap_times, series, vol_loading)`` where ``series`` maps each
+    openMotor multi-value channel name to an ``(n_frames, n_grains)`` array
+    and ``vol_loading`` is the ``(n_frames,)`` scalar volume-loading series:
+
+    - ``mass``       — solid propellant mass per grain, integrated from the
+      per-cell port diameter: ρ·dx·Σ (A_outer − A_port).
+    - ``regression`` / ``web`` — per-grain radial regression / remaining web
+      (already computed per-grain in ``result['grains']``).
+    - ``machNumber`` — peak core Mach over each grain's cells.
+    - ``massFlow``   — cumulative downstream mass-loss rate (forward→aft sum
+      of each grain's −d(mass)/dt), matching openMotor's convention.
+    - ``massFlux``   — ``massFlow`` divided by the grain's aft port area.
+    - ``vol_loading`` — 100 · (solid propellant volume / grain bounding
+      volume), the per-step scalar openMotor reports as Volume Loading.
+
+    Returns ``None`` if the result carries no snapshots (nothing to map).
+    """
+    snapshots = result['snapshots'] if 'snapshots' in result else None
+    grains = result['grains'] if 'grains' in result else None
+    if not snapshots or not grains:
+        return None
+
+    ga = geo.compile_geometry_arrays()
+    cell_seg = np.asarray(ga['cell_segment_id'])
+    n_grains = len(grains)
+    n_frames = len(snapshots)
+    dx = geo.dx
+    A_outer = np.pi / 4.0 * geo.D_outer ** 2
+    rho = float(prop.rho_propellant)
+
+    # Per-grain cell masks + aft-most cell index (for the aft port area).
+    seg_cells = [np.flatnonzero(cell_seg == k) for k in range(n_grains)]
+    seg_aft = [int(cells[-1]) if cells.size else -1 for cells in seg_cells]
+
+    snap_times = np.array([snap['t'] for snap in snapshots])
+    mass = np.zeros((n_frames, n_grains))
+    mach = np.zeros((n_frames, n_grains))
+    aft_port_area = np.zeros((n_frames, n_grains))
+    for s, snap in enumerate(snapshots):
+        d_port = np.asarray(snap['D_port'])
+        mach_field = np.asarray(snap['Mach'])
+        a_port = np.pi / 4.0 * d_port ** 2
+        solid = np.maximum(A_outer - a_port, 0.0)
+        for k in range(n_grains):
+            cells = seg_cells[k]
+            if cells.size:
+                mass[s, k] = rho * dx * float(np.sum(solid[cells]))
+                mach[s, k] = float(np.max(mach_field[cells]))
+            if seg_aft[k] >= 0:
+                aft_port_area[s, k] = float(a_port[seg_aft[k]])
+
+    regression = np.stack(
+        [np.asarray(grains[k]['regression']) for k in range(n_grains)], axis=1)
+    web = np.stack(
+        [np.asarray(grains[k]['web']) for k in range(n_grains)], axis=1)
+
+    # massFlow: each grain's mass-loss rate, accumulated forward→aft so a
+    # grain reports the total flow passing through it (openMotor convention).
+    dmass = np.zeros_like(mass)
+    if n_frames > 1:
+        dt = np.diff(snap_times)
+        dt[dt <= 0.0] = np.nan  # guard against duplicate snapshot times
+        rate = np.maximum(-(np.diff(mass, axis=0)) / dt[:, None], 0.0)
+        dmass[1:] = np.nan_to_num(rate)
+    mass_flow = np.cumsum(dmass, axis=1)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        mass_flux = np.where(aft_port_area > 0.0,
+                             mass_flow / aft_port_area, 0.0)
+
+    # Volume loading: solid propellant volume / grain bounding volume. The
+    # bounding volume is the grain cells' cylinder (A_outer · dx · n_cells),
+    # matching openMotor's "fraction of the chamber occupied by propellant".
+    n_grain_cells = int(np.count_nonzero(cell_seg >= 0))
+    bounding_volume = A_outer * dx * max(n_grain_cells, 1)
+    solid_volume = mass.sum(axis=1) / rho
+    vol_loading = 100.0 * solid_volume / bounding_volume
+
+    return snap_times, {
+        'mass': mass, 'regression': regression, 'web': web,
+        'machNumber': mach, 'massFlow': mass_flow, 'massFlux': mass_flux,
+    }, vol_loading
+
+
+def _decimate_indices(n, p_head, thrust, max_points):
+    """Return a sorted, unique index array selecting at most ~``max_points``
+    samples from a length-``n`` series, always including the first, last, and
+    peak-pressure / peak-thrust samples so the decimated trace preserves peak
+    P, burn time, and (closely) impulse. Returns all indices when ``n`` is
+    already under the cap."""
+    if n <= max_points:
+        return np.arange(n)
+    stride = int(np.ceil(n / max_points))
+    keep = set(range(0, n, stride))
+    keep.update((0, n - 1))
+    if p_head is not None and p_head.size:
+        keep.add(int(np.argmax(p_head)))
+    if thrust is not None and thrust.size:
+        keep.add(int(np.argmax(thrust)))
+    return np.array(sorted(keep))
+
+
+def _result_to_om_simresult(motor, result, perf, geo=None, prop=None):
+    """Map srm_1d results (SimulationChannels) + performance into an
+    openMotor SimulationResult. Populates the scalar per-step channels and —
+    when ``geo``/``prop`` are supplied — the per-grain multi-value channels
+    (interpolated from the snapshot time base onto the per-step time grid)."""
+    _, _, SimulationResult = _om()
+    sr = SimulationResult(motor)
+
+    time = np.asarray(result['time'])
+    p_head = np.asarray(result['P_head'])
+    p_exit = np.asarray(result['P_exit'])
+    d_throat = np.asarray(result['D_throat'])
+    thrust = np.asarray(perf['thrust'])
+    kn = np.asarray(result['Kn']) if 'Kn' in result else None
+    d0 = float(d_throat[0]) if d_throat.size else 0.0
+
+    # Per-grain channels live on the sparser snapshot time base; interpolate
+    # each grain's series onto the per-step time grid so every channel shares
+    # the 'time' channel's length (an openMotor SimulationResult invariant).
+    grain_step = None
+    vol_loading_step = None
+    if geo is not None and prop is not None:
+        pg = _per_grain_series(result, geo, prop)
+        if pg is not None:
+            snap_times, series, vol_loading = pg
+            grain_step = {
+                name: np.column_stack([
+                    np.interp(time, snap_times, arr[:, k])
+                    for k in range(arr.shape[1])
+                ]) for name, arr in series.items()
+            }
+            vol_loading_step = np.interp(time, snap_times, vol_loading)
+
+    # Decimate to a GUI-friendly sample count, keeping ballistics-critical
+    # samples (peak pressure, peak thrust, first/last).
+    idx = _decimate_indices(time.size, p_head, thrust, GUI_MAX_POINTS)
+
+    for i in idx:
+        sr.channels['time'].addData(float(time[i]))
+        sr.channels['pressure'].addData(float(p_head[i]))
+        sr.channels['exitPressure'].addData(float(p_exit[i]))
+        sr.channels['force'].addData(float(thrust[i]))
+        sr.channels['dThroat'].addData(float(d_throat[i] - d0))
+        if kn is not None:
+            sr.channels['kn'].addData(float(kn[i]))
+        if vol_loading_step is not None:
+            sr.channels['volumeLoading'].addData(float(vol_loading_step[i]))
+        if grain_step is not None:
+            for name, arr in grain_step.items():
+                sr.channels[name].addData(tuple(float(v) for v in arr[i]))
+
+    summary = result['summary'] if 'summary' in result else {}
+    # Codes 4 (numerical collapse) and 5 (user cancel) are not successful runs.
+    sr.success = summary.get('termination_code', 0) not in (4, 5)
+    return sr
+
+
+def register():
+    """Register the srm_1d transient solver with openMotor's registry."""
+    SolverPlugin, register_solver, _ = _om()
+
+    class Srm1dTransientSolver(SolverPlugin):
+        name = SOLVER_NAME
+        capabilities = {
+            'transient': True,
+            'axial_fields': True,
+            'needs_transport': True,
+        }
+
+        def simulate(self, motor, config=None, callback=None):
+            overrides = dict(config) if isinstance(config, dict) else {}
+            return simulate_motor(motor, callback=callback, **overrides)
+
+    return register_solver(Srm1dTransientSolver())
+
+
+# Register on import so `import srm_1d.srm1d_plugin` makes the solver
+# selectable via motorlib.solvers.get_solver('srm_1d-transient').
+try:
+    register()
+except Exception:  # pragma: no cover - openMotor checkout may be absent
+    pass

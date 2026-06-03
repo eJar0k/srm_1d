@@ -202,11 +202,35 @@ class TestPropellantConversion:
         assert prop.k_gas == pytest.approx(0.3685)
         assert prop.Cp_gas == pytest.approx(2060.0)
 
-    def test_estimated_transport_warns(self):
-        """No gas props should trigger estimated fallback with warning."""
-        with pytest.warns(UserWarning):
-            prop = convert_propellant(SAMPLE_RIC_PROPELLANT, None)
-        assert prop.mu_gas > 0
+    def test_missing_transport_hard_faults(self):
+        """v0.8.0 D7: no gas props AND no per-tab transport in the .ric
+        must hard-fault — srm_1d never fabricates transport."""
+        with pytest.raises(ValueError, match="transport"):
+            convert_propellant(SAMPLE_RIC_PROPELLANT, None)
+
+    def test_transport_read_from_ric_tabs(self):
+        """With per-tab transport present, gas_props=None reads the active
+        variant from the .ric (frozen by default)."""
+        ric_prop = {
+            'name': 'X', 'density': 1700,
+            'transportVariant': 'frozen',
+            'tabs': [{
+                'minPressure': 0, 'maxPressure': 1e7,
+                'a': 1e-5, 'n': 0.4, 'k': 1.2, 't': 2800, 'm': 25,
+                'mu': 8.842e-5,
+                'kThermalFrozen': 0.3685, 'cpFrozen': 2060.0,
+                'kThermalEffective': 0.6517, 'cpEffective': 2764.0,
+            }],
+        }
+        prop = convert_propellant(ric_prop, None)
+        assert prop.mu_gas == pytest.approx(8.842e-5)
+        assert prop.k_gas == pytest.approx(0.3685)   # frozen
+        assert prop.Cp_gas == pytest.approx(2060.0)
+        # Effective variant selects the other slot
+        ric_prop['transportVariant'] = 'effective'
+        prop_e = convert_propellant(ric_prop, None)
+        assert prop_e.k_gas == pytest.approx(0.6517)
+        assert prop_e.Cp_gas == pytest.approx(2764.0)
 
 
 class TestGeometryConversion:

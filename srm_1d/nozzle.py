@@ -379,9 +379,10 @@ def compute_motor_performance(result, nozzle, propellant, P_ambient=None):
 
     Parameters
     ----------
-    result : dict
+    result : dict or SimulationChannels
         Output from run_simulation (keys: 'time', 'P_head', optionally
-        'D_throat', 'P_ambient').
+        'D_throat', 'P_ambient'), or the channel-model equivalent. A dict
+        is re-shaped via ``as_channels`` (pure, no recompute).
     nozzle : Nozzle
     propellant : Propellant
     P_ambient : float or None
@@ -390,12 +391,15 @@ def compute_motor_performance(result, nozzle, propellant, P_ambient=None):
         sea level (101325) if neither is set.
     """
     from .propellant import critical_flow_function, R_UNIVERSAL
+    from .channels import as_channels
+
+    sc = as_channels(result)
 
     if P_ambient is None:
-        P_ambient = result.get('P_ambient', 101325.0)
+        P_ambient = sc.extras.get('P_ambient', 101325.0)
 
-    time_arr = result['time']
-    P_arr = result['P_head']
+    time_arr = sc['time']
+    P_arr = sc['P_head']
     N = len(time_arr)
     g0 = 9.80665
 
@@ -419,8 +423,8 @@ def compute_motor_performance(result, nozzle, propellant, P_ambient=None):
     # If the simulation already computed a throat history (because
     # erosion/slag was active during the sim), use that — it's what
     # actually drove the nozzle BC.
-    if 'D_throat' in result and len(result['D_throat']) == N:
-        D_throat_arr = result['D_throat']
+    if 'D_throat' in sc and len(sc['D_throat']) == N:
+        D_throat_arr = sc['D_throat']
         PI = 3.141592653589793
         A_exit_val = PI / 4.0 * nozzle.D_exit ** 2
         for i in range(N):

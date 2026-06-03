@@ -31,6 +31,9 @@ Usage:
 import numpy as np
 
 from srm_1d.run_artifacts import save_figure
+from srm_1d.channels import (
+    Channel, SimulationChannels, as_channels,
+)
 
 try:
     import matplotlib.pyplot as plt
@@ -38,6 +41,157 @@ try:
     HAS_MATPLOTLIB = True
 except ImportError:
     HAS_MATPLOTLIB = False
+
+
+# ================================================================
+# Generic, unit-aware channel plotting (v0.8.0 Phase 2)
+# ================================================================
+# plot_channels is the generic engine the bespoke figures below are
+# expressed through. It reads the channel model (any dict result is
+# normalized via as_channels) and converts each channel to its display
+# unit at draw time via Channel.getData(unit) — units are carried on the
+# channels, conversion happens only at the boundary.
+
+def plot_channels(result, names, *, display_units=None, time_name='time',
+                  time_unit='s', overlay=False, labels=None, colors=None,
+                  axes=None, title=None, save_path=None,
+                  ylim_bottom_zero=True):
+    """Plot one or more scalar channels vs a time channel, unit-aware.
+
+    Parameters
+    ----------
+    result : SimulationChannels | dict | mapping of name->Channel
+        Channel source. A run_simulation dict is re-shaped via
+        ``as_channels``; a plain ``{name: Channel}`` mapping (e.g. wrapped
+        performance) is accepted directly.
+    names : str | sequence of str
+        Channel name(s) to plot.
+    display_units : dict, optional
+        Per-channel display unit override (``{name: unit}``); defaults to
+        each channel's stored unit. Conversion via ``Channel.getData``.
+    time_name : str
+        Name of the time channel (default ``'time'``).
+    time_unit : str
+        Display unit for the time axis (default ``'s'``).
+    overlay : bool
+        True → all channels on one axis; False (default) → one stacked
+        subplot per channel sharing the x-axis.
+    labels, colors : dict, optional
+        Per-channel legend label / line color overrides.
+    axes : matplotlib Axes or array, optional
+        Draw onto these instead of creating a figure.
+    title, save_path : str, optional
+    ylim_bottom_zero : bool
+        Clamp each y-axis bottom to 0 (default True).
+
+    Returns
+    -------
+    fig, axes
+    """
+    if not HAS_MATPLOTLIB:
+        print("matplotlib not available — cannot plot.")
+        return None, None
+
+    sc = _normalize_channel_source(result)
+    if isinstance(names, str):
+        names = [names]
+    names = list(names)
+    display_units = dict(display_units or {})
+    labels = dict(labels or {})
+    colors = dict(colors or {})
+
+    t = sc.channels[time_name].getData(time_unit)
+
+    own_fig = axes is None
+    if overlay:
+        if own_fig:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            axes_list = [ax]
+        else:
+            ax = axes if not isinstance(axes, (list, np.ndarray)) else axes[0]
+            axes_list = [ax]
+            fig = ax.get_figure()
+        for name in names:
+            ch = sc.channels[name]
+            unit = display_units.get(name, ch.unit)
+            y = ch.getData(unit)
+            ax.plot(t, y, label=labels.get(name, ch.name),
+                    color=colors.get(name))
+        ax.set_xlabel(f'Time [{time_unit}]', fontsize=12)
+        ax.legend(fontsize=10, loc='best')
+        ax.grid(True, alpha=0.3)
+        ax.set_xlim(left=0)
+        if ylim_bottom_zero:
+            ax.set_ylim(bottom=0)
+        if title:
+            ax.set_title(title, fontsize=14)
+        result_axes = axes_list
+    else:
+        n = len(names)
+        if own_fig:
+            fig, axarr = plt.subplots(n, 1, figsize=(10, 3.2 * n + 0.6),
+                                      sharex=True, squeeze=False)
+            axarr = axarr[:, 0]
+        else:
+            axarr = np.atleast_1d(axes)
+            fig = axarr[0].get_figure()
+        for i, name in enumerate(names):
+            ch = sc.channels[name]
+            unit = display_units.get(name, ch.unit)
+            y = ch.getData(unit)
+            ax = axarr[i]
+            ax.plot(t, y, color=colors.get(name, 'b'), linewidth=2,
+                    label=labels.get(name, ch.name))
+            unit_sfx = f' [{unit}]' if unit else ''
+            ax.set_ylabel(f'{ch.name}{unit_sfx}', fontsize=11)
+            ax.grid(True, alpha=0.3)
+            ax.set_xlim(left=0)
+            if ylim_bottom_zero:
+                ax.set_ylim(bottom=0)
+        axarr[-1].set_xlabel(f'Time [{time_unit}]', fontsize=12)
+        if title:
+            axarr[0].set_title(title, fontsize=14)
+        result_axes = axarr
+
+    if own_fig:
+        plt.tight_layout()
+    if save_path:
+        save_figure(fig, save_path)
+    return fig, result_axes
+
+
+def _normalize_channel_source(result):
+    """Accept a SimulationChannels, a results dict, or a {name: Channel}
+    mapping; return a SimulationChannels."""
+    if isinstance(result, SimulationChannels):
+        return result
+    if isinstance(result, dict) and result and all(
+            isinstance(v, Channel) for v in result.values()):
+        sc = SimulationChannels()
+        sc.channels = dict(result)
+        return sc
+    return as_channels(result)
+
+
+def _frames_from_channels(sc):
+    """Reconstruct a list of per-snapshot field dicts from the axial
+    channels, so the axial/flow plotters read the channel model rather
+    than the raw results dict. Mirrors the historical snapshot dict
+    structure (``'t'``, ``'x'``, and each field) for unchanged rendering.
+    Returns ``[]`` when there are no axial channels.
+    """
+    if not sc.axial:
+        return []
+    any_ax = next(iter(sc.axial.values()))
+    times = any_ax.times
+    x_cells = any_ax.x_cells
+    frames = []
+    for i in range(any_ax.n_frames):
+        frame = {'t': float(times[i]), 'x': x_cells}
+        for key, ch in sc.axial.items():
+            frame[key] = ch.getFrame(i)
+        frames.append(frame)
+    return frames
 
 
 # ================================================================
@@ -224,31 +378,34 @@ def plot_pressure(result, title="Head-End Pressure",
         print("matplotlib not available — cannot plot.")
         return None, None
 
+    sc = as_channels(result)
+
     own_fig = ax is None
     if own_fig:
         fig, ax = plt.subplots(figsize=(10, 6))
     else:
         fig = ax.get_figure()
 
-    t = result['time']
-
     if n_head_cells <= 1:
-        # Single head-end trace
-        P = result['P_head'] / 1e6
-        ax.plot(t, P, 'b-', linewidth=2, label='1D PISO (this work)')
+        # Single head-end trace, drawn via the generic unit-aware path
+        # (Pa -> MPa carried on the channel).
+        plot_channels(sc, 'P_head', display_units={'P_head': 'MPa'},
+                      overlay=True, labels={'P_head': '1D PISO (this work)'},
+                      colors={'P_head': 'b'}, axes=ax)
     else:
-        # Multi-cell traces from snapshots
-        snapshots = result.get('snapshots', [])
-        if snapshots and 'P' in snapshots[0]:
-            snap_t = np.array([s['t'] for s in snapshots])
+        # Multi-cell traces from the bore-pressure axial channel
+        P_axial = sc.axial.get('P')
+        if P_axial is not None:
+            snap_t = P_axial.times
             cell_colors = plt.cm.viridis(np.linspace(0, 0.7, n_head_cells))
             for ci in range(n_head_cells):
-                P_cell = np.array([s['P'][ci] / 1e6 for s in snapshots])
-                x_mm = snapshots[0]['x'][ci] * 1000
+                P_cell = P_axial.getCell(ci, 'MPa')
+                x_mm = P_axial.x_cells[ci] * 1000
                 ax.plot(snap_t, P_cell, '-', color=cell_colors[ci],
                         linewidth=1.5, label=f'Cell {ci} (x={x_mm:.0f}mm)')
         # Always show P_head as the primary trace
-        P = result['P_head'] / 1e6
+        t = sc['time']
+        P = sc.channels['P_head'].getData('MPa')
         ax.plot(t, P, 'b-', linewidth=2, alpha=0.4, label='P[0] (full res)')
 
     # Experimental overlay(s)
@@ -313,27 +470,28 @@ def plot_thrust(result, performance, title="Thrust",
         print("matplotlib not available — cannot plot.")
         return None, None
 
-    t = result['time']
-    thrust = performance['thrust']
-    Isp = performance['Isp']
+    # Wrap the performance series as channels so thrust/Isp flow through
+    # the generic plot_channels path (unit-aware, same as every other
+    # scalar trace).
+    sc = as_channels(result)
+    pc = SimulationChannels()
+    pc.add('time', sc.channels['time'])
+    pc.add('thrust', Channel('Thrust', 'N', np.asarray(performance['thrust'])))
+    pc.add('Isp', Channel('Isp', 's', np.asarray(performance['Isp'])))
 
     own_fig = ax is None
     if own_fig:
-        fig, axes = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+        fig, axes = plot_channels(pc, ['thrust', 'Isp'],
+                                  colors={'thrust': 'b', 'Isp': 'r'},
+                                  title=title)
         ax_thrust = axes[0]
-        ax_isp = axes[1]
     else:
-        fig = ax.get_figure()
+        fig, _ = plot_channels(pc, 'thrust', overlay=True, axes=ax,
+                               colors={'thrust': 'b'}, title=title)
         ax_thrust = ax
-        ax_isp = None
+        ax_thrust.set_ylabel('Thrust [N]', fontsize=12)
+        ax_thrust.get_legend().remove()
         axes = [ax]
-
-    # Thrust
-    ax_thrust.plot(t, thrust, 'b-', linewidth=2)
-    ax_thrust.set_ylabel('Thrust [N]', fontsize=12)
-    ax_thrust.set_title(title, fontsize=14)
-    ax_thrust.grid(True, alpha=0.3)
-    ax_thrust.set_ylim(bottom=0)
 
     # Add designation annotation
     desig = performance.get('motor_designation', '')
@@ -346,16 +504,6 @@ def plot_thrust(result, performance, title="Thrust",
             bbox=dict(boxstyle='round,pad=0.3', facecolor='wheat', alpha=0.8),
         )
 
-    # Isp
-    if ax_isp is not None:
-        ax_isp.plot(t, Isp, 'r-', linewidth=2)
-        ax_isp.set_xlabel('Time [s]', fontsize=12)
-        ax_isp.set_ylabel('Isp [s]', fontsize=12)
-        ax_isp.grid(True, alpha=0.3)
-        ax_isp.set_ylim(bottom=0)
-
-    if own_fig:
-        plt.tight_layout()
     if save_path:
         save_figure(fig, save_path)
 
@@ -392,7 +540,7 @@ def plot_flow_snapshot(result, t_target=None, snap_index=None,
         print("matplotlib not available — cannot plot.")
         return None, None
 
-    snapshots = result.get('snapshots', [])
+    snapshots = _frames_from_channels(as_channels(result))
     if not snapshots:
         print("No snapshots in result dict.")
         return None, None
@@ -565,7 +713,7 @@ def plot_flow_snapshots(result, t_targets, fields=('P', 'Mach', 'u', 'T'),
         print("matplotlib not available — cannot plot.")
         return None, None
 
-    snapshots = result.get('snapshots', [])
+    snapshots = _frames_from_channels(as_channels(result))
     if not snapshots:
         print("No snapshots in result dict.")
         return None, None
@@ -689,7 +837,7 @@ def plot_field_heatmap(result, fields=('P', 'u', 'T', 'is_burning'),
         print("matplotlib not available — cannot plot.")
         return None, None
 
-    snapshots = result.get('snapshots', [])
+    snapshots = _frames_from_channels(as_channels(result))
     if not snapshots:
         print("No snapshots in result dict.")
         return None, None
@@ -803,12 +951,13 @@ def plot_summary(result, performance=None, experimental=None,
         print("matplotlib not available — cannot plot.")
         return None, None
 
-    t = result['time']
+    sc = as_channels(result)
+    t = sc['time']
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
 
     # (0,0) Pressure trace
-    plot_pressure(result, title="Head-End Pressure",
+    plot_pressure(sc, title="Head-End Pressure",
                   experimental=experimental, time_offset=time_offset,
                   ax=axes[0, 0])
 
@@ -826,7 +975,7 @@ def plot_summary(result, performance=None, experimental=None,
                           facecolor='wheat', alpha=0.8),
             )
     else:
-        axes[0, 1].plot(t, result['P_exit'] / 1e6, 'r-', linewidth=2)
+        axes[0, 1].plot(t, sc.channels['P_exit'].getData('MPa'), 'r-', linewidth=2)
         axes[0, 1].set_ylabel('Exit Pressure [MPa]', fontsize=11)
         axes[0, 1].set_title('Nozzle-End Pressure', fontsize=12)
     axes[0, 1].set_xlabel('Time [s]', fontsize=11)
@@ -835,7 +984,7 @@ def plot_summary(result, performance=None, experimental=None,
     axes[0, 1].set_xlim(left=0)
 
     # (1,0) and (1,1) Flow snapshot at ~30% burn
-    snapshots = result.get('snapshots', [])
+    snapshots = _frames_from_channels(sc)
     if snapshots:
         snap = snapshots[len(snapshots) // 3]
         x_mm = snap['x'] * 1000
@@ -913,8 +1062,9 @@ def plot_comparison(result, perf=None, reference=None,
     else:
         axes = list(axes_raw)
 
-    t_sim = result['time']
-    P_sim = result['P_head'] / 1e6
+    sc = as_channels(result)
+    t_sim = sc['time']
+    P_sim = sc.channels['P_head'].getData('MPa')
 
     # Pressure panel
     axes[0].plot(t_sim, P_sim, 'b-', linewidth=2, label='1D PISO')

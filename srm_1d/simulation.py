@@ -1293,7 +1293,7 @@ def _goodman_ignition_sources_and_mass(
 # Compiled time loop
 # ================================================================
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _run_time_loop(
     # --- Cell arrays (N) ---
     rho, u, P, T,
@@ -1394,6 +1394,9 @@ def _run_time_loop(
     r_dyn,                        # [N] persistent relaxed burn rate
     r_qs_persist,                 # [N] held quasi-steady total target
     r_ero_qs_persist,             # [N] held quasi-steady erosive target
+    # --- v0.8.0 Phase 6: live progress / cooperative cancel ---
+    progress_state,               # [2] float64: [0]=progress 0..1 (written),
+                                  #              [1]=cancel flag (read; >0.5 aborts)
 ):
     """
     The complete simulation time loop, compiled to native code.
@@ -1444,6 +1447,7 @@ def _run_time_loop(
     first_bt_time = -1.0
     last_snapshot_t = -snapshot_interval
     termination_code = 0
+    p_peak = 0.0  # v0.8.0: running max head pressure, for the taildown metric
 
     D_throat = D_throat_init
     A_throat = A_throat_init
@@ -1525,6 +1529,48 @@ def _run_time_loop(
     snap_idx = 0
 
     while t < t_max:
+        # --- v0.8.0: publish progress + honor cooperative cancel ---
+        # Composite, monotonic metric (plain array ops keep the loop nopython):
+        #  • burn phase — web-consumed fraction of the most-regressed grain
+        #    cell (mirrors the QS bar) or simulated-time fraction, whichever
+        #    leads;
+        #  • tail phase (web > 0.9) — head-pressure decay toward P_cutoff fills
+        #    the final 10%. Without this the bar stalls near 99% through the
+        #    low-rate taildown, where regression (hence web_frac) barely moves.
+        # Gated on web > 0.9 so mid-burn pressure dips can't make the bar jump.
+        if P[0] > p_peak:
+            p_peak = P[0]
+        web_frac = 0.0
+        for i in range(N):
+            if is_grain[i] and cell_wall_web[i] > 1e-9:
+                f = regress[i] / cell_wall_web[i]
+                if f > web_frac:
+                    web_frac = f
+        if web_frac > 1.0:
+            web_frac = 1.0
+        time_frac = t / t_max
+        progress = web_frac if web_frac > time_frac else time_frac
+        if web_frac > 0.9 and p_peak > 2.0 * P_cutoff:
+            # Chamber blowdown is ~exponential (dP/dt ∝ -P once burning
+            # stops), so a linear-in-pressure tail crawls as P→P_cutoff.
+            # Using log-pressure linearizes it in time: for P≈P_peak·e^(-t/τ),
+            # ln(P_peak/P)/ln(P_peak/P_cutoff) ≈ t/t_end, a steady fill.
+            p_head = P[0] if P[0] > 1.0 else 1.0
+            tail = np.log(p_peak / p_head) / np.log(p_peak / P_cutoff)
+            if tail < 0.0:
+                tail = 0.0
+            elif tail > 1.0:
+                tail = 1.0
+            tail_prog = 0.9 + 0.1 * tail
+            if tail_prog > progress:
+                progress = tail_prog
+        if progress < progress_state[0]:
+            progress = progress_state[0]   # never let the bar regress
+        progress_state[0] = progress
+        if progress_state[1] > 0.5:
+            termination_code = 5
+            break
+
         # --- Termination: complete burnout ---
         if n_ignited > 0 and n_burning == 0 and pyrogen_done:
             termination_code = 1
@@ -2095,6 +2141,11 @@ def _run_time_loop(
         t += dt
         step += 1
 
+    # Publish terminal progress (full unless the run was canceled) so the GUI
+    # bar lands at 100% on a normal finish rather than wherever the metric was.
+    if termination_code != 5:
+        progress_state[0] = 1.0
+
     return (hist_idx, snap_idx,
             total_mass_produced, total_mass_nozzle,
             first_bt_time, D_throat, termination_code,
@@ -2150,6 +2201,8 @@ def run_simulation(
     print_interval=0.2,
     snapshot_interval=0.2,
     verbose=True,
+    # --- v0.8.0 Phase 6: live progress / cooperative cancel ---
+    progress_state=None,
 ):
     """
     Run a complete transient simulation.
@@ -2577,6 +2630,13 @@ def run_simulation(
 
     wall_start = clock.time()
 
+    # v0.8.0 Phase 6: shared progress/cancel cell. [0] = progress 0..1 written
+    # by the @njit loop each step; [1] = cancel flag a caller (e.g. the GUI
+    # progress dialog poller) sets to request a cooperative abort. Allocated
+    # here when no external array is supplied so the loop signature is uniform.
+    if progress_state is None:
+        progress_state = np.zeros(2, dtype=np.float64)
+
     # ============================================================
     # RUN COMPILED TIME LOOP
     # ============================================================
@@ -2682,6 +2742,8 @@ def run_simulation(
         flame_front_enabled, flame_front_velocity, ignitable,
         # v0.7.4 Phase Z: Z-N dynamic burn-rate relaxation
         zn_enabled, kappa_zn, r_dyn, r_qs_persist, r_ero_qs_persist,
+        # v0.8.0 Phase 6: live progress / cooperative cancel
+        progress_state,
     )
 
     wall_elapsed = clock.time() - wall_start
@@ -2777,7 +2839,7 @@ def run_simulation(
     termination_names = {
         0: "t_max reached", 1: "complete burnout",
         2: "pressure cutoff", 3: "history array full",
-        4: "numerical collapse aborted",
+        4: "numerical collapse aborted", 5: "canceled by user",
     }
     term_str = termination_names.get(termination_code, "unknown")
 
@@ -2900,7 +2962,7 @@ def run_simulation(
             'web': np.array(web_hist),
         })
 
-    return {
+    result_dict = {
         'time': time_arr, 'P_head': P_head_arr, 'P_exit': P_exit_arr,
         'D_throat': D_throat_arr, 'Kn': Kn_arr, 'massflow': massflow_arr,
         'P_ig': P_ig_arr, 'T_ig': T_ig_arr, 'mdot_ig': mdot_ig_arr,
@@ -2957,3 +3019,10 @@ def run_simulation(
         'R_mix_final': R_mix_arr.copy(),
         'M_mix_final': M_mix_arr.copy(),
     }
+
+    # v0.8.0 Phase 1 (capstone): return the channel object as the primary
+    # result. It proxies item access to the raw dict (so legacy
+    # result['P_head'] / result['summary'] code is unchanged) while exposing
+    # the unit-aware .channels / .axial API for the openMotor frontend.
+    from .channels import build_channels
+    return build_channels(result_dict)

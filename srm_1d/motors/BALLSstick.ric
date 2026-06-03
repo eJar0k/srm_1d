@@ -79,6 +79,34 @@ data:
       length: 0.0025730251460502926
       numFins: 8
     type: Finocyl
+  igniter:
+    basket_fill_fraction: 0.5
+    burn_area: -1.0
+    burn_law: 0d
+    cartridge_length_m: -1.0
+    injection_topology: forward_plenum
+    mass: -1.0
+    pellet_packing_fraction: 0.6
+    pyrogen:
+      Cp_gas: null
+      M: 0.03
+      T_flame: 2800.0
+      a: 2.0e-05
+      form: pellets
+      gamma: 1.25
+      heat_delivery_mode: demar
+      heat_flux_cal_cm2_s: 69.4
+      impetus_W: 5000.0
+      kappa_jet: 8.0
+      n: 0.5
+      name: BPNV
+      particle_LD_ratio: 1.0
+      particle_diameter_m: 0.0032
+      pellet_emissivity: 0.7
+      radiation_absorption_length_m: 1.0
+      rho: 1700.0
+    throat_area: -1.0
+    volume: -1.0
   nozzle:
     convAngle: 75.0
     divAngle: 15.0
@@ -93,15 +121,21 @@ data:
     name: Chase - Energy
     tabs:
     - a: 1.075303334201942e-05
+      cpEffective: 2629.0
+      cpFrozen: 2017.0
       k: 1.198
+      kThermalEffective: 0.5761
+      kThermalFrozen: 0.346
       m: 24.98
       maxPressure: 13790000.000000002
       minPressure: 0.0
+      mu: 9.009e-05
       n: 0.412
       t: 2977.0
+    transportVariant: frozen
 type: !!python/object/apply:uilib.fileIO.fileTypes
 - 3
 version: !!python/tuple
 - 0
-- 6
+- 7
 - 0

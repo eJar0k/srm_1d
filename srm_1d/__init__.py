@@ -26,6 +26,17 @@ __version__ = "0.6.0"
 # Main entry point
 from .simulation import run_simulation
 
+# v0.8.0 Phase 1 — channel result model (openMotor-aligned).
+# Additive: run_simulation() still returns the results dict; build_channels
+# re-shapes it into channels for the frontend-integration path.
+from .channels import (
+    Channel,
+    AxialChannel,
+    SimulationChannels,
+    build_channels,
+    as_channels,
+)
+
 # Igniter
 from .igniter_plenum import PyrogenChamber
 
@@ -60,9 +71,12 @@ from .nozzle import (
 # Plotting (optional — requires matplotlib)
 try:
     from .plotting import (
+        plot_channels,
         plot_pressure,
         plot_thrust,
         plot_flow_snapshot,
+        plot_flow_snapshots,
+        plot_field_heatmap,
         plot_summary,
         plot_comparison,
         plot_grain_regression,
@@ -85,6 +99,12 @@ try:
         print_ric_summary,
         compute_grain_metrics,
         load_openmotor_csv,
+        migrate_ric_transport,
+        migrate_all_motors,
+        build_transport_library,
+        load_igniter,
+        default_igniter_block,
+        build_pyrogen_chamber,
     )
 except ImportError:
     pass

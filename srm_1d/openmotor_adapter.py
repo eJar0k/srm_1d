@@ -102,12 +102,21 @@ def load_ric(filepath):
         if key not in data:
             raise ValueError(f"Invalid .ric file: missing '{key}' in {filepath}")
 
+    version = raw.get('version', (0, 0, 0))
+    # Upgrade pre-(0,7,0) propellants in memory so transport keys are
+    # always present (sentinel-seeded) — mirrors openMotor's fileIO
+    # migration. Real values come either from an already-migrated .ric or
+    # from migrate_ric_transport folding in a .transport.yaml sidecar.
+    _migrate_ric_propellant(data['propellant'], version)
+
     return {
         'grains': data['grains'],
         'nozzle': data['nozzle'],
         'propellant': data['propellant'],
         'config': data['config'],
-        'version': raw.get('version', (0, 0, 0)),
+        # v0.8.0 Phase 4: igniter block (None on un-migrated motors).
+        'igniter': data.get('igniter'),
+        'version': version,
     }
 
 
@@ -142,6 +151,253 @@ def load_transport(transport_path):
             f"{sorted(missing)}"
         )
     return {'mu': data['mu'], 'k': data['k'], 'Cp': data['Cp']}
+
+
+# ================================================================
+# v0.8.0 Phase 3 — per-tab gas transport in the .ric format
+# ================================================================
+# openMotor's v0.7.0 file format carries combustion-gas transport on each
+# propellant tab: a single ``mu`` (viscosity is invariant of the
+# frozen/effective equilibrium-chemistry shift) plus frozen + effective
+# conductivity/specific-heat pairs, with a propellant-level
+# ``transportVariant`` selector. The default 0.0 is the "not provided"
+# sentinel (D7): srm_1d refuses to fabricate transport and hard-faults
+# instead. This block reads that schema and migrates old files
+# (mirroring openMotor's chained uilib/fileIO migration).
+
+RIC_FORMAT_VERSION = (0, 7, 0)
+TRANSPORT_UNSET = 0.0
+_TRANSPORT_TAB_KEYS = (
+    'mu', 'kThermalFrozen', 'cpFrozen', 'kThermalEffective', 'cpEffective',
+)
+
+
+def _seed_tab_transport_sentinels(propellant):
+    """Mirror openMotor's migrateMotor_0_6_1_to_0_7_0: seed the transport
+    keys (sentinel) + transportVariant on a propellant dict if absent. In
+    place; returns the propellant."""
+    propellant.setdefault('transportVariant', 'frozen')
+    for tab in propellant.get('tabs', []):
+        for key in _TRANSPORT_TAB_KEYS:
+            tab.setdefault(key, TRANSPORT_UNSET)
+    return propellant
+
+
+def _migrate_ric_propellant(propellant, version):
+    """Upgrade an in-memory .ric propellant dict to the current format.
+    For pre-(0,7,0) files this seeds the transport sentinels so downstream
+    reads always see the keys (and hard-fault on the sentinel rather than
+    KeyError)."""
+    if tuple(version) < RIC_FORMAT_VERSION:
+        _seed_tab_transport_sentinels(propellant)
+    return propellant
+
+
+def _tab_transport(tab, variant):
+    """Return ``{'mu','k','Cp'}`` for a .ric tab dict and variant
+    ('effective'|'frozen'), or None if any value is the unset sentinel."""
+    mu = float(tab.get('mu', TRANSPORT_UNSET))
+    if variant == 'frozen':
+        k = float(tab.get('kThermalFrozen', TRANSPORT_UNSET))
+        cp = float(tab.get('cpFrozen', TRANSPORT_UNSET))
+    else:
+        k = float(tab.get('kThermalEffective', TRANSPORT_UNSET))
+        cp = float(tab.get('cpEffective', TRANSPORT_UNSET))
+    if mu <= 0.0 or k <= 0.0 or cp <= 0.0:
+        return None
+    return {'mu': mu, 'k': k, 'Cp': cp}
+
+
+def _ric_raw_loader():
+    """A SafeLoader that flattens openMotor's python tags (the version
+    tuple and the fileTypes enum) to plain Python so the full
+    {version, type, data} structure can be read for migration."""
+    class _RicLoader(yaml.SafeLoader):
+        pass
+    _RicLoader.add_multi_constructor(
+        'tag:yaml.org,2002:python/',
+        lambda loader, suffix, node: loader.construct_mapping(node)
+        if isinstance(node, yaml.MappingNode)
+        else loader.construct_sequence(node)
+        if isinstance(node, yaml.SequenceNode)
+        else loader.construct_scalar(node),
+    )
+    return _RicLoader
+
+
+class _RicFileType:
+    """Stand-in for openMotor's ``fileTypes`` enum so we can re-emit the
+    ``!!python/object/apply:uilib.fileIO.fileTypes [code]`` tag on write
+    without importing uilib (which needs PyQt). MOTOR == 3."""
+    def __init__(self, code):
+        self.code = int(code)
+
+
+def _ric_dumper():
+    class _Dumper(yaml.Dumper):
+        pass
+    _Dumper.add_representer(
+        _RicFileType,
+        lambda dumper, data: dumper.represent_sequence(
+            'tag:yaml.org,2002:python/object/apply:uilib.fileIO.fileTypes',
+            [data.code]),
+    )
+    return _Dumper
+
+
+def _load_sidecar(path):
+    return load_transport(path) if (path and os.path.exists(path)) else None
+
+
+def build_transport_library(motors_dir):
+    """Group .ric files by propellant name and resolve a shared
+    frozen+effective transport set per propellant.
+
+    Propellants are shared across motors (e.g. several motors use the same
+    'Chunc' propellant), so a sidecar found on ANY motor of a propellant
+    supplies transport for ALL of them — filling motors that ship no
+    sidecar of their own.
+
+    Per propellant:
+    - frozen  ← any ``<stem>.frozen.transport.yaml``; else the primary
+      ``<stem>.transport.yaml`` (treat the lone primary as frozen, matching
+      the 'frozen' default).
+    - effective ← any primary ``<stem>.transport.yaml``; else the frozen.
+    - mu (invariant) ← whichever sidecar is available.
+
+    Returns ``{pname: {'mu','frozen':{'k','Cp'},'effective':{'k','Cp'}}}``,
+    or ``{pname: None}`` when a propellant has no transport anywhere.
+    """
+    import glob
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for ric in sorted(glob.glob(os.path.join(motors_dir, '*.ric'))):
+        try:
+            motor = load_ric(ric)
+        except Exception:
+            continue
+        groups[motor['propellant'].get('name', '?')].append(os.path.splitext(ric)[0])
+
+    library = {}
+    for pname, stems in groups.items():
+        eff = froz = None
+        for stem in stems:
+            if eff is None:
+                eff = _load_sidecar(stem + '.transport.yaml')
+            if froz is None:
+                froz = _load_sidecar(stem + '.frozen.transport.yaml')
+        if eff is None and froz is None:
+            library[pname] = None
+            continue
+        mu = (froz or eff)['mu']
+        frozen_kcp = froz if froz is not None else eff
+        effective_kcp = eff if eff is not None else froz
+        library[pname] = {
+            'mu': mu,
+            'frozen': {'k': frozen_kcp['k'], 'Cp': frozen_kcp['Cp']},
+            'effective': {'k': effective_kcp['k'], 'Cp': effective_kcp['Cp']},
+        }
+    return library
+
+
+def migrate_ric_transport(ric_path, transport=None, variant='frozen',
+                          write=True, out_path=None):
+    """Write per-tab transport (v0.7.0 format) into a .ric file, set
+    ``transportVariant``, bump the version, and (optionally) save —
+    preserving openMotor's YAML tags so the file stays openMotor-loadable.
+
+    Parameters
+    ----------
+    ric_path : str
+    transport : dict or None
+        Resolved transport ``{'mu', 'frozen':{'k','Cp'},
+        'effective':{'k','Cp'}}`` (e.g. from :func:`build_transport_library`,
+        which shares across same-propellant motors). If None, falls back to
+        THIS motor's own ``<stem>.transport.yaml`` / ``.frozen.`` siblings
+        (no sharing). If still nothing, tabs keep the unset sentinel and the
+        motor will hard-fault on run (D7).
+    variant : str
+        The active ``transportVariant`` written into the file ('frozen' |
+        'effective'). Default 'frozen'.
+    write : bool
+    out_path : str or None
+
+    Returns
+    -------
+    dict : the migrated raw {version, type, data} structure.
+    """
+    if not HAS_YAML:
+        raise ImportError("PyYAML is required to migrate .ric files.")
+
+    if transport is None:
+        stem, _ = os.path.splitext(ric_path)
+        eff = _load_sidecar(stem + '.transport.yaml')
+        froz = _load_sidecar(stem + '.frozen.transport.yaml')
+        if eff is not None or froz is not None:
+            f_kcp = froz if froz is not None else eff
+            e_kcp = eff if eff is not None else froz
+            transport = {
+                'mu': (froz or eff)['mu'],
+                'frozen': {'k': f_kcp['k'], 'Cp': f_kcp['Cp']},
+                'effective': {'k': e_kcp['k'], 'Cp': e_kcp['Cp']},
+            }
+
+    with open(ric_path, 'r', encoding='utf-8') as f:
+        raw = yaml.load(f, Loader=_ric_raw_loader())
+
+    propellant = raw['data']['propellant']
+    propellant['transportVariant'] = variant
+    for tab in propellant.get('tabs', []):
+        if transport is None:
+            for key in _TRANSPORT_TAB_KEYS:
+                tab.setdefault(key, TRANSPORT_UNSET)
+        else:
+            tab['mu'] = transport['mu']
+            tab['kThermalFrozen'] = transport['frozen']['k']
+            tab['cpFrozen'] = transport['frozen']['Cp']
+            tab['kThermalEffective'] = transport['effective']['k']
+            tab['cpEffective'] = transport['effective']['Cp']
+
+    # v0.8.0 Phase 4: seed a default igniter block so the motor is
+    # self-describing (bpnv + forward_plenum auto-sizing) if absent.
+    _seed_motor_igniter(raw['data'])
+
+    raw['version'] = tuple(RIC_FORMAT_VERSION)
+    if 'type' in raw:
+        code = raw['type'][0] if isinstance(raw['type'], (list, tuple)) else raw['type']
+        raw['type'] = _RicFileType(code)
+    else:
+        raw['type'] = _RicFileType(3)  # fileTypes.MOTOR
+
+    if write:
+        target = out_path or ric_path
+        with open(target, 'w', encoding='utf-8') as f:
+            yaml.dump(raw, f, Dumper=_ric_dumper(), default_flow_style=False)
+
+    return raw
+
+
+def migrate_all_motors(motors_dir, variant='frozen', write=True, verbose=True):
+    """Migrate every .ric in ``motors_dir`` to the v0.7.0 transport format,
+    sharing transport across motors with the same propellant (see
+    :func:`build_transport_library`). Returns a list of
+    ``(filename, propellant, had_transport)`` tuples."""
+    import glob
+    library = build_transport_library(motors_dir)
+    results = []
+    for ric in sorted(glob.glob(os.path.join(motors_dir, '*.ric'))):
+        try:
+            pname = load_ric(ric)['propellant'].get('name', '?')
+        except Exception as exc:
+            results.append((os.path.basename(ric), f'ERR:{exc}', False))
+            continue
+        transport = library.get(pname)
+        migrate_ric_transport(ric, transport=transport, variant=variant, write=write)
+        results.append((os.path.basename(ric), pname, transport is not None))
+        if verbose:
+            tag = 'transport' if transport is not None else 'SENTINEL (no data)'
+            print(f"  {os.path.basename(ric):<52} {pname:<24} {tag}")
+    return results
 
 
 def _builtin_pyrogen_path(name):
@@ -305,6 +561,113 @@ def build_pyrogen_chamber(
 
 
 # ================================================================
+# v0.8.0 Phase 4 — igniter as data (library + motor block, D3)
+# ================================================================
+# A motor's igniter is a ``data.igniter`` block mirroring how the motor
+# embeds its propellant: an embedded pyrogen MATERIAL datasheet (the
+# reusable library item, same field set as srm_1d/motors/pyrogens/*.yaml)
+# plus the per-motor chamber SIZING / topology. ``-1.0`` sizing values are
+# the "auto" sentinel (Sutton sizing / derive at build). openMotor ignores
+# the unknown ``data.igniter`` key on load (Phase 5 wires its GUI to it).
+
+# Sizing defaults match build_pyrogen_chamber's auto behavior (so a
+# migrated motor reproduces the current forward_plenum default run).
+_IGNITER_SIZING_DEFAULTS = {
+    'mass': -1.0,                 # -1 => Sutton auto
+    'throat_area': -1.0,          # -1 => Kn-design auto
+    'volume': -1.0,               # -1 => 1.5*m/rho auto
+    'burn_area': -1.0,            # -1 => particle-geometry auto
+    'burn_law': '0d',
+    'injection_topology': 'forward_plenum',
+    'cartridge_length_m': -1.0,   # -1 => derive at sim init
+    'basket_fill_fraction': 0.5,
+    'pellet_packing_fraction': 0.60,
+}
+
+
+def _pyrogen_to_block(pyrogen):
+    """Serialize a Pyrogen dataclass to the ``igniter.pyrogen`` dict."""
+    return {
+        'name': pyrogen.name, 'a': pyrogen.a, 'n': pyrogen.n,
+        'rho': pyrogen.rho, 'T_flame': pyrogen.T_flame, 'M': pyrogen.M,
+        'gamma': pyrogen.gamma, 'impetus_W': pyrogen.impetus_W,
+        'heat_flux_cal_cm2_s': pyrogen.heat_flux_cal_cm2_s,
+        'Cp_gas': pyrogen.Cp_gas, 'kappa_jet': pyrogen.kappa_jet,
+        'form': pyrogen.form,
+        'particle_diameter_m': pyrogen.particle_diameter_m,
+        'particle_LD_ratio': pyrogen.particle_LD_ratio,
+        'heat_delivery_mode': pyrogen.heat_delivery_mode,
+        'pellet_emissivity': pyrogen.pellet_emissivity,
+        'radiation_absorption_length_m': pyrogen.radiation_absorption_length_m,
+    }
+
+
+def _block_to_pyrogen(pdict):
+    """Build a Pyrogen dataclass from an ``igniter.pyrogen`` dict."""
+    return Pyrogen(
+        name=str(pdict['name']), a=float(pdict['a']), n=float(pdict['n']),
+        rho=float(pdict['rho']), T_flame=float(pdict['T_flame']),
+        M=float(pdict['M']), gamma=float(pdict['gamma']),
+        impetus_W=float(pdict.get('impetus_W', 0.0)),
+        heat_flux_cal_cm2_s=(None if pdict.get('heat_flux_cal_cm2_s') is None
+                             else float(pdict['heat_flux_cal_cm2_s'])),
+        Cp_gas=(None if pdict.get('Cp_gas') is None else float(pdict['Cp_gas'])),
+        kappa_jet=float(pdict.get('kappa_jet', 8.0)),
+        form=str(pdict.get('form', 'pellets')),
+        particle_diameter_m=float(pdict.get('particle_diameter_m', 5.0e-3)),
+        particle_LD_ratio=float(pdict.get('particle_LD_ratio', 3.0)),
+        heat_delivery_mode=str(pdict.get('heat_delivery_mode', 'demar')),
+        pellet_emissivity=float(pdict.get('pellet_emissivity', 0.7)),
+        radiation_absorption_length_m=float(
+            pdict.get('radiation_absorption_length_m', 1.0)),
+    )
+
+
+def default_igniter_block(pyrogen_name='bpnv'):
+    """A default ``data.igniter`` block: the named built-in pyrogen material
+    + auto chamber sizing (forward_plenum). Used by the migration to make
+    motors self-describing."""
+    block = {'pyrogen': _pyrogen_to_block(load_pyrogen(pyrogen_name))}
+    block.update(dict(_IGNITER_SIZING_DEFAULTS))
+    return block
+
+
+def load_igniter(motor):
+    """Return ``(Pyrogen, sizing_kwargs)`` from a motor dict's ``igniter``
+    block, or None if the motor has no igniter block. ``sizing_kwargs`` maps
+    directly onto :func:`build_pyrogen_chamber` (``-1.0`` mass/throat/volume/
+    burn_area sentinels become None = auto)."""
+    ig = motor.get('igniter')
+    if ig is None:
+        return None
+    pyro = _block_to_pyrogen(ig['pyrogen'])
+
+    def _auto(value):
+        return None if (value is None or value == -1.0) else value
+
+    sizing = {
+        'pyrogen_mass': _auto(ig.get('mass', -1.0)),
+        'pyrogen_throat_area': _auto(ig.get('throat_area', -1.0)),
+        'pyrogen_volume': _auto(ig.get('volume', -1.0)),
+        'pyrogen_burn_area': _auto(ig.get('burn_area', -1.0)),
+        'pyrogen_burn_law': ig.get('burn_law', '0d'),
+        'injection_topology': ig.get('injection_topology', 'forward_plenum'),
+        'cartridge_length_m': ig.get('cartridge_length_m', -1.0),
+        'basket_fill_fraction': ig.get('basket_fill_fraction', 0.5),
+        'pellet_packing_fraction': ig.get('pellet_packing_fraction', 0.60),
+    }
+    return pyro, sizing
+
+
+def _seed_motor_igniter(data, pyrogen_name='bpnv'):
+    """Migration: add a default igniter block to a motor data dict if absent.
+    Mirrors openMotor's migrateMotor seeding pattern. In place; returns data."""
+    if 'igniter' not in data:
+        data['igniter'] = default_igniter_block(pyrogen_name)
+    return data
+
+
+# ================================================================
 # Conversion: openMotor → srm_1d data structures
 # ================================================================
 
@@ -365,9 +728,11 @@ def convert_propellant(ric_propellant, gas_props=None):
     ric_propellant : dict
         From the .ric file's 'propellant' key.
     gas_props : dict or None
-        Transport properties: {'mu': Pa·s, 'k': W/(m·K), 'Cp': J/(kg·K)}.
-        If None, estimated properties are derived from the
-        widest-range tab (less accurate).
+        Explicit transport override {'mu': Pa·s, 'k': W/(m·K), 'Cp':
+        J/(kg·K)}. If None, transport is read from the propellant's own
+        per-tab schema (v0.7.0 .ric format) using the active
+        ``transportVariant``. A missing/sentinel value hard-faults (D7) —
+        srm_1d does not fabricate transport.
 
     Returns
     -------
@@ -379,20 +744,24 @@ def convert_propellant(ric_propellant, gas_props=None):
     name = ric_propellant.get('name', 'openMotor propellant')
     density = ric_propellant['density']
 
-    if gas_props is not None:
-        mu = gas_props['mu']
-        k_gas = gas_props['k']
-        Cp = gas_props['Cp']
-    else:
-        # Estimate transport from the widest-range tab
-        from .propellant import create_gas_properties_estimated
+    if gas_props is None:
+        # Read transport from the .ric propellant (v0.7.0 per-tab schema),
+        # collapsed to the representative tab for the scalar solver.
+        variant = ric_propellant.get('transportVariant', 'frozen')
         rep = _representative_ric_tab(ric_tabs)
-        gamma = rep['k']
-        mw_kgmol = rep['m'] / 1000.0
-        est = create_gas_properties_estimated(gamma, mw_kgmol, rep['t'])
-        mu = est.mu
-        k_gas = est.k_thermal
-        Cp = est.Cp
+        gas_props = _tab_transport(rep, variant)
+        if gas_props is None:
+            raise ValueError(
+                f"Propellant {name!r}: {variant} gas transport "
+                f"(mu/k/Cp) is not provided in the .ric file (unset "
+                f"sentinel). Supply it by migrating the .ric with "
+                f"migrate_ric_transport (folds a .transport.yaml sibling), "
+                f"or pass gas_props={{'mu','k','Cp'}} explicitly. srm_1d "
+                f"does not fabricate transport properties."
+            )
+    mu = gas_props['mu']
+    k_gas = gas_props['k']
+    Cp = gas_props['Cp']
 
     return Propellant(
         name=name,
@@ -658,13 +1027,13 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
 
     stem, _ = os.path.splitext(filepath)
 
-    if gas_props is None:
-        if transport_path is None:
-            candidate = stem + '.transport.yaml'
-            if os.path.exists(candidate):
-                transport_path = candidate
-        if transport_path is not None:
-            gas_props = load_transport(transport_path)
+    # v0.8.0 Phase 3: gas transport now lives in the .ric propellant
+    # (per-tab, selected by transportVariant). The .transport.yaml sidecar
+    # is RETIRED — only an explicit transport_path / gas_props override is
+    # honored; otherwise convert_propellant reads transport from the .ric
+    # (and hard-faults on the unset sentinel rather than fabricating it).
+    if gas_props is None and transport_path is not None:
+        gas_props = load_transport(transport_path)
 
     args = ric_to_sim_args(
         motor, gas_props=gas_props,
@@ -695,15 +1064,27 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
     if kappa_zn is not None:
         prop.kappa_zn = float(kappa_zn)
 
+    # v0.8.0 Phase 4: when no pyrogen kwarg is given, the motor file's
+    # igniter block is authoritative (self-describing) — supplying both the
+    # pyrogen material and the chamber sizing. An explicit pyrogen kwarg
+    # takes the legacy path and uses the run_from_ric sizing kwargs.
+    igniter_sizing = None
     if pyrogen is None:
-        candidate = stem + '.pyrogen.yaml'
-        if os.path.exists(candidate):
-            pyrogen_obj = load_pyrogen(candidate)
+        ig = load_igniter(motor)
+        if ig is not None:
+            pyrogen_obj, igniter_sizing = ig
         else:
-            raise ValueError(
-                f"No pyrogen specified for {filepath}. Pass pyrogen='bpnv', "
-                "pyrogen=<Pyrogen>, or add a sibling <motor>.pyrogen.yaml."
-            )
+            candidate = stem + '.pyrogen.yaml'
+            if os.path.exists(candidate):
+                pyrogen_obj = load_pyrogen(candidate)
+            else:
+                raise ValueError(
+                    f"No pyrogen specified for {filepath} and the motor file "
+                    "has no igniter block. Pass pyrogen='bpnv', "
+                    "pyrogen=<Pyrogen>, migrate the motor "
+                    "(migrate_all_motors), or add a sibling "
+                    "<motor>.pyrogen.yaml."
+                )
     elif isinstance(pyrogen, Pyrogen):
         pyrogen_obj = pyrogen
     else:
@@ -726,18 +1107,23 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
     if particle_LD_ratio is not None:
         pyrogen_obj.particle_LD_ratio = float(particle_LD_ratio)
 
+    if igniter_sizing is not None:
+        # Sizing from the motor file's igniter block (self-describing path).
+        chamber_kwargs = igniter_sizing
+    else:
+        chamber_kwargs = dict(
+            pyrogen_mass=pyrogen_mass,
+            pyrogen_throat_area=pyrogen_throat_area,
+            pyrogen_volume=pyrogen_volume,
+            pyrogen_burn_area=pyrogen_burn_area,
+            pyrogen_burn_law=pyrogen_burn_law,
+            injection_topology=injection_topology,
+            cartridge_length_m=cartridge_length_m,
+            basket_fill_fraction=basket_fill_fraction,
+            pellet_packing_fraction=pellet_packing_fraction,
+        )
     args['pyrogen_chamber'] = build_pyrogen_chamber(
-        pyrogen_obj, geo, nozzle,
-        pyrogen_mass=pyrogen_mass,
-        pyrogen_throat_area=pyrogen_throat_area,
-        pyrogen_volume=pyrogen_volume,
-        pyrogen_burn_area=pyrogen_burn_area,
-        pyrogen_burn_law=pyrogen_burn_law,
-        injection_topology=injection_topology,
-        cartridge_length_m=cartridge_length_m,
-        basket_fill_fraction=basket_fill_fraction,
-        pellet_packing_fraction=pellet_packing_fraction,
-    )
+        pyrogen_obj, geo, nozzle, **chamber_kwargs)
     args['T_ignition'] = T_ignition
     args['verbose'] = verbose
 
@@ -764,8 +1150,10 @@ def compute_grain_metrics(result, geo, propellant):
 
     Parameters
     ----------
-    result : dict
-        Output from run_simulation (must have 'snapshots').
+    result : dict or SimulationChannels
+        Output from run_simulation (must have snapshot 'D_port' field), or
+        the channel-model equivalent. A dict is re-shaped via
+        ``as_channels`` (pure, no recompute).
     geo : MotorGeometry
         The geometry used for the simulation.
     propellant : Propellant
@@ -782,19 +1170,23 @@ def compute_grain_metrics(result, geo, propellant):
         'kn_times': ndarray (n_time,) — corresponding times
     """
     from .propellant import critical_flow_function, R_UNIVERSAL
+    from .channels import as_channels
 
-    snapshots = result.get('snapshots', [])
+    sc = as_channels(result)
+    dport_chan = sc.axial.get('D_port')
     ga = geo.compile_geometry_arrays()
     N_seg = ga['N_seg']
     dx = geo.dx
 
-    n_snaps = len(snapshots)
+    n_snaps = dport_chan.n_frames if dport_chan is not None else 0
+    snap_times = dport_chan.times if dport_chan is not None else np.zeros(0)
+    dport_frames = dport_chan.getData() if dport_chan is not None else None
     regression = np.zeros((n_snaps, N_seg))
     web = np.zeros((n_snaps, N_seg))
     grain_mass = np.zeros((n_snaps, N_seg))
 
-    for s, snap in enumerate(snapshots):
-        D_port = snap['D_port']
+    for s in range(n_snaps):
+        D_port = dport_frames[s]
         for k in range(N_seg):
             # Cells belonging to this grain
             mask = ga['cell_segment_id'] == k
@@ -822,8 +1214,8 @@ def compute_grain_metrics(result, geo, propellant):
     Gamma = critical_flow_function(rep_tab.gamma)
     c_star = np.sqrt(R_spec * rep_tab.T_flame) / Gamma
 
-    t_arr = result['time']
-    P_arr = result['P_head']
+    t_arr = sc['time']
+    P_arr = sc['P_head']
     # NOTE: Kn equilibrium uses representative-tab a/n. For multi-tab
     # propellants, pressure-dependent Kn would require per-sample tab
     # lookup — left as a follow-up since most exports use a single tab.
@@ -834,7 +1226,7 @@ def compute_grain_metrics(result, geo, propellant):
         0.0,
     )
 
-    snap_times = np.array([s['t'] for s in snapshots])
+    snap_times = np.asarray(snap_times)
 
     return {
         'snap_times': snap_times,
@@ -857,8 +1249,8 @@ def result_to_csv(result, perf=None, geo=None, propellant=None,
 
     Parameters
     ----------
-    result : dict
-        Output from run_simulation.
+    result : dict or SimulationChannels
+        Output from run_simulation, or the channel-model equivalent.
     perf : dict or None
         Output from compute_motor_performance.
     geo : MotorGeometry or None
@@ -875,15 +1267,17 @@ def result_to_csv(result, perf=None, geo=None, propellant=None,
     -------
     str : CSV content.
     """
-    t = result['time']
-    P = result['P_head']
-    P_exit = result['P_exit']
-    D_throat = result['D_throat']
+    from .channels import as_channels
+    sc = as_channels(result)
+    t = sc['time']
+    P = sc['P_head']
+    P_exit = sc['P_exit']
+    D_throat = sc['D_throat']
 
     # Compute Kn and grain metrics if geometry is available
     grain_met = None
     if geo is not None and propellant is not None:
-        grain_met = compute_grain_metrics(result, geo, propellant)
+        grain_met = compute_grain_metrics(sc, geo, propellant)
 
     # Downsample
     if dt_sample is None:
