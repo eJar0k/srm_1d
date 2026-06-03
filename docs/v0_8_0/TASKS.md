@@ -290,8 +290,32 @@ Porting QS-only GUI surfaces to be solver-aware. First slice landed
    motor edits). `SimulationManager` prefers per-motor over the global default.
    Shared logic in `widgets/solverConfigController.py` (used by both screens —
    DRY). Gated by `test_motor_round_trips_solver_configs`.
-4. **TODO (next):** continue porting QS features into srm_1d mode
-   (capability-gated axial-viz / igniter / transport panels).
+4. **Basic-box verification (2026-06-03).** Drove openMotor's export +
+   editor surfaces against a real srm_1d-transient result offscreen:
+   **Eng export ✅** (valid `.eng`), **CSV export ✅** (13 cols, all rows on a
+   clean result), **Image export ✅** (same `GraphWidget.saveImage` path as the
+   GUI-verified on-screen graph), **per-tab transport editing ✅** (transport
+   fields are `Property` objects on `PropellantTab`, rendered by oM's existing
+   tabular propellant editor). **Bug found (pre-existing, openMotor-side,
+   affects QS too):** `EngExporter.doConversion` mutates the shared result
+   in place — `getData()` returns the live channel list and Eng `.append()`s a
+   0-thrust point to `time`/`force`, so *Eng-then-CSV on the same result* →
+   ragged channels → `getCSV` IndexError. One-line fix (copy the lists before
+   appending). PENDING.
+5. **Igniter editor — the one real build gap.** The igniter block exists in
+   data + migration + a reusable-library file section (`IGNITERS = 5`), but
+   has NO UI; users are stuck with default BPNV unless they hand-edit the
+   `.ric`. Build to mirror oM's propellant-library + editor pattern.
+6. **Per-station axial viz — SCOPED, design-note-first.** Replace/augment the
+   per-grain plot selector with an arbitrary-station selector reading srm_1d's
+   native per-cell axial fields, redrawing dynamically. QS keeps its existing
+   grain-channel driver untouched; srm_1d gets a capability-gated station panel
+   over a carried per-cell field. Defaults = 3 stations/grain (fore/mid/aft;
+   fore on, mid/aft off); add/remove/toggle; gap/next-grain boundary
+   reassignment; parametric-grain auto-placement deferred. Full design +
+   data contract + phases in [`STATION_VIZ_DESIGN.md`](STATION_VIZ_DESIGN.md).
+   Phases 1–2 (data payload + station model) are headless/testable in the
+   canonical repo and good first lands.
 
 **Tag gate:** cut **v0.8.0** only from a base containing **v0.7.5** (the
 cross-motor re-LHS) — see Cross-line sync below. The re-LHS is STAGED but
@@ -327,10 +351,46 @@ v0.7.5.
   standards-defined end-of-burn rather than at the numerical P_cutoff). Also
   consider reporting the chosen burn-time window in the motor-stats panel.
 
+## openMotor fork integration — future work (Phases 1 & 2)
+
+The srm_1d ↔ openMotor integration follows a **one-core-two-frontends**
+model: the canonical srm_1d repo is the single source of truth; the
+openMotor fork *vendors* the core; upstream gets only the generic,
+dependency-free pieces. Full strategy + remote topology are in the
+`project_openmotor_fork_integration_strategy` memory.
+
+**Done (2026-06-03):** fork created (`eJar0k/openMotor`; `origin`=fork,
+`upstream`=reilleya); srm_1d restructured into a clean installable **flat
+package** (`pyproject.toml`; package = `srm_1d/` with `tools/` + `pyrogens/`;
+`tests/ examples/ docs/ motors/ static_fire_data/` at repo root; run from
+repo root via `python -m pytest tests/` / `python -m examples.<name>`; 340
+pytest green; GUI + transient run user-verified). Both repos pushed.
+
+**Ordering decision (2026-06-03):** finish the basic GUI feature set →
+**srm_1d code cleanup in the canonical repo** → *then* vendor. Vendoring
+does NOT change the plugin-facing API, so deferring it creates no rework;
+doing the cleanup first means we vendor a finished, clean core exactly once
+(no subtree re-sync). If a GUI feature needs a new srm_1d capability, add it
+to the canonical repo + the plugin adapter — never hack it into the fork.
+
+- **Phase 1 — subtree-vendor the core into the fork.** `git subtree split
+  --prefix=srm_1d` on the canonical repo → add as a subtree in the oM fork
+  (location TBD, e.g. `openMotor/openMotor/srm_1d/`); rewire
+  `discover_external_solvers` from the sibling-path hack to the in-tree
+  copy; declare srm_1d's heavy deps (numba, scikit-fmm) in the fork's
+  requirements; verify the GUI runs self-contained. One-way sync
+  (canonical → fork).
+- **Phase 2 — upstream PR series to reilleya.** Carve the generic,
+  dependency-free pieces off the clean commits (DROP the local `.gitignore`
+  rewrite): the **solver-plugin registry** (`motorlib/solvers.py`) is the
+  best first PR, then the **GUI solver-picker hooks**. The vendoring itself
+  is NOT an upstream PR (upstream won't take numba/scikit-fmm as hard deps).
+
 ## Gates / discipline (carried)
 
 - Delete `srm_1d/__pycache__/` (+ `.nbi/.nbc`) after any `@njit` edit.
 - Hard API breaks OK — log each in DEVNOTES "API Breaking Changes Log."
 - Defer to openMotor data-structure conventions; units convert at the boundary.
 - Never hand-edit `.ric`; format changes go through the migration system.
-- `pytest srm_1d/tests/` green before each phase close.
+- `pytest tests/` green before each phase close (run from repo root,
+  flat-package layout).
