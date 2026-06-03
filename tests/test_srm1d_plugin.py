@@ -65,6 +65,29 @@ def test_srm1d_solver_runs_via_registry(om):
     assert sr.success
     t = sr.channels['time'].getData()
     assert len(t) > 0
+
+
+def test_fmm_grain_geometry_setup_no_crash(om):
+    """Regression for the 54-2800 ST2.0 GUI crash: FMM-class grains
+    (Finocyl/Star/Custom/...) need ``simulationSetup`` so openMotor's post-run
+    consumers — motor-stats ``getPortRatio`` and the burnback cross-section —
+    don't hit ``faceArea = None`` in ``getFaceArea`` (``TypeError: object of
+    type 'NoneType' has no len()``). The plugin calls ``grain.simulationSetup``
+    on the motor's own grains. This motor's aft grain is a Finocyl, so
+    ``getPortRatio`` (which uses ``grains[-1]``) exercises the FMM path."""
+    solvers, om_motor = om
+    from srm_1d.openmotor_adapter import load_ric
+    motor = om_motor.Motor(
+        load_ric(os.path.join(MOTORS, '2025.12.25 54-2800 ST2.0.ric')))
+    assert type(motor.grains[-1]).__name__ == 'Finocyl'  # guards the regression
+    sr = solvers.get_solver('srm_1d-transient').simulate(
+        motor, config={'t_max': 0.03, 'P_cutoff': 1.0})
+    assert sr.success
+    # The exact call updateMotorStats made (crashed pre-fix):
+    assert sr.getPortRatio() is not None
+    # And the FMM regression map / faceArea are populated on the motor's grain:
+    sr.motor.grains[-1].getPortArea(0)  # must not raise
+    assert sr.motor.grains[-1].faceArea is not None
     assert sr.getMaxPressure() > 1e5          # produced real pressure
     assert sr.channels['force'].getMax() >= 0.0
     # dThroat channel starts at zero (relative to initial throat).

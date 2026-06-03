@@ -130,6 +130,19 @@ def simulate_motor(motor, igniter_pyrogen=None, callback=None, **sim_overrides):
         result = _run_with_progress(run_simulation, geo, prop, args, callback)
 
     perf = compute_motor_performance(result, nozzle, prop)
+
+    # openMotor's post-run consumers — motor-stats ``getPortRatio`` and the
+    # grain burnback cross-section in ``resultsWidget`` — call grain-geometry
+    # methods (``getPortArea`` → ``getFaceArea``) that need each grain's FMM
+    # regression map / ``faceArea``, which are populated ONLY by
+    # ``simulationSetup``. srm_1d runs its own FMM bridge and never calls it,
+    # so the motor's own grain objects keep ``faceArea = None`` and crash
+    # ``getFaceArea`` for FMM-class grains (Finocyl/Star/Custom/...). Mirror
+    # openMotor's solver setup loop. (Base ``Grain.simulationSetup`` is a
+    # no-op, so this is safe for every grain type.)
+    for grain in motor.grains:
+        grain.simulationSetup(motor.config)
+
     return _result_to_om_simresult(motor, result, perf, geo, prop)
 
 
