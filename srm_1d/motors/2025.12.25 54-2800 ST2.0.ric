@@ -1,0 +1,90 @@
+data:
+  config:
+    ambPressure: 101324.99674500001
+    burnoutThrustThres: 0.1
+    burnoutWebThres: 2.540005e-05
+    flowSeparationWarnPercent: 0.05
+    mapDim: 750
+    maxMachNumber: 0.7
+    maxMassFlux: 1406.4697609001405
+    maxPressure: 10342500.000000002
+    minPortThroat: 2.0
+    sepPressureRatio: 0.4
+    timestep: 0.015
+  grains:
+  - properties:
+      coreDiameter: 0.012700025400050802
+      diameter: 0.047625095250190506
+      inhibitedEnds: Bottom
+      length: 0.37625095250190504
+    type: BATES
+  - properties:
+      coreDiameter: 0.015875031750063502
+      diameter: 0.047625095250190506
+      finLength: 0.010160020320040642
+      finWidth: 0.005080010160020321
+      inhibitedEnds: Top
+      invertedFins: false
+      length: 0.13970027940055882
+      numFins: 4
+    type: Finocyl
+  igniter:
+    basket_fill_fraction: 0.5
+    burn_area: -1.0
+    burn_law: 0d
+    cartridge_length_m: -1.0
+    injection_topology: forward_plenum
+    mass: -1.0
+    pellet_packing_fraction: 0.6
+    pyrogen:
+      Cp_gas: null
+      M: 0.03
+      T_flame: 2800.0
+      a: 2.0e-05
+      form: pellets
+      gamma: 1.25
+      heat_delivery_mode: demar
+      heat_flux_cal_cm2_s: 69.4
+      impetus_W: 5000.0
+      kappa_jet: 8.0
+      n: 0.5
+      name: BPNV
+      particle_LD_ratio: 1.0
+      particle_diameter_m: 0.0032
+      pellet_emissivity: 0.7
+      radiation_absorption_length_m: 1.0
+      rho: 1700.0
+    throat_area: -1.0
+    volume: -1.0
+  nozzle:
+    convAngle: 55.0
+    divAngle: 15.0
+    efficiency: 0.9
+    erosionCoeff: 0.0
+    exit: 0.02603505207010414
+    slagCoeff: 0.0
+    throat: 0.010718821437642877
+    throatLength: 0.022860045720091444
+  propellant:
+    density: 1832.0965031984122
+    name: Stormtrooper 2.1
+    tabs:
+    - a: 6.919245093121588e-06
+      cpEffective: 1621.0
+      cpFrozen: 1621.0
+      k: 1.239961
+      kThermalEffective: 0.2898
+      kThermalFrozen: 0.2898
+      m: 24.50103
+      maxPressure: 11032000.000000002
+      minPressure: 0.0
+      mu: 7.285e-05
+      n: 0.427909
+      t: 2202.0
+    transportVariant: frozen
+type: !!python/object/apply:uilib.fileIO.fileTypes
+- 3
+version: !!python/tuple
+- 0
+- 7
+- 0

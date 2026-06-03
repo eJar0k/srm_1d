@@ -1,0 +1,8 @@
+# Combustion gas transport for Warp 9 Approx propellant.
+# RPA-derived FROZEN values. Loaded automatically by openmotor_adapter
+# when reading 76_8000FatBoy_Monolithic_ForwardFinocyl_Aft_Conical.ric. This motor is UNFIRED (no experimental
+# data) so was excluded from the v0.7.1.1 cross-motor effective-
+# transport swap. Per project_fired_motor_set memory.
+mu: 7.401e-5
+k: 0.2383
+Cp: 1867.0

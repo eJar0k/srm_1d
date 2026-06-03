@@ -1,0 +1,100 @@
+data:
+  config:
+    ambPressure: 101356.50000000001
+    burnoutThrustThres: 0.1
+    burnoutWebThres: 2.5400050800101604e-05
+    flowSeparationWarnPercent: 0.05
+    mapDim: 750
+    maxMachNumber: 0.7
+    maxMassFlux: 1406.4697609001405
+    maxPressure: 10342500.000000002
+    minPortThroat: 2.0
+    sepPressureRatio: 0.4
+    timestep: 0.0025
+  grains:
+  - properties:
+      coreDiameter: 0.011112522225044452
+      diameter: 0.03385826771653544
+      inhibitedEnds: Both
+      length: 0.17780035560071122
+    type: BATES
+  - properties:
+      coreDiameter: 0.011112522225044452
+      diameter: 0.03385826771653544
+      finLength: 0.004730759461518924
+      finWidth: 0.0031750063500127004
+      inhibitedEnds: Both
+      invertedFins: false
+      length: 0.012700025400050802
+      numFins: 3
+    type: Finocyl
+  - properties:
+      coreDiameter: 0.011112522225044452
+      diameter: 0.03385826771653544
+      finLength: 0.008128016256032513
+      finWidth: 0.0031750063500127004
+      inhibitedEnds: Both
+      invertedFins: false
+      length: 0.08890017780035561
+      numFins: 3
+    type: Finocyl
+  igniter:
+    basket_fill_fraction: 0.5
+    burn_area: -1.0
+    burn_law: 0d
+    cartridge_length_m: -1.0
+    injection_topology: forward_plenum
+    mass: -1.0
+    pellet_packing_fraction: 0.6
+    pyrogen:
+      Cp_gas: null
+      M: 0.03
+      T_flame: 2800.0
+      a: 2.0e-05
+      form: pellets
+      gamma: 1.25
+      heat_delivery_mode: demar
+      heat_flux_cal_cm2_s: 69.4
+      impetus_W: 5000.0
+      kappa_jet: 8.0
+      n: 0.5
+      name: BPNV
+      particle_LD_ratio: 1.0
+      particle_diameter_m: 0.0032
+      pellet_emissivity: 0.7
+      radiation_absorption_length_m: 1.0
+      rho: 1700.0
+    throat_area: -1.0
+    volume: -1.0
+  nozzle:
+    convAngle: 60.0
+    divAngle: 15.0
+    efficiency: 0.95
+    erosionCoeff: 1.8419792659593266e-10
+    exit: 0.019050038100076203
+    slagCoeff: 0.0
+    throat: 0.011906273812547627
+    throatLength: 0.0031750063500127004
+  propellant:
+    density: 1743.8336105936507
+    name: Alex - Hairless Balless
+    tabs:
+    - a: 0.00027796386499737217
+      cpEffective: 1838.0
+      cpFrozen: 1838.0
+      k: 1.213
+      kThermalEffective: 0.2713
+      kThermalFrozen: 0.2713
+      m: 27.027
+      maxPressure: 13790000.000000002
+      minPressure: 0.0
+      mu: 8.382e-05
+      n: 0.28
+      t: 2733.6
+    transportVariant: frozen
+type: !!python/object/apply:uilib.fileIO.fileTypes
+- 3
+version: !!python/tuple
+- 0
+- 7
+- 0

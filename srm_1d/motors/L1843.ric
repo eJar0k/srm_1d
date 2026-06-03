@@ -1,0 +1,87 @@
+data:
+  config:
+    ambPressure: 75845.00000000001
+    burnoutThrustThres: 0.1
+    burnoutWebThres: 2.5400050800101604e-05
+    flowSeparationWarnPercent: 0.05
+    mapDim: 750
+    maxMachNumber: 0.7
+    maxMassFlux: 1406.4697609001405
+    maxPressure: 10342500.000000002
+    minPortThroat: 2.0
+    sepPressureRatio: 0.4
+    timestep: 0.001
+  grains:
+  - properties:
+      coreDiameter: 0.012700025400050802
+      diameter: 0.04765049530099061
+      inhibitedEnds: Bottom
+      length: 0.30480060960121924
+    type: BATES
+  - properties:
+      aftCoreDiameter: 0.020320040640081284
+      diameter: 0.04765049530099061
+      forwardCoreDiameter: 0.012700025400050802
+      inhibitedEnds: Top
+      length: 0.35560071120142245
+    type: Conical
+  igniter:
+    basket_fill_fraction: 0.5
+    burn_area: -1.0
+    burn_law: 0d
+    cartridge_length_m: -1.0
+    injection_topology: forward_plenum
+    mass: -1.0
+    pellet_packing_fraction: 0.6
+    pyrogen:
+      Cp_gas: null
+      M: 0.03
+      T_flame: 2800.0
+      a: 2.0e-05
+      form: pellets
+      gamma: 1.25
+      heat_delivery_mode: demar
+      heat_flux_cal_cm2_s: 69.4
+      impetus_W: 5000.0
+      kappa_jet: 8.0
+      n: 0.5
+      name: BPNV
+      particle_LD_ratio: 1.0
+      particle_diameter_m: 0.0032
+      pellet_emissivity: 0.7
+      radiation_absorption_length_m: 1.0
+      rho: 1700.0
+    throat_area: -1.0
+    volume: -1.0
+  nozzle:
+    convAngle: 60.0
+    divAngle: 15.0
+    efficiency: 0.98
+    erosionCoeff: 1.473583412767461e-10
+    exit: 0.031750063500127004
+    slagCoeff: 0.0
+    throat: 0.014986029972059946
+    throatLength: 0.005080010160020321
+  propellant:
+    density: 1699.5457728642882
+    name: 84 Unsuppressed - CHARACTERIZED
+    tabs:
+    - a: 1.5694834407944363e-05
+      cpEffective: 2826.0
+      cpFrozen: 2050.0
+      k: 1.19
+      kThermalEffective: 0.6584
+      kThermalFrozen: 0.3654
+      m: 24.98
+      maxPressure: 13790000.000000002
+      minPressure: 0.0
+      mu: 9.125e-05
+      n: 0.4
+      t: 3105.0
+    transportVariant: frozen
+type: !!python/object/apply:uilib.fileIO.fileTypes
+- 3
+version: !!python/tuple
+- 0
+- 7
+- 0
