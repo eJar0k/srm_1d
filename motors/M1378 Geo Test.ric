@@ -1,0 +1,104 @@
+data:
+  config:
+    ambPressure: 101356.50000000001
+    burnoutThrustThres: 0.1
+    burnoutWebThres: 2.5400050800101604e-05
+    flowSeparationWarnPercent: 0.05
+    mapDim: 750
+    maxMachNumber: 0.7
+    maxMassFlux: 1406.4697609001405
+    maxPressure: 10342500.000000002
+    minPortThroat: 2.0
+    sepPressureRatio: 0.4
+    timestep: 0.01
+  grains:
+  - properties:
+      coreDiameter: 0.012700025400050802
+      diameter: 0.04457708915417831
+      inhibitedEnds: Neither
+      length: 0.2667005334010668
+    type: BATES
+  - properties:
+      coreDiameter: 0.012700025400050802
+      diameter: 0.04457708915417831
+      inhibitedEnds: Neither
+      length: 0.2667005334010668
+    type: BATES
+  - properties:
+      coreDiameter: 0.012700025400050802
+      diameter: 0.04457708915417831
+      inhibitedEnds: Neither
+      length: 0.2900685801371603
+    type: BATES
+  - properties:
+      coreDiameter: 0.015875031750063502
+      diameter: 0.04457708915417831
+      inhibitedEnds: Bottom
+      length: 0.1333502667005334
+    type: BATES
+  - properties:
+      coreDiameter: 0.019050038100076203
+      diameter: 0.04457708915417831
+      inhibitedEnds: Top
+      length: 0.1333502667005334
+    type: BATES
+  igniter:
+    basket_fill_fraction: 0.5
+    burn_area: -1.0
+    burn_law: 0d
+    cartridge_length_m: -1.0
+    injection_topology: forward_plenum
+    mass: -1.0
+    pellet_packing_fraction: 0.6
+    pyrogen:
+      M: 0.03
+      T_flame: 2800.0
+      a: 2.0e-05
+      form: pellets
+      gamma: 1.25
+      heat_delivery_mode: demar
+      heat_flux_cal_cm2_s: 69.4
+      impetus_W: 5000.0
+      kappa_jet: 8.0
+      n: 0.5
+      name: BPNV
+      particle_LD_ratio: 1.0
+      particle_diameter_m: 0.0032
+      pellet_emissivity: 0.7
+      radiation_absorption_length_m: 1.0
+      rho: 1700.0
+    throat_area: -1.0
+    volume: -1.0
+  nozzle:
+    convAngle: 60.0
+    divAngle: 13.5
+    efficiency: 0.95
+    erosionCoeff: 0.0
+    exit: 0.03987807975615952
+    slagCoeff: 0.0
+    throat: 0.017145034290068584
+    throatLength: 0.0031750063500127004
+  propellant:
+    density: 1699.5457728642882
+    name: 84 Unsuppressed - CHARACTERIZED (1)
+    tabs:
+    - a: 1.5694834407944363e-05
+      cpEffective: 2826.0
+      cpFrozen: 2050.0
+      k: 1.19
+      kThermalEffective: 0.6584
+      kThermalFrozen: 0.3654
+      m: 24.98
+      maxPressure: 13790000.000000002
+      minPressure: 0.0
+      mu: 9.125e-05
+      n: 0.4
+      t: 3105.0
+    transportVariant: frozen
+  solverConfigs: {}
+type: !!python/object/apply:uilib.fileIO.fileTypes
+- 3
+version: !!python/tuple
+- 0
+- 7
+- 0
