@@ -366,8 +366,28 @@ def _result_to_om_simresult(motor, result, perf, geo=None, prop=None):
                 sr.channels[name].addData(tuple(float(v) for v in arr[i]))
 
     summary = result['summary'] if 'summary' in result else {}
-    # Codes 4 (numerical collapse) and 5 (user cancel) are not successful runs.
-    sr.success = summary.get('termination_code', 0) not in (4, 5)
+    # Run-health watchdog: surface failed runs instead of silently plotting
+    # nothing. A run is UNHEALTHY when it (a) numerically collapsed (code 4),
+    # (b) was canceled (code 5), or (c) reached t_max (code 0) having never
+    # pressurized — i.e. it never ignited (peak pressure near ambient). Note
+    # ``t_burn`` is just the run duration, so it can't detect non-ignition;
+    # peak pressure is the right signal. The ~0.3 MPa floor (≈3× ambient) is
+    # far below any real solid-motor chamber pressure.
+    term_code = summary.get('termination_code', 0)
+    p_peak_mpa = float(summary.get('P_peak', 0.0) or 0.0) / 1.0e6
+    canceled = term_code == 5
+    collapsed = term_code == 4
+    no_ignition = (term_code == 0) and (p_peak_mpa < 0.3)
+    sr.success = not (canceled or collapsed or no_ignition)
+    if not sr.success and not canceled:
+        from motorlib.simResult import SimAlert, SimAlertLevel, SimAlertType
+        why = ("the motor never ignited" if no_ignition
+               else "the solution collapsed")
+        sr.addAlert(SimAlert(
+            SimAlertLevel.ERROR, SimAlertType.VALUE,
+            "srm_1d: no usable trace -- {} (P_peak {:.2f} MPa). Check the "
+            "igniter / propellant / geometry.".format(why, p_peak_mpa),
+            'srm_1d'))
     return sr
 
 
@@ -381,6 +401,7 @@ def register():
             'transient': True,
             'axial_fields': True,
             'needs_transport': True,
+            'igniter': True,  # uses the pyrogen igniter (drives the GUI Igniter row)
         }
 
         def simulate(self, motor, config=None, callback=None):

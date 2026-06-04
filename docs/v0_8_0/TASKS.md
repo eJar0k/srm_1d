@@ -302,10 +302,31 @@ Porting QS-only GUI surfaces to be solver-aware. First slice landed
    0-thrust point to `time`/`force`, so *Eng-then-CSV on the same result* →
    ragged channels → `getCSV` IndexError. One-line fix (copy the lists before
    appending). PENDING.
-5. **Igniter editor — the one real build gap.** The igniter block exists in
-   data + migration + a reusable-library file section (`IGNITERS = 5`), but
-   has NO UI; users are stuck with default BPNV unless they hand-edit the
-   `.ric`. Build to mirror oM's propellant-library + editor pattern.
+5. **Igniter + pyrogen library — DONE + user-verified (2026-06-03; committed
+   openMotor fork `fe5c271`, srm_1d this commit).** Final design after
+   iteration (full record: `IGNITER_LIBRARY_DESIGN.md`):
+   - **Pyrogen library** (Edit → Pyrogen Library): `PyrogenManager` +
+     code-built `PyrogenMenu` mirror the propellant subsystem; reusable
+     materials persisted via the `IGNITERS` file section (`DEFAULT_PYROGENS`
+     seed; duplicate-name guard). `form` is informational (since v0.7.4) so it
+     was dropped from the editor; particle dims tooltipped with pellet defaults.
+   - **Igniter consolidated into the per-motor Config screen** (a separate
+     grain-table "Igniter" row was built, then removed per user request): for
+     igniter-capable solvers (`capabilities['igniter']`),
+     `MotorEditor.loadMotorConfig` adds a **Pyrogen picker** (copies a library
+     material into `motor.igniterPyrogen`) + an **Igniter-chamber** section via
+     `SolverConfigController` (igniterCopy group). Topology drives conditional
+     fields; the `-1` auto-size sentinel shows as **"auto"** (clear / ≤0
+     resets). `motorConfigApplied(general, solverConfigs, pyrogenName,
+     igniterProps)` → `mainWindow.applyMotorConfig`. Solver dropdown is exposed
+     only inside the open Config screen (`close()` drops state so it can't
+     linger) + Simulate→Solver. Editor pane wrapped in a `QScrollArea`.
+   - **Run-health watchdog** (`srm1d_plugin`): collapsed / non-igniting runs
+     (term code 4, or code 0 with `P_peak < 0.3 MPa`) → `success=False` + an
+     ERROR alert the GUI surfaces (no more silent no-plot, e.g. machbusterFAIL).
+     `SimulationAlertsDialog` made resizable / word-wrapped / content-fit.
+   - Also: `burn_law` → enum; `EngExporter` copies channel lists before
+     appending (was mutating the shared result → Eng-then-CSV crash).
 6. **Per-station axial viz — SCOPED, design-note-first.** Replace/augment the
    per-grain plot selector with an arbitrary-station selector reading srm_1d's
    native per-cell axial fields, redrawing dynamically. QS keeps its existing
@@ -318,11 +339,30 @@ Porting QS-only GUI surfaces to be solver-aware. First slice landed
    canonical repo and good first lands.
 
 **Tag gate:** cut **v0.8.0** only from a base containing **v0.7.5** (the
-cross-motor re-LHS) — see Cross-line sync below. The re-LHS is STAGED but
-HELD (user pausing CPU): worktree `../srm_1d-v075-lhs` on `v0.7.0-phase4`,
-`examples/cross_motor_lhs_v075.py`, N=1000, frozen + F+Z + κ_zn=1, run_lhs
-now checkpoints CSV per-sample. Launch on user go-ahead:
-`cd ../srm_1d-v075-lhs && python -u -m srm_1d.examples.cross_motor_lhs_v075`.
+cross-motor re-LHS) — see Cross-line sync below. **v0.7.5 re-LHS RAN +
+COMPLETE (2026-06-03):** N=3000/motor, 16 workers, ~13.8h (worktree
+`../srm_1d-v075-lhs` on `v0.7.0-phase4`). **Rank-1 cross-motor knobs
+(combined 1.633, all physical): roughness 32.2 µm, kappa 0.439,
+T_ignition 756 K, k_solid 0.271 W/(m·K)** — top-5 tightly clustered, no
+unphysical pegging; per-motor fit hasegawa 0.37 / zerox 1.48 / chunc 6.56
+(chunc worst, the documented high-L/D QS-erosive limitation). LHS
+script + per-sample checkpoint + a result doc committed on `v0.7.0-phase4`.
+
+## NEXT SESSION (viz) — handoff
+
+The igniter/pyrogen GUI feature is DONE + committed (task 5). The clean next
+thread is **visualization**, in two queued pieces:
+1. **FMM regression-value fix** (prereq for a correct FMM cross-section AND the
+   station-viz data contract). The `regression` channel carries **`-web`** for
+   FMM grains — `(avg_D - D_bore_init)/2` is a BATES-only formula and Finocyl
+   has `cell_D_bore_init = D_outer`. Fix: carry the per-cell `regress` distance
+   in snapshots (`simulation.py` njit field) → per-grain `regression` =
+   **fore-cell** regress, `web` = **min** over cells. Sole consumer is the
+   burnback cross-section (→ long-term station-driven). Detail:
+   `STATION_VIZ_DESIGN.md` §8a + the `project_v075_run_and_fmm_session` memory.
+2. **Per-station axial viz** (task 6 / `STATION_VIZ_DESIGN.md`) — Phases 1–2
+   (carry the per-cell field + station model) are headless/testable in the
+   canonical repo; the per-cell `regress` from (1) is part of that payload.
 
 ## Cross-line sync (important)
 
