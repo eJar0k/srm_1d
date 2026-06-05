@@ -106,7 +106,23 @@ Shared chrome (axes, export, units) is reused where practical; the selector
 column is what swaps. Export (CSV/Image) for srm_1d stations is a follow-up
 (the per-station series can feed the existing exporters or a dedicated path).
 
-## 8a. Regression channel & the grain cross-section (decided 2026-06-03)
+## 8a. Regression channel & the grain cross-section (decided 2026-06-03; IMPLEMENTED 2026-06-04)
+
+> **Status (2026-06-04): the per-cell `regress` snapshot + the interim
+> per-grain regression/web rule below are IMPLEMENTED** in `simulation.py`
+> (`_SNAP_REGRESS`; `snap['regress']`; per-grain `regression` = fore-cell
+> regress, `web` = min over cells of `wall_web - regress`). Verified
+> positive/monotonic/bounded for a Finocyl FMM grain (negative before the
+> fix); value assertions in `tests/test_fmm.py`.
+>
+> **The station-driven cross-section is now IMPLEMENTED (2026-06-04):**
+> `resultsWidget` renders **one grain-tab COLUMN per active station** (the
+> graph-view station selection), each slicing the carried per-cell `regress`
+> at its cell (grain wall web = its t=0 `web` channel value → burnout gate).
+> The earlier interim per-grain dropdown was AXED per the user's direction.
+> Default active = fore (matches the per-grain `regression` channel).
+> Remaining: add/remove arbitrary (non fore/mid/aft) cells in the selector.
+
 
 Tracing consumers: the openMotor `regression` channel has **exactly one
 consumer** — `resultsWidget.updateGrainTab`, which draws the **grain burnback
@@ -158,15 +174,69 @@ lossy.
 
 ## 10. Implementation phases (proposed)
 
-1. **Data payload** — plugin attaches `sr.srm1d_axial` (carried field +
-   geometry + cell map), decimated; unit-tested for shape/consistency.
-2. **Station model + default population** — pure-logic station list
-   (fore/mid/aft per grain, boundary reassignment), unit-tested headless.
-3. **Station panel widget** — selector (grouped by grain, checkboxes, slider/
-   entry, add/remove) replacing the grain selector for srm_1d results.
-4. **Dynamic plot backend** — redraw active stations from the carried field;
-   quantity switcher.
-5. **Coexistence + gating** — driver selection by solver; QS untouched.
+> **Status (2026-06-04): phases 1–2 IMPLEMENTED headless** in
+> `srm_1d/station_viz.py` (Qt-free) + `tests/test_station_viz.py` (23 tests).
+> `run_simulation` now also exports `result['cell_segment_id']` and
+> `result['x_cell']` (the v0.8.x data contract) so the payload + station
+> model build from `result` alone. Phases 3–5 (the GUI panel) are next, on
+> the openMotor-fork side.
+
+1. **Data payload — DONE.** `build_axial_payload(result, fields, max_frames)`
+   → `AxialPayload` (decimated `[n_frames × n_cells]` field matrices +
+   `snap_times` + `x_cell` + `cell_segment_id`). First+last frame always kept.
+   Mass flux `G` deferred (needs a per-cell ρ/R snapshot field — not
+   fabricated). The plugin will attach this as `sr.srm1d_axial` in phase 3.
+2. **Station model + default population — DONE.** `default_stations(...)`
+   (fore/mid/aft per grain; fore-ON, mid/aft-OFF; short-grain dedupe),
+   `make_station(...)` (user add, gap classification), `grain_cell_spans` /
+   `gap_cell_indices`. Boundary reassignment is implicit for auto-placement
+   (cells chosen from each grain's actual span, never a position nominal).
+3. **Station selector — DONE (2026-06-04; corrected).** ONLY the graph view's
+   **Grains** selector becomes a **Stations** selector for srm_1d results
+   (`GrainSelector.setupStations`/`getSelectedStations` — fore/mid/aft
+   checkboxes grouped under per-grain headers, fore-ON). The X/Y channel
+   selectors are left intact (see 4). This selection is the source of truth
+   for the plot AND the grain-tab columns. (The earlier per-grain dropdown was
+   AXED.) **Correction note:** a first cut wrongly REPLACED the Y/X channel
+   selectors with a field-only picker, losing pressure/thrust/Kn/exit pressure/
+   dThroat over time — reverted to the additive design below.
+4. **Plot backend — DONE (2026-06-04; additive, non-destructive).** The X/Y
+   selectors keep ALL openMotor channels (scalars + per-grain), so the standard
+   transient traces still plot vs time; default Y stays kn/pressure/force.
+   `ChannelSelector.appendStationFields` APPENDS the carried per-cell fields
+   (`Axial: Burn Rate/Erosive Burn Rate/Regression/Mach/Pressure/Velocity/Gas
+   Temp/Port Diameter`) after the channels. `GraphWidget.plotData` (single
+   path, backward-compatible signature) plots: scalar channels once vs X;
+   per-grain channels for the grains owning the selected stations; and any
+   selected `Axial:` field sliced at each selected station vs time (one line
+   per field×station). The **grain burnback tab generates one cross-section
+   COLUMN per active station** (`rebuildGrainColumns`), each rendering its
+   cell's per-cell `regress` over the slider. Verified offscreen: default
+   kn/pressure/force = 3 lines restored; +Axial Burn Rate adds a line per
+   station; +per-grain Regression adds a line for the stations' grain; columns
+   track active stations; `saveImage`/image-export signature unchanged.
+
+   **Polish (2026-06-04, post-review):**
+   - **No duplicate quantities.** In station mode the openMotor channels with an
+     axial equivalent (`pressure`, `machNumber`, `regression`) are EXCLUDED
+     (`stationExcludedChannels`); the axial fields take their canonical names
+     (Pressure/Mach Number/Regression — no `Axial:` prefix). Default Y =
+     kn/force + axial **P** (replaces the chamber-pressure channel) so the
+     initial three traces still come up.
+   - **Units.** Axial fields carry a unit category (`Pa`/`m/s`/`m`/`K`/'') and
+     convert to the user's display unit (MPa, mm, …) via `motorlib.units`; the
+     time base converts too. (Was raw SI.)
+   - **Snapshot resolution.** `simulate_motor` sets `snapshot_interval =
+     max(0.005, t_max/2000)` (was 0.2 s) and `_axial_payload_for_gui` carries up
+     to 4000 frames — at 0.2 s (~5 frames) the axial traces + interpolated
+     per-grain channels were jagged and ate the ignition spike; now ~200–2000.
+   - **Legend.** `loc='upper right'`, small font, wrapped into columns (~10 rows
+     max) so it no longer jumps mid-plot or overflows downward.
+5. **Coexistence + gating — DONE (2026-06-04).** Gated on `getattr(sr,
+   'srm1d_axial', None)` via `_stationMode`; Y is rebuilt only on a real mode
+   change (`_yMode`), both switch directions (QS↔srm_1d) exercised. A real
+   native **QS result is unchanged** (kn/pressure/force defaults, grain columns,
+   X visible, no axial fields).
 6. **(Later)** export, axial-profile-at-time mode, parametric auto-placement.
 
 Steps 1–2 are headless + testable in the canonical srm_1d repo (good

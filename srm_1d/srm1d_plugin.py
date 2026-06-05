@@ -124,6 +124,16 @@ def simulate_motor(motor, igniter_pyrogen=None, callback=None, **sim_overrides):
     args['pyrogen_chamber'] = build_pyrogen_chamber(pyro, geo, nozzle, **sizing)
     args.setdefault('verbose', False)
 
+    # v0.8.x station-viz: snapshots are the source of BOTH the per-cell axial
+    # payload and the per-grain channels, so the run_simulation default 0.2 s
+    # interval is far too coarse for the GUI — it heavily interpolates the
+    # per-grain channels and under-samples the axial fields, making the station
+    # traces jagged and eating the ignition transient. Target ~2000 frames over
+    # the run (>= 5 ms) so the axial pressure tracks the full-resolution head
+    # pressure. Short runs naturally get fewer frames.
+    t_max_eff = float(args.get('t_max', 10.0))
+    args.setdefault('snapshot_interval', max(0.005, t_max_eff / 2000.0))
+
     if callback is None:
         result = run_simulation(geo, prop, **args)
     else:
@@ -314,11 +324,55 @@ def _decimate_indices(n, p_head, thrust, max_points):
     return np.array(sorted(keep))
 
 
+def _axial_payload_for_gui(result):
+    """Build the per-station axial payload the GUI station panel consumes,
+    as **plain, GUI-friendly structures** (numpy arrays + dicts; no srm_1d
+    types) attached to the SimulationResult as ``sr.srm1d_axial``.
+
+    This is the v0.8.x station-viz data contract (design phase 3): the
+    capability-gated station panel slices these per-cell field matrices on
+    demand instead of routing through openMotor's fixed per-grain channels.
+    The default fore/mid/aft station model is embedded so the GUI needs no
+    srm_1d import to populate its selector.
+
+    Returns ``None`` when the result lacks the axial contract (e.g. results
+    produced before v0.8.x), so the GUI cleanly falls back to per-grain mode.
+    """
+    if 'cell_segment_id' not in result or not result.get('snapshots'):
+        return None
+    from .station_viz import build_axial_payload, default_stations
+    # Carry the snapshots at (nearly) full resolution — the snapshot interval
+    # (set in simulate_motor) already bounds the frame count (~2000), so a high
+    # cap avoids a second decimation stage that would re-introduce jaggedness.
+    payload = build_axial_payload(result, max_frames=4000)
+    if payload is None:
+        return None
+    stations = default_stations(payload.cell_segment_id, payload.x_cell)
+    return {
+        'snap_times': payload.snap_times,
+        'x_cell': payload.x_cell,
+        'cell_segment_id': payload.cell_segment_id,
+        'fields': payload.fields,
+        'stations': [
+            {
+                'grain': s.grain, 'cell_index': s.cell_index,
+                'position_m': s.position_m, 'active': s.active,
+                'role': s.role, 'label': s.label,
+            }
+            for s in stations
+        ],
+    }
+
+
 def _result_to_om_simresult(motor, result, perf, geo=None, prop=None):
     """Map srm_1d results (SimulationChannels) + performance into an
     openMotor SimulationResult. Populates the scalar per-step channels and —
     when ``geo``/``prop`` are supplied — the per-grain multi-value channels
-    (interpolated from the snapshot time base onto the per-step time grid)."""
+    (interpolated from the snapshot time base onto the per-step time grid).
+
+    Also attaches ``sr.srm1d_axial`` (the per-station axial payload) when the
+    result carries the v0.8.x axial contract, so the GUI's station panel can
+    slice per-cell fields without re-deriving them."""
     _, _, SimulationResult = _om()
     sr = SimulationResult(motor)
 
@@ -388,6 +442,12 @@ def _result_to_om_simresult(motor, result, perf, geo=None, prop=None):
             "srm_1d: no usable trace -- {} (P_peak {:.2f} MPa). Check the "
             "igniter / propellant / geometry.".format(why, p_peak_mpa),
             'srm_1d'))
+
+    # v0.8.x station-viz: attach the per-station axial payload (capability-
+    # gated side attribute; the GUI station panel consumes it, QS ignores it).
+    axial = _axial_payload_for_gui(result)
+    if axial is not None:
+        sr.srm1d_axial = axial
     return sr
 
 

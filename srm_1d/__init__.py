@@ -37,6 +37,23 @@ from .channels import (
     as_channels,
 )
 
+# v0.8.x station-viz — headless backend for the per-station axial panel
+# (payload extraction + default fore/mid/aft station model). Qt-free; the
+# GUI panel on the openMotor-fork side consumes these.
+from .station_viz import (
+    AxialPayload,
+    Station,
+    build_axial_payload,
+    default_stations,
+    make_station,
+    grain_cell_spans,
+    gap_cell_indices,
+    cell_categories,
+    grain_role,
+    classify_cell,
+    station_full_label,
+)
+
 # Igniter
 from .igniter_plenum import PyrogenChamber
 

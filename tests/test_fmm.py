@@ -234,3 +234,21 @@ class TestFmmSimulation:
         # Some plausibility checks.
         assert s['P_peak'] > 1e6, f"P_peak={s['P_peak']/1e6:.2f}MPa too low"
         assert s['t_burn'] > 1.0, f"t_burn={s['t_burn']:.2f}s too short"
+
+        # Per-grain regression/web must be physical for an FMM grain.
+        # The legacy (avg_D - D_bore_init)/2 form produced NEGATIVE
+        # regression for FMM grains (cell_D_bore_init == D_outer); the
+        # per-cell regress snapshot fixes this. regression = fore-cell
+        # regress (>=0, non-decreasing, <= wall_web); web = min remaining
+        # (>=0, non-increasing, starts at wall_web).
+        g = result['grains'][0]
+        reg, web = g['regression'], g['web']
+        wall_web = geo.segments[0].fmm_table.wall_web
+        assert np.all(reg >= -1e-12), f"negative regression: {reg}"
+        assert np.all(np.diff(reg) >= -1e-9), f"regression not monotonic: {reg}"
+        assert np.all(reg <= wall_web + 1e-6), f"regression exceeds web: {reg}"
+        assert np.all(web >= -1e-12), f"negative web remaining: {web}"
+        assert np.all(np.diff(web) <= 1e-9), f"web not monotonic: {web}"
+        assert web[0] == pytest.approx(wall_web, abs=2e-3), (
+            f"initial web {web[0]} != wall_web {wall_web}"
+        )

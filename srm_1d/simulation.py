@@ -76,7 +76,8 @@ _SNAP_THERMAL_SOURCE = 13
 _SNAP_MOMENTUM_SOURCE = 14
 _SNAP_PYROGEN_SURFACE_HEAT_FLUX = 15
 _SNAP_RADIATION_HEAT_FLUX = 16
-N_SNAP_CHANNELS = 17
+_SNAP_REGRESS = 17
+N_SNAP_CHANNELS = 18
 
 CAL_CM2_S_TO_W_M2 = 41840.0
 STEFAN_BOLTZMANN = 5.670374419e-8
@@ -2123,6 +2124,7 @@ def _run_time_loop(
                 snap_data[snap_idx, _SNAP_MOMENTUM_SOURCE, i] = momentum_source[i + 1]
                 snap_data[snap_idx, _SNAP_PYROGEN_SURFACE_HEAT_FLUX, i] = pyrogen_surface_heat_flux[i]
                 snap_data[snap_idx, _SNAP_RADIATION_HEAT_FLUX, i] = radiation_heat_flux[i]
+                snap_data[snap_idx, _SNAP_REGRESS, i] = regress[i]
             snap_idx += 1
             last_snapshot_t = t
 
@@ -2816,6 +2818,7 @@ def run_simulation(
             'momentum_source': snap_data[s, _SNAP_MOMENTUM_SOURCE, :].copy(),
             'pyrogen_surface_heat_flux': snap_data[s, _SNAP_PYROGEN_SURFACE_HEAT_FLUX, :].copy(),
             'radiation_heat_flux': snap_data[s, _SNAP_RADIATION_HEAT_FLUX, :].copy(),
+            'regress': snap_data[s, _SNAP_REGRESS, :].copy(),
         })
 
     peak_idx = np.argmax(P_head_arr) if len(P_head_arr) > 0 else 0
@@ -2936,21 +2939,35 @@ def run_simulation(
     }
 
     # Per-grain summary from snapshots
+    #
+    # v0.8.x: regression/web are derived from the per-cell ``regress``
+    # distance carried in the snapshots (the openMotor-style
+    # ``(avg_D - D_bore_init)/2`` form is BATES-only and produces -web for
+    # FMM grains whose ``cell_D_bore_init == D_outer``). srm_1d regression
+    # is axially varying, so we collapse to physically meaningful scalars:
+    #   * ``regression`` = the FORE (foremost) cell's regress distance — the
+    #     least-regressed cell, last to burn out, so the legacy grain
+    #     cross-section stays non-blank while the head retains web.
+    #   * ``web`` (remaining) = MIN over the grain's cells of
+    #     (wall_web - regress) — burnout is governed by the first cell to
+    #     break through. See STATION_VIZ_DESIGN.md §8a.
     grain_data = []
+    cell_wall_web = ga['cell_wall_web']
     for seg_idx in range(ga['N_seg']):
         seg_cells = ga['cell_segment_id'] == seg_idx
-        # Average initial bore for this segment's cells
-        D_bore_init_avg = np.mean(ga['cell_D_bore_init'][seg_cells]) if np.any(seg_cells) else geo.D_outer
+        seg_idx_arr = np.where(seg_cells)[0]
         regression_hist = []
         web_hist = []
         for snap in snapshots:
-            D_seg = snap['D_port'][seg_cells]
-            if len(D_seg) > 0:
-                avg_D = np.mean(D_seg)
-                reg = (avg_D - D_bore_init_avg) / 2.0
-                web = (geo.D_outer - avg_D) / 2.0
+            if len(seg_idx_arr) > 0:
+                regress_seg = snap['regress'][seg_idx_arr]
+                fore_cell = seg_idx_arr[0]  # foremost (head) cell of the span
+                reg = snap['regress'][fore_cell]
+                web = float(np.min(cell_wall_web[seg_idx_arr] - regress_seg))
+                if web < 0.0:
+                    web = 0.0
             else:
-                reg = (geo.D_outer - D_bore_init_avg) / 2.0
+                reg = 0.0
                 web = 0.0
             regression_hist.append(reg)
             web_hist.append(web)
@@ -3001,6 +3018,12 @@ def run_simulation(
         'max_pressure': max_pressure_arr,
         'max_mach': max_mach_arr,
         'ignition_time_by_cell': ignition_time.copy(),
+        # v0.8.x station-viz data contract: per-cell axial geometry so the
+        # GUI station model + axial-payload builder work from `result`
+        # alone (cell->grain map; gap sentinel -1). x_cell mirrors each
+        # snapshot's constant 'x'.
+        'cell_segment_id': ga['cell_segment_id'].copy(),
+        'x_cell': x_centers.copy(),
         'snapshots': snapshots, 'grains': grain_data,
         'summary': summary,
         'P_ambient': P_ambient,

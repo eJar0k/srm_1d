@@ -352,17 +352,70 @@ script + per-sample checkpoint + a result doc committed on `v0.7.0-phase4`.
 
 The igniter/pyrogen GUI feature is DONE + committed (task 5). The clean next
 thread is **visualization**, in two queued pieces:
-1. **FMM regression-value fix** (prereq for a correct FMM cross-section AND the
-   station-viz data contract). The `regression` channel carries **`-web`** for
-   FMM grains — `(avg_D - D_bore_init)/2` is a BATES-only formula and Finocyl
-   has `cell_D_bore_init = D_outer`. Fix: carry the per-cell `regress` distance
-   in snapshots (`simulation.py` njit field) → per-grain `regression` =
-   **fore-cell** regress, `web` = **min** over cells. Sole consumer is the
-   burnback cross-section (→ long-term station-driven). Detail:
-   `STATION_VIZ_DESIGN.md` §8a + the `project_v075_run_and_fmm_session` memory.
-2. **Per-station axial viz** (task 6 / `STATION_VIZ_DESIGN.md`) — Phases 1–2
-   (carry the per-cell field + station model) are headless/testable in the
-   canonical repo; the per-cell `regress` from (1) is part of that payload.
+1. **FMM regression-value fix — DONE (2026-06-04).** The `regression` channel
+   used to carry **`-web`** for FMM grains — `(avg_D - D_bore_init)/2` is a
+   BATES-only formula and Finocyl has `cell_D_bore_init = D_outer`. Fix
+   landed: a per-cell `regress` snapshot field (`simulation.py` `_SNAP_REGRESS`
+   = 17, `N_SNAP_CHANNELS` 17→18, written in the njit loop, reconstructed in
+   the snapshot dict as `snap['regress']`); per-grain `regression` =
+   **fore-cell** regress, `web` = **min** over cells of `(wall_web - regress)`.
+   Verified positive / monotonic / bounded for a Finocyl (was negative before);
+   value assertions added to `tests/test_fmm.py`. Sole consumer is the burnback
+   cross-section (→ long-term station-driven). The plugin already stacks
+   `grains[k]['regression'|'web']` directly, so no plugin change was needed.
+   Detail: `STATION_VIZ_DESIGN.md` §8a. **341/341 pytest green.**
+2. **Per-station axial viz** (task 6 / `STATION_VIZ_DESIGN.md`):
+   - **Phases 1–2 — DONE (2026-06-04), headless.** `srm_1d/station_viz.py`
+     (Qt-free): `build_axial_payload` → decimated `AxialPayload`
+     (`[n_frames × n_cells]` field matrices, first+last frame kept) and
+     `default_stations` / `make_station` / `grain_cell_spans` /
+     `gap_cell_indices` (fore/mid/aft per grain, fore-ON, short-grain
+     dedupe, gap classification). `run_simulation` now exports
+     `result['cell_segment_id']` + `result['x_cell']` (the data contract);
+     the per-cell `regress` from (1) is one of the carried fields. Exported
+     from `srm_1d/__init__.py`. 23 tests in `tests/test_station_viz.py`
+     (incl. a real multi-grain-result end-to-end contract test). Mass flux
+     `G` deferred (needs a per-cell ρ/R snapshot field — not fabricated).
+     **364/364 pytest green.**
+   - **Phases 3–5 — DONE (2026-06-04).** Plugin: `_axial_payload_for_gui`
+     attaches `sr.srm1d_axial` (arrays + embedded default station model, plain
+     GUI structures); test `test_srm1d_axial_payload_attached`. oM fork (4
+     widgets): `GrainSelector.setupStations`/`getSelectedStations` (the
+     **Grains** selector becomes a **Stations** selector — checkboxes grouped
+     by grain, fore-ON); `ChannelSelector.appendStationFields` (APPENDS the
+     `Axial:` per-cell fields after the normal Y channels — the X/Y channel
+     selectors are otherwise UNCHANGED, so pressure/force/Kn/exit pressure/
+     dThroat + per-grain channels still plot vs time, default kn/pressure/force);
+     `GraphWidget.plotData` (one backward-compatible path: scalar channels vs X,
+     per-grain channels for the stations' grains, `Axial:` fields sliced per
+     station vs time); `resultsWidget` `rebuildGrainColumns` generates **one
+     grain-tab cross-section COLUMN per active station** (the interim per-grain
+     dropdown was AXED), each slicing per-cell `regress` (burnout gate = grain
+     t=0 `web`). Gated on `_stationMode`/`_yMode`; QS↔srm_1d both directions
+     verified. **Correction:** a first cut wrongly replaced the channel
+     selectors (lost the standard transient traces) — reverted to this additive
+     design. Offscreen smokes: default kn/pressure/force restored (3 lines),
+     +Axial field = line/station, +per-grain channel = line for stations' grain,
+     columns track stations, `saveImage` signature intact, real native **QS
+     unchanged**.
+   - **Rich station selector — DONE (2026-06-04).** Replaced the grain
+     checkbox list (srm_1d only) with `uilib/widgets/stationSelector.py`
+     (`StationSelector`): a global cell-index **slider + spinbox + distance +
+     Add** editor and a scrollable list of stations grouped into auto-classified
+     categories **Head / Grain N / Gap N / Aft** (each header with its `(c{lo}-
+     {hi})` span). A station is just `{cell_index, active}`; category + role are
+     DERIVED via new headless `station_viz` helpers (`cell_categories`,
+     `grain_role`, `classify_cell`, `station_full_label` — 8 tests). Rows show a
+     visibility checkbox + `fore (c3/106) · 59 mm` label and reveal edit/delete
+     on hover; double-click/Edit loads the station into the editor and redraws
+     live as the slider drags; Add disabled on duplicate; defaults = fore cell
+     per grain (visible). Only grain-owned stations get a burnback column;
+     head/gap/aft plot only. resultsWidget swaps grainSelector↔stationSelector
+     by mode. Offscreen-verified (add/edit/delete/toggle/reclassify/columns/QS
+     fallback). 373 pytest green.
+   - **Remaining (later):** per-cell mass flux `G` field (needs a ρ or R
+     snapshot field — not fabricated); export of per-station series;
+     axial-profile-at-a-time mode; unit-aware station distance (currently mm).
 
 ## Cross-line sync (important)
 

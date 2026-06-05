@@ -162,6 +162,39 @@ def test_per_grain_channels_populated(om):
     assert 0.0 < sr.getVolumeLoading() <= 100.0
 
 
+def test_srm1d_axial_payload_attached(om):
+    """v0.8.x station-viz: the plugin attaches ``sr.srm1d_axial`` carrying the
+    per-cell field matrices + the default fore/mid/aft station model as plain
+    GUI-consumable structures (the capability the station panel gates on)."""
+    import numpy as np
+    solvers, om_motor = om
+    motor = _canonical_motor(om_motor)
+    solver = solvers.get_solver('srm_1d-transient')
+    sr = solver.simulate(motor, config={'t_max': 0.03, 'P_cutoff': 1.0})
+
+    ax = getattr(sr, 'srm1d_axial', None)
+    assert ax is not None, "station payload not attached"
+    n_frames = ax['snap_times'].shape[0]
+    n_cells = ax['x_cell'].shape[0]
+    assert ax['cell_segment_id'].shape[0] == n_cells
+    # The per-cell regress field (the FMM-fix output) is carried and shaped.
+    assert 'regress' in ax['fields']
+    for name, mat in ax['fields'].items():
+        assert mat.shape == (n_frames, n_cells), f"{name} bad shape"
+
+    # Default stations: at least one per grain, every station points at a real
+    # grain cell, and exactly one fore station per grain is active by default.
+    stations = ax['stations']
+    assert len(stations) > 0
+    n_grains = len(motor.grains)
+    fore_active = [s for s in stations if s['role'] == 'fore' and s['active']]
+    assert len(fore_active) == n_grains
+    for s in stations:
+        ci = s['cell_index']
+        assert 0 <= ci < n_cells
+        assert ax['cell_segment_id'][ci] == s['grain']
+
+
 def test_decimate_indices_preserves_peaks_and_endpoints():
     """The GUI decimation keeps the sample count under the cap while always
     retaining the first, last, peak-pressure and peak-thrust samples."""
