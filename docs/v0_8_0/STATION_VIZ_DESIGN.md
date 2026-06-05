@@ -237,7 +237,40 @@ lossy.
    change (`_yMode`), both switch directions (QS↔srm_1d) exercised. A real
    native **QS result is unchanged** (kn/pressure/force defaults, grain columns,
    X visible, no axial fields).
-6. **(Later)** export, axial-profile-at-time mode, parametric auto-placement.
+6. **Station viz core COMPLETE + COMMITTED (2026-06-05)** — canonical srm_1d
+   `0d24cde` (backend) + oM fork `dc9cdf3` (GUI) + `eb182cf` (column-proportions
+   fix). Phases 1–5 + §8a + the rich selector all shipped. QS untouched.
 
-Steps 1–2 are headless + testable in the canonical srm_1d repo (good
-candidates to land first, before any GUI work); 3–5 are openMotor-fork side.
+## 11. Post-completion roadmap (user-prioritized 2026-06-05)
+
+Viz core is cleared. Next work, in order:
+
+1. **Mass-flux `G` field + other solver-scraping plots.** Carry a per-cell
+   mass flux (`G = ρ·u`) — needs a per-cell ρ or R snapshot field in
+   `simulation.py` (do NOT fabricate from incomplete state); then expose `G`
+   as an axial field, plus any other per-cell quantities worth scraping from
+   the solver state.
+2. **Axial-profile-at-a-time plotting in the grain view.** A time-scrubbed
+   *field-vs-x* view (vector plots or heatmaps) that animates alongside the
+   station/regression cross-section — i.e. scrub time and see the whole axial
+   profile, not just per-station time series. Lives in the grain tab next to
+   the burnback cross-section.
+3. **Parametric tapering geometry for arbitrary FMM grains.** Tapered/finocyl
+   grains lack clean fore/mid/aft anchors — station auto-placement may need
+   web-fraction or geometric anchoring. Larger geometry effort.
+
+Beyond that the field is open, but the standing high-value target is the
+**high-L/D igniter / ignition-transient overshoot** (the QS-erosive limitation
+documented in `docs/v0_7_4/IGNITION_SPIKE_CLOSEOUT.md`): it impairs a key use
+case — validating extremely aggressive motor designs without expensive/
+dangerous static fires. Any non-tuned transient closure here is high-impact.
+
+**Done (2026-06-05):** unit-aware station distances — the selector readout +
+row labels convert to the user's length unit (`StationSelector.setLengthUnit`/
+`_fmtDist` via `motorlib.units`; resultsWidget passes `getUnit('m')`).
+
+**Pocketed (low priority, most users won't need):** per-station CSV/image
+export.
+
+Steps 1–2 (data payload, station model) were headless + testable in the
+canonical srm_1d repo; 3–5 are openMotor-fork side.

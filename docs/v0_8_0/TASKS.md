@@ -413,9 +413,32 @@ thread is **visualization**, in two queued pieces:
      head/gap/aft plot only. resultsWidget swaps grainSelector↔stationSelector
      by mode. Offscreen-verified (add/edit/delete/toggle/reclassify/columns/QS
      fallback). 373 pytest green.
-   - **Remaining (later):** per-cell mass flux `G` field (needs a ρ or R
-     snapshot field — not fabricated); export of per-station series;
-     axial-profile-at-a-time mode; unit-aware station distance (currently mm).
+   - **Station viz core COMPLETE + COMMITTED (2026-06-05):** srm_1d `0d24cde`
+     (backend) + oM fork `dc9cdf3` (GUI) + `eb182cf` (results-column proportions
+     fix — main `horizontalLayout` had no stretch → editor ate ~half the screen;
+     `setStretch(0,0)+(2,1)` gives the plot the slack; v0.6.1 diligence-checked).
+     Nozzle "bars" = upstream casing section (`09155b8`, not a bug).
+   - **Post-completion roadmap (user-prioritized 2026-06-05), in order:**
+     1. **Mass-flux `G` field + solver-scraping plots** — carry per-cell `G=ρ·u`
+        (needs a per-cell ρ/R snapshot field; do NOT fabricate) + other per-cell
+        quantities worth exposing as axial fields.
+     2. **Axial-profile-at-a-time plotting in the grain view** — time-scrubbed
+        field-vs-x view (vector plots / heatmaps) animating alongside the
+        station/regression cross-section.
+     3. **Parametric tapering geometry for arbitrary FMM grains** — tapered/
+        finocyl lack fore/mid/aft anchors; station placement may need
+        web-fraction/geometric anchoring. (Geometry effort.)
+     - Beyond: open, but the standing high-value target is the **high-L/D
+       ignition-transient overshoot** (QS-erosive limitation,
+       `docs/v0_7_4/IGNITION_SPIKE_CLOSEOUT.md`) — impairs validating aggressive
+       designs without static fires.
+     - **Unit-aware station distance — DONE (2026-06-05):** `StationSelector`
+       distances (editor readout + row labels) now convert to the user's length
+       unit via `motorlib.units` (`setLengthUnit`/`_fmtDist`); resultsWidget
+       passes `preferences.getUnit('m')`. Verified mm→`58.8 mm`, in→`2.31 in`.
+     - **Pocketed (low priority):** per-station CSV/image export.
+   - **Deferred to core-solver sessions (user, 2026-06-05):** #4 sub-cell grain
+     eaten by snapping (geometry; affects the sim).
 
 ## Cross-line sync (important)
 
