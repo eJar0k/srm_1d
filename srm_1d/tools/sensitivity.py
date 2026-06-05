@@ -550,53 +550,75 @@ def run_lhs(
             f"workers={workers}, sim_verbose={sim_kwargs.get('verbose', True)}"
         )
 
+    # Incremental CSV checkpointing: a small warmup buffer establishes the
+    # fieldnames (capturing any metrics_fn keys), then every completed row is
+    # written and flushed immediately — so an interruption (crash, reboot)
+    # preserves all completed samples instead of losing the whole motor.
     rows = []
+    _ckpt = {'file': None, 'writer': None, 'warmup': []}
+    _warmup_target = min(n_samples, max(progress_every, 16)) if csv_path else 0
+
+    def _open_csv(sample_recs):
+        metric_keys = sorted({
+            k for rec in sample_recs for k in rec.keys()
+            if k not in set(keys + ['idx', 'fitness', 'error'])
+        })
+        fieldnames = ['idx'] + keys + ['fitness'] + metric_keys + ['error']
+        f = open(csv_path, 'w', newline='')
+        w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore',
+                           restval='')
+        w.writeheader()
+        for rec in sample_recs:
+            rec.setdefault('error', '')
+            w.writerow(rec)
+        f.flush()
+        _ckpt['file'], _ckpt['writer'] = f, w
+
+    def _checkpoint(rec):
+        if csv_path is None:
+            return
+        if _ckpt['writer'] is None:
+            _ckpt['warmup'].append(rec)
+            if len(_ckpt['warmup']) >= _warmup_target:
+                _open_csv(_ckpt['warmup'])
+                _ckpt['warmup'] = []
+        else:
+            rec.setdefault('error', '')
+            _ckpt['writer'].writerow(rec)
+            _ckpt['file'].flush()
+
+    def _consume(idx, params, fitness, metrics, err):
+        nonlocal best, n_errors
+        rec = dict(params)
+        rec['idx'] = idx
+        rec['fitness'] = fitness
+        rec.update(metrics)
+        if err is not None:
+            rec['error'] = err
+            n_errors += 1
+        rows.append(rec)
+        if fitness < best:
+            best = fitness
+        _checkpoint(rec)
+
     if n_workers == 1:
-        iterator = (_run_one(item) for item in work)
-        for done, (idx, params, fitness, metrics, err) in enumerate(iterator, start=1):
-            rec = dict(params)
-            rec['idx'] = idx
-            rec['fitness'] = fitness
-            rec.update(metrics)
-            if err is not None:
-                rec['error'] = err
-                n_errors += 1
-            rows.append(rec)
-            if fitness < best:
-                best = fitness
+        for done, result in enumerate((_run_one(item) for item in work), start=1):
+            _consume(*result)
             if done % progress_every == 0 or done == n_samples:
                 emit_progress(done, final=done == n_samples)
     else:
         with concurrent.futures.ProcessPoolExecutor(max_workers=n_workers) as exe:
             futures = [exe.submit(_run_one, item) for item in work]
             for done, fut in enumerate(concurrent.futures.as_completed(futures), start=1):
-                idx, params, fitness, metrics, err = fut.result()
-                rec = dict(params)
-                rec['idx'] = idx
-                rec['fitness'] = fitness
-                rec.update(metrics)
-                if err is not None:
-                    rec['error'] = err
-                    n_errors += 1
-                rows.append(rec)
-                if fitness < best:
-                    best = fitness
+                _consume(*fut.result())
                 if done % progress_every == 0 or done == n_samples:
                     emit_progress(done, final=done == n_samples)
 
     if csv_path is not None:
-        metric_keys = sorted({
-            k for rec in rows for k in rec.keys()
-            if k not in set(keys + ['idx', 'fitness', 'error'])
-        })
-        fieldnames = ['idx'] + keys + ['fitness'] + metric_keys + ['error']
-        with open(csv_path, 'w', newline='') as f:
-            w = csv.DictWriter(f, fieldnames=fieldnames)
-            w.writeheader()
-            for rec in rows:
-                # Ensure 'error' column exists for every row
-                rec.setdefault('error', '')
-                w.writerow(rec)
+        if _ckpt['writer'] is None:        # fewer rows than the warmup target
+            _open_csv(_ckpt['warmup'])
+        if _ckpt['file'] is not None:
+            _ckpt['file'].close()
         if progress_mode != 'none':
             print(f"sensitivity.run_lhs: wrote {csv_path}")
 
