@@ -2168,8 +2168,10 @@ def run_simulation(
     P_ambient=101325.0,
     ambient_temperature=None,
     # --- Surface / erosive burning ---
-    roughness=50e-6,
-    kappa=0.45,
+    # v0.7.5 cross-motor re-LHS optimum (fired-motor set; docs/v0_7_5/RESULT.md):
+    # roughness 32um, kappa 0.44 (was 50um / 0.45). All physical.
+    roughness=32e-6,
+    kappa=0.44,
     # --- Solver ---
     # v0.7.3.2 (2026-05-27): cfl_target tightened 0.5 → 0.3 and
     # source_cfl_factor tightened 0.10 → 0.05 to absorb Phase B.0
@@ -2184,7 +2186,7 @@ def run_simulation(
     source_cfl_factor=0.05,
     burn_update_interval=None,
     # --- Ignition ---
-    T_ignition=850.0,
+    T_ignition=756.0,  # v0.7.5 cross-motor re-LHS (was 850); docs/v0_7_5/RESULT.md
     tau_establishment=0.0,
     # --- Diagnostics ---
     initial_gas_temperature=None,

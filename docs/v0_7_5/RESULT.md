@@ -66,3 +66,27 @@ checkpointing). Applying them to the canonical defaults / examples
 calibration step — recommend updating to **roughness 32 µm, kappa 0.44,
 T_ignition 756 K, k_solid 0.271** and re-checking each fired motor's trace.
 Per the v0.8.0 tag gate, cut v0.8.0 only from a base containing this v0.7.5.
+
+## Folded in — v0.8.0 base (2026-06-05)
+
+Knobs applied to the canonical defaults (`run_simulation`,
+`run_from_ric`, `Propellant.k_solid`) and to the three fired-motor
+validation examples (`hasegawa_motor_a.py`, `zerox.py`,
+`machbusterNew.py`). Re-ran each on the v0.8.0 flat base — note these
+use each motor's **embedded `.ric` transport** and the **default
+spike-fix state (F+Z OFF)**, NOT the LHS basis (frozen sidecars + F+Z
+on), so they are the as-shipped user-path numbers, not a reproduction
+of the LHS fitnesses above.
+
+| motor | exp peak [MPa] | sim P_peak [MPa] | ratio | note |
+|-------|----------------|------------------|-------|------|
+| Hasegawa A | 6.44 | **6.14** @ 2.38 s | 0.95× | excellent (old effective default over-predicted ~1.31×) |
+| Zerox      | 3.99 | 7.07 @ 0.017 s   | 1.77× | ignition-spike overshoot; replaces the old per-motor kappa=0.329 (sub-physical) fit with the shared physical optimum |
+| Chunc      | 8.88 | 12.65 @ 0.012 s  | 1.42× | known high-L/D QS-erosive limit; down from ~1.9× pre-recal |
+
+The residual Zerox/Chunc over-prediction is the documented ignition-
+transient QS-erosive limitation (`IGNITION_SPIKE_CLOSEOUT.md`), not a
+calibration miss. The recal is a net win: Hasegawa A lands on target and
+the worst-case Chunc spike drops ~25%, all with fully-physical shared
+knobs. 373/373 pytest green (one default-pinning assert in
+`test_adapter.py` updated 850→756).

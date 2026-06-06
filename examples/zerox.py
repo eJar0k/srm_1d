@@ -43,12 +43,15 @@ MOTOR_PATH = Path(__file__).resolve().parents[1] / 'motors' / 'zerox_LHS.ric'
 def main():
     result, perf, nozzle, geo, prop = run_from_ric(
         str(MOTOR_PATH),
-        # v0.6.0 LHS rank-1 fit (MSE 0.071 MPa² vs experimental).
-        roughness=20e-6,
-        kappa=0.3286,
+        # v0.7.5 cross-motor re-LHS optimum (shared fired-motor fit;
+        # docs/v0_7_5/RESULT.md). Supersedes the v0.6.0 per-motor fit
+        # (roughness 20um / kappa 0.3286 -- the latter below the 0.40
+        # physical floor).
+        roughness=32e-6,
+        kappa=0.44,
         pyrogen='bpnv',
         pyrogen_mass=None,
-        T_ignition=850.0,
+        T_ignition=756.0,
         P_cutoff=0.01e6,
         snapshot_interval=0.2,
         print_interval=0.2,

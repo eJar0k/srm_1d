@@ -8,11 +8,12 @@ Loads the Hasegawa Motor A definition from `srm_1d/motors/hasegawa_a.ric`
 1D PISO simulation, and compares the head-end pressure trace against
 digitized experimental data from Ma et al. (2020) Fig. 10.
 
-The roughness / igniter parameters below are the Rank-1 fit from the
-v0.6.0 Latin Hypercube sweep (see srm_1d/tools/sensitivity.py and
-the hasegawa_a_lhs example). They are the canonical calibration
-target — see DEVNOTES "Calibration State" and the
-`project_hasegawa_calibration_state` memory.
+The roughness / ignition parameters below are the v0.7.5 cross-motor
+re-LHS optimum (the single knob set that best fits the fired-motor set —
+Hasegawa A, Zerox, Chunc — at once; see docs/v0_7_5/RESULT.md and
+srm_1d/tools/sensitivity.py). They match the canonical run defaults; see
+DEVNOTES "Calibration State" and the `project_hasegawa_calibration_state`
+memory.
 
 Usage:
     python -m examples.hasegawa_motor_a
@@ -49,11 +50,11 @@ EXPERIMENTAL_TIME_OFFSET = 1.1  # align experimental ignition with sim t=0
 def main():
     result, perf, nozzle, geo, prop = run_from_ric(
         str(MOTOR_PATH),
-        roughness=37.1e-6,
-        kappa=0.45,
+        roughness=32e-6,
+        kappa=0.44,
         pyrogen='bpnv',
         pyrogen_mass=None,
-        T_ignition=850.0,
+        T_ignition=756.0,
         P_cutoff=0.05e6,
         snapshot_interval=0.2,
         print_interval=0.2,

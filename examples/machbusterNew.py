@@ -55,11 +55,14 @@ def main():
 
     result, perf, nozzle, geo, prop = run_from_ric(
         str(MOTOR_PATH),
-        roughness=50e-6,
-        kappa=0.45,
+        # v0.7.5 cross-motor re-LHS optimum (shared fired-motor fit;
+        # docs/v0_7_5/RESULT.md). Chunc stays the worst fit (high-L/D
+        # QS-erosive limitation, IGNITION_SPIKE_CLOSEOUT.md).
+        roughness=32e-6,
+        kappa=0.44,
         pyrogen='bpnv',
         pyrogen_mass=None,
-        T_ignition=850.0,
+        T_ignition=756.0,
         P_cutoff=0.01e6,
         snapshot_interval=0.2,
         print_interval=0.2,

@@ -991,7 +991,7 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
                  pellet_packing_fraction=0.60,
                  particle_diameter_m=None,
                  particle_LD_ratio=None,
-                 T_ignition=850.0, k_solid=None,
+                 T_ignition=756.0, k_solid=None,  # T_ign: v0.7.5 re-LHS (was 850)
                  radiation_emissivity=None,
                  flame_front_enabled=None, flame_front_velocity=None,
                  zn_enabled=None, kappa_zn=None,

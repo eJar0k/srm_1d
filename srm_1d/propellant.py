@@ -263,7 +263,7 @@ class Propellant:
     mu_gas: float
     k_gas: float
     Cp_gas: float
-    k_solid: float = 0.3  # Solid conductivity for Goodman ignition [W/(m*K)]
+    k_solid: float = 0.271  # Solid conductivity for Goodman ignition [W/(m*K)]; v0.7.5 cross-motor re-LHS (was 0.3), AP/HTPB+Al band
     radiation_emissivity: float = 0.0
     # v0.7.2 Phase B (DEFAULT DISABLED, opt-in only): flame-front h_c
     # augmentation. When True, an unignited cell's Bartz h_c is

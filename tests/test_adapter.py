@@ -129,7 +129,7 @@ class TestPyrogenLoading:
         assert chamber.pyrogen.name == 'sibling'
         assert chamber.pyrogen.heat_flux_cal_cm2_s is None
         assert chamber.m_pyrogen_initial > 0.0
-        assert captured['T_ignition'] == pytest.approx(850.0)
+        assert captured['T_ignition'] == pytest.approx(756.0)  # v0.7.5 re-LHS default
 
     def test_run_from_ric_missing_pyrogen_is_informative(self, tmp_path):
         ric_path = tmp_path / 'motor.ric'
