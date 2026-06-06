@@ -4,7 +4,21 @@ A 1D transient finite-volume solid rocket motor internal ballistics
 simulator with the Ma et al. (2020) erosive burning model. Numba-JIT
 compiled time loop hits ~45-90k steps/s.
 
-**v0.7.4 SHIPS (branch `v0.7.0-phase4`, tag `v0.7.4`)**:
+**v0.8.0 SHIPS (branch `main`, tag `v0.8.0`)**: openMotor frontend
+integration (data-model + channels backbone + `motorlib` solver-plugin
+contract; the 1-D PISO transient solver runs in openMotor's GUI alongside
+its quasi-steady solver) + per-station axial viz + igniter-as-data. **Tag
+gate satisfied**: v0.7.5 cross-motor re-LHS folded in and its rank-1
+shared physical optimum applied to the canonical defaults — **roughness
+32µm, kappa 0.44, T_ignition 756K, k_solid 0.271** (was 50µm/0.45/850/0.30;
+`docs/v0_7_5/RESULT.md`). Re-validated: Hasegawa A 6.14 MPa (0.95× exp);
+Zerox/Chunc residual over-prediction remains the documented high-L/D
+ignition-transient QS-erosive limitation. The old nested-layout v0.7.x
+line (`v0.7.0-phase4` + phase1/2/3) is retired. Full v0.8.0 narrative in
+`docs/v0_8_0/` (DESIGN/TASKS/CLOSEOUT + STATION_VIZ_DESIGN). Older
+per-version notes below are historical.
+
+**v0.7.4 (tag `v0.7.4`, historical)**:
 ignition-transient spike work — two opt-in (default-OFF) features plus
 one always-on energy-balance bug fix. **Phase F** flame-spread front
 (`Propellant.flame_front_enabled`, `flame_front_velocity≈3 m/s`):

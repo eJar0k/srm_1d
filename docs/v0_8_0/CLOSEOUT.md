@@ -3,7 +3,8 @@
 > Companion to [`DESIGN.md`](DESIGN.md) (scoped 2026-06-01) and
 > [`TASKS.md`](TASKS.md) (phase plan). Branch `openmotor-frontend`.
 > This doc records what v0.8.0 actually delivered and what remains.
-> **Not yet tagged** — the tag gate (v0.7.5 base) is still open; see below.
+> **Tag gate SATISFIED (2026-06-05)** — v0.7.5 folded in + recal applied;
+> see "Tag gate" below.
 
 ## What shipped
 
@@ -96,11 +97,16 @@ read into physics), so simulation outputs are byte-unchanged.
 - Tapering finocyl grains, RocketCEA transport, rich burnback viz — see
   DESIGN Roadmap / TASKS Deferred.
 
-## Tag gate (still open)
+## Tag gate (SATISFIED 2026-06-05)
 
-**Do not tag v0.8.0 yet.** Cut it only from a base that already contains
-**v0.7.5** (the cross-motor re-LHS), then merge/rebase v0.7.5 into
-`openmotor-frontend` so the frontend inherits the recalibrated model. The
-re-LHS is STAGED but HELD (user pausing CPU): worktree `../srm_1d-v075-lhs`,
-`examples/cross_motor_lhs_v075.py`, N=1000, frozen + F+Z + κ_zn=1. See
-TASKS.md "Cross-line sync."
+**v0.7.5 is folded in.** The cross-motor re-LHS (N=3000/motor, committed
+`00449f6` on the nested v0.7.x base) was ported onto the flat
+`openmotor-frontend` layout — `tools/sensitivity.py` crash-safe
+checkpointing, `examples/cross_motor_lhs_v075.py`, `docs/v0_7_5/RESULT.md`
+— and the **rank-1 shared physical optimum applied to the canonical
+defaults** (`roughness 32µm, kappa 0.44, T_ignition 756K, k_solid 0.271`)
+and the three fired-motor examples. Re-validated: Hasegawa A 6.14 MPa
+(0.95× exp); Zerox/Chunc residual over-prediction is the documented
+ignition-transient QS-erosive limitation. 373/373 pytest green. Full cal
+table in `docs/v0_7_5/RESULT.md`. **v0.8.0 cut from this base + merged to
+`main`.**

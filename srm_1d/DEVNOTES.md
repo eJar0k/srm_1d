@@ -67,6 +67,24 @@ functions, and adapter all use `cell_D_bore_init` (length N).
 
 ## Calibration State
 
+### Canonical knob defaults (v0.7.5 cross-motor re-LHS — v0.8.0)
+The shipped defaults are the rank-1 **shared, fully-physical** optimum from
+the cross-motor re-LHS (N=3000/motor over Hasegawa A, Zerox, Chunc; frozen
+transport + F+Z + κ_zn=1; `docs/v0_7_5/RESULT.md`):
+
+| knob | default | site |
+|------|---------|------|
+| roughness  | **32 µm**  | `run_simulation` |
+| kappa      | **0.44**   | `run_simulation` |
+| T_ignition | **756 K**  | `run_simulation`, `run_from_ric` |
+| k_solid    | **0.271 W/(m·K)** | `Propellant.k_solid` |
+
+As-shipped re-validation (embedded `.ric` transport, F+Z off — the user
+path, NOT the LHS basis): Hasegawa A 6.14 MPa (0.95× exp 6.44); Zerox
+7.07 (1.77×); Chunc 12.65 (1.42×, down from ~1.9× pre-recal). The
+Zerox/Chunc residual is the documented ignition-transient QS-erosive
+limitation (`docs/v0_7_4/IGNITION_SPIKE_CLOSEOUT.md`), not a cal miss.
+
 ### Transport properties
 The model is sensitive to frozen vs effective gas transport:
 - Frozen (RPA): k=0.3685, Cp=2060 → underpredicts erosion, late tail-off
