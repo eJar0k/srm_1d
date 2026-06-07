@@ -274,3 +274,56 @@ export.
 
 Steps 1–2 (data payload, station model) were headless + testable in the
 canonical srm_1d repo; 3–5 are openMotor-fork side.
+
+> **Roadmap #1 (mass-flux G) — DONE 2026-06-06.** Per-cell `rho` snapshot
+> (`_SNAP_RHO`) + derived `G = rho*u` in `build_axial_payload`; oM-fork
+> `resultsWidget.stationFields` plots `G` (Mass Flux) + `rho` (Gas Density).
+
+## 12. Roadmap #2 — longitudinal motor-slice viewer (scoped 2026-06-06)
+
+A side-on 2-D axial cut of the whole motor that animates **burnback and the
+flow field together**. Each cell is a vertical strip: solid propellant is
+drawn from the bore wall out to the casing (so the core widens as the web
+burns), and the open bore is filled with a chosen flow field as a heatmap
+(later + velocity/G vectors). A time slider scrubs all frames.
+
+**User decisions (2026-06-06):**
+- **Radial axis = auto-stretch** (independent X/Y scaling; radius
+  exaggerated to fill the panel; axes labeled real units + "exaggerated"
+  note). A true-1:1 toggle is deferred to polish.
+- **Placement = inside the Grains tab** (alongside the existing per-station
+  radial cross-section columns), not a separate tab.
+- **v1 scope = Phases A–C** (data + animated solid burnback + bore heatmap
+  + colorbar + scrub). Vectors (D) and polish (E) are a second pass.
+
+**Data — already carried** (`sr.srm1d_axial`, per frame×cell): `D_port`
+(hydraulic bore → R_bore), flow fields `P/u/G/T/Mach/rho`, `regress`,
+`cell_segment_id`, `x_cell`, `snap_times`.
+
+**Data — Phase A canonical additions** (genuine geometry, no fabrication;
+all present in the solver's geometry arrays today, just not exported):
+`dx` (uniform cell width → axial extents), `D_outer` (scalar → R_outer /
+casing wall), per-cell `cell_wall_web` (→ %web-remaining shading). Export
+from `run_simulation` → carry through `build_axial_payload` /
+`_axial_payload_for_gui`. Add value-asserting tests.
+
+**Rendering** (oM fork, matplotlib `FigureCanvas`): `fill_between` for the
+mirrored solid (R_bore↔R_outer), `pcolormesh` over a non-uniform quad mesh
+(per-cell y ∈ [−R_bore, +R_bore]) for the bore heatmap + colorbar; later a
+`quiver` of axial u/G at cell centers. Scrub updates artist data for the
+active frame (reuse the grain-tab time slider). Field dropdown selects the
+bore quantity; unit-aware via `motorlib.units`.
+
+**Geometry mapping:** R_bore(i,t) = `D_port`/2; R_outer = `D_outer`/2
+(constant); %web(i,t) = 1 − `regress`/`cell_wall_web`. Non-grain cells
+(gap/head/aft, `cell_segment_id` < 0) draw open chamber (no solid).
+
+**Phases:** A) canonical data + tests · B) static slice (solid burnback +
+bore heatmap + colorbar) · C) time-slider animation · D) u/G vector
+overlay · E) polish (1:1-aspect toggle, gap/head/aft edge cases, perf via
+artist-update/blit, unit-aware colorbar).
+
+**Limitations to surface in-UI:** non-circular grains (finocyl/star)
+render as an *equivalent hydraulic* radius, not literal geometry; the
+deferred sub-cell-grain snapping gap means a grain thinner than one cell
+won't appear; auto-stretched radial axis is not to scale (labeled).
