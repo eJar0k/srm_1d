@@ -179,6 +179,12 @@ def test_srm1d_axial_payload_attached(om):
     assert ax['cell_segment_id'].shape[0] == n_cells
     # The per-cell regress field (the FMM-fix output) is carried and shaped.
     assert 'regress' in ax['fields']
+    # v0.8.x roadmap #1: per-cell density + derived mass flux are part of the
+    # GUI station-field contract (oM fork resultsWidget.stationFields).
+    assert 'rho' in ax['fields'], "rho snapshot not carried"
+    assert 'G' in ax['fields'], "derived mass flux G not carried"
+    np.testing.assert_allclose(ax['fields']['G'],
+                               ax['fields']['rho'] * ax['fields']['u'])
     for name, mat in ax['fields'].items():
         assert mat.shape == (n_frames, n_cells), f"{name} bad shape"
 
