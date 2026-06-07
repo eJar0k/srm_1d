@@ -353,6 +353,10 @@ def _axial_payload_for_gui(result):
         'x_cell': payload.x_cell,
         'cell_segment_id': payload.cell_segment_id,
         'fields': payload.fields,
+        # Roadmap #2 longitudinal motor-slice geometry (constant per run).
+        'dx': payload.dx,
+        'D_outer': payload.D_outer,
+        'cell_wall_web': payload.cell_wall_web,
         'stations': [
             {
                 'grain': s.grain, 'cell_index': s.cell_index,

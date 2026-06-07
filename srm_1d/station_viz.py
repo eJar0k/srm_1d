@@ -72,12 +72,24 @@ class AxialPayload:
     frame_index : ndarray (n_frames,), int
         Indices into the original snapshot list that were kept (for
         traceability / debugging).
+    dx : float
+        Uniform axial cell width [m] — the slice viewer's per-cell extent.
+        ``0.0`` when the result predates the roadmap-#2 geometry contract.
+    D_outer : float
+        Motor outer (casing/grain OD) diameter [m]; slice R_outer = D_outer/2.
+        ``0.0`` when absent.
+    cell_wall_web : ndarray (n_cells,)
+        Per-cell initial web thickness [m]; %web remaining =
+        1 - regress/cell_wall_web. Empty when absent.
     """
     snap_times: np.ndarray
     x_cell: np.ndarray
     cell_segment_id: np.ndarray
     fields: dict
     frame_index: np.ndarray = field(default_factory=lambda: np.array([], int))
+    dx: float = 0.0
+    D_outer: float = 0.0
+    cell_wall_web: np.ndarray = field(default_factory=lambda: np.array([], float))
 
     @property
     def n_frames(self) -> int:
@@ -175,12 +187,20 @@ def build_axial_payload(
         if fa in field_mats and fb in field_mats:
             field_mats[name] = field_mats[fa] * field_mats[fb]
 
+    # Roadmap #2 longitudinal-slice geometry (constant, not time×cell fields):
+    # cell width, casing OD, per-cell web. Absent in pre-v0.8.x results → the
+    # slice viewer is simply unavailable (defaults below), no error.
+    cww = result.get('cell_wall_web')
     return AxialPayload(
         snap_times=snap_times,
         x_cell=x_cell,
         cell_segment_id=cell_segment_id,
         fields=field_mats,
         frame_index=keep,
+        dx=float(result.get('dx', 0.0) or 0.0),
+        D_outer=float(result.get('D_outer', 0.0) or 0.0),
+        cell_wall_web=(np.asarray(cww, dtype=float)
+                       if cww is not None else np.array([], dtype=float)),
     )
 
 

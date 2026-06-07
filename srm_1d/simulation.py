@@ -3029,6 +3029,15 @@ def run_simulation(
         # snapshot's constant 'x'.
         'cell_segment_id': ga['cell_segment_id'].copy(),
         'x_cell': x_centers.copy(),
+        # v0.8.x roadmap #2 (longitudinal motor-slice viewer): constant
+        # per-cell geometry for drawing the burnback slice. All live OUTSIDE
+        # the @njit loop (scalars + a geometry array), so no snapshot channel
+        # is needed: R_outer = D_outer/2, axial cell extent = dx, %web =
+        # 1 - regress/cell_wall_web (R_bore = the snapshot D_port/2, already
+        # the hydraulic-equivalent bore for FMM/non-circular grains).
+        'dx': float(dx),
+        'D_outer': float(ga['D_outer']),
+        'cell_wall_web': ga['cell_wall_web'].copy(),
         'snapshots': snapshots, 'grains': grain_data,
         'summary': summary,
         'P_ambient': P_ambient,

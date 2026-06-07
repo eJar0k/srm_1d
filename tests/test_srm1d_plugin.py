@@ -188,6 +188,11 @@ def test_srm1d_axial_payload_attached(om):
     for name, mat in ax['fields'].items():
         assert mat.shape == (n_frames, n_cells), f"{name} bad shape"
 
+    # v0.8.x roadmap #2: longitudinal-slice geometry attached for the GUI.
+    assert ax['dx'] > 0.0
+    assert ax['D_outer'] > 0.0
+    assert ax['cell_wall_web'].shape == (n_cells,)
+
     # Default stations: at least one per grain, every station points at a real
     # grain cell, and exactly one fore station per grain is active by default.
     stations = ax['stations']

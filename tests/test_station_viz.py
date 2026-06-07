@@ -230,6 +230,9 @@ class TestBuildAxialPayloadSynthetic:
             'snapshots': snaps,
             'cell_segment_id': SEG_TWO_GRAIN[:n_cells],
             'x_cell': x,
+            'dx': 0.01,
+            'D_outer': 0.06,
+            'cell_wall_web': np.full(n_cells, 0.02),
         }
 
     def test_shapes_and_contents(self):
@@ -260,6 +263,25 @@ class TestBuildAxialPayloadSynthetic:
         assert 'G' in pl.fields
         np.testing.assert_allclose(pl.fields['G'], pl.fields['rho'] * pl.fields['u'])
         assert pl.fields['G'].shape == (pl.n_frames, pl.n_cells)
+
+    def test_slice_geometry_carried(self):
+        # Roadmap #2: build_axial_payload carries dx / D_outer / cell_wall_web.
+        res = self._fake_result(n_snaps=4, n_cells=10)
+        pl = build_axial_payload(res, max_frames=0)
+        assert pl.dx == 0.01
+        assert pl.D_outer == 0.06
+        assert pl.cell_wall_web.shape == (10,)
+        np.testing.assert_allclose(pl.cell_wall_web, 0.02)
+
+    def test_slice_geometry_defaults_when_absent(self):
+        # Pre-v0.8.x results lack the geometry → graceful defaults, no error.
+        res = self._fake_result(n_snaps=3, n_cells=10)
+        for k in ('dx', 'D_outer', 'cell_wall_web'):
+            del res[k]
+        pl = build_axial_payload(res)
+        assert pl.dx == 0.0
+        assert pl.D_outer == 0.0
+        assert pl.cell_wall_web.size == 0
 
     def test_G_absent_without_rho(self):
         # Old-style result without a rho snapshot: G degrades to absent, not faked.
@@ -344,6 +366,15 @@ class TestEndToEndContract:
         assert 'rho' in pl.fields and 'G' in pl.fields
         assert np.all(pl.fields['rho'] > 0.0)          # physical density
         np.testing.assert_allclose(pl.fields['G'], pl.fields['rho'] * pl.fields['u'])
+
+        # Roadmap #2 slice geometry carried + physical.
+        assert pl.dx > 0.0
+        assert pl.D_outer > 0.0
+        assert pl.cell_wall_web.shape == (n_cells,)
+        assert np.all(pl.cell_wall_web >= 0.0)
+        # Bore never exceeds the casing: D_port/2 <= D_outer/2 on grain cells.
+        grain = pl.cell_segment_id >= 0
+        assert np.all(pl.fields['D_port'][:, grain] <= pl.D_outer + 1e-9)
 
         st = default_stations(result['cell_segment_id'], result['x_cell'])
         assert len([s for s in st if s.role == 'fore' and s.active]) == 2
