@@ -224,6 +224,7 @@ class TestBuildAxialPayloadSynthetic:
                 'r_erosive': np.zeros(n_cells),
                 'D_port': np.zeros(n_cells),
                 'regress': np.zeros(n_cells),
+                'rho': np.full(n_cells, 2.0),
             })
         return {
             'snapshots': snaps,
@@ -250,6 +251,24 @@ class TestBuildAxialPayloadSynthetic:
         assert pl.snap_times[-1] == 99.0
         # decimated field rows align with kept frame times (P == t).
         np.testing.assert_allclose(pl.fields['P'][:, 0], pl.snap_times)
+
+    def test_mass_flux_G_derived(self):
+        # rho = 2.0 everywhere; u = arange + s. G = rho * u must hold cellwise.
+        res = self._fake_result(n_snaps=5, n_cells=10)
+        pl = build_axial_payload(res, max_frames=0)
+        assert 'rho' in pl.fields
+        assert 'G' in pl.fields
+        np.testing.assert_allclose(pl.fields['G'], pl.fields['rho'] * pl.fields['u'])
+        assert pl.fields['G'].shape == (pl.n_frames, pl.n_cells)
+
+    def test_G_absent_without_rho(self):
+        # Old-style result without a rho snapshot: G degrades to absent, not faked.
+        res = self._fake_result(n_snaps=3, n_cells=10)
+        for snap in res['snapshots']:
+            del snap['rho']
+        pl = build_axial_payload(res)
+        assert 'rho' not in pl.fields
+        assert 'G' not in pl.fields
 
     def test_missing_field_skipped(self):
         res = self._fake_result(n_snaps=3, n_cells=10)
@@ -320,6 +339,11 @@ class TestEndToEndContract:
         assert pl.n_frames == len(result['snapshots'])
         for name in ('P', 'u', 'Mach', 'T', 'r_total', 'regress', 'D_port'):
             assert pl.fields[name].shape == (pl.n_frames, n_cells)
+
+        # v0.8.x: per-cell density snapshot + derived mass flux G = rho * u.
+        assert 'rho' in pl.fields and 'G' in pl.fields
+        assert np.all(pl.fields['rho'] > 0.0)          # physical density
+        np.testing.assert_allclose(pl.fields['G'], pl.fields['rho'] * pl.fields['u'])
 
         st = default_stations(result['cell_segment_id'], result['x_cell'])
         assert len([s for s in st if s.role == 'fore' and s.active]) == 2

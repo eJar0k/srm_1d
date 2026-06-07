@@ -77,7 +77,8 @@ _SNAP_MOMENTUM_SOURCE = 14
 _SNAP_PYROGEN_SURFACE_HEAT_FLUX = 15
 _SNAP_RADIATION_HEAT_FLUX = 16
 _SNAP_REGRESS = 17
-N_SNAP_CHANNELS = 18
+_SNAP_RHO = 18          # per-cell gas density [kg/m^3]; enables mass flux G = rho*u
+N_SNAP_CHANNELS = 19
 
 CAL_CM2_S_TO_W_M2 = 41840.0
 STEFAN_BOLTZMANN = 5.670374419e-8
@@ -2125,6 +2126,7 @@ def _run_time_loop(
                 snap_data[snap_idx, _SNAP_PYROGEN_SURFACE_HEAT_FLUX, i] = pyrogen_surface_heat_flux[i]
                 snap_data[snap_idx, _SNAP_RADIATION_HEAT_FLUX, i] = radiation_heat_flux[i]
                 snap_data[snap_idx, _SNAP_REGRESS, i] = regress[i]
+                snap_data[snap_idx, _SNAP_RHO, i] = rho[i]
             snap_idx += 1
             last_snapshot_t = t
 
@@ -2821,6 +2823,7 @@ def run_simulation(
             'pyrogen_surface_heat_flux': snap_data[s, _SNAP_PYROGEN_SURFACE_HEAT_FLUX, :].copy(),
             'radiation_heat_flux': snap_data[s, _SNAP_RADIATION_HEAT_FLUX, :].copy(),
             'regress': snap_data[s, _SNAP_REGRESS, :].copy(),
+            'rho': snap_data[s, _SNAP_RHO, :].copy(),
         })
 
     peak_idx = np.argmax(P_head_arr) if len(P_head_arr) > 0 else 0

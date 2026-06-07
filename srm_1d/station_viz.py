@@ -36,12 +36,19 @@ import numpy as np
 GAP_SENTINEL = -1
 
 # Snapshot per-cell fields exposed to the station plotter by default. Each
-# is carried directly in ``result['snapshots'][s][name]`` (length n_cells).
-# Mass flux ``G`` is intentionally omitted until a per-cell density (or R)
-# snapshot field exists — we don't fabricate it from incomplete state.
+# is carried directly in ``result['snapshots'][s][name]`` (length n_cells),
+# EXCEPT ``G`` (axial mass flux), which is DERIVED in ``build_axial_payload``
+# as ``rho * u`` from two genuine per-cell solver-state snapshots (``rho``
+# added v0.8.x, ``u`` the cell-center velocity) — not fabricated.
 DEFAULT_FIELDS = (
-    'P', 'u', 'Mach', 'T', 'r_total', 'r_erosive', 'D_port', 'regress',
+    'P', 'u', 'Mach', 'T', 'r_total', 'r_erosive', 'D_port', 'regress', 'rho',
 )
+
+# Derived fields are not snapshot keys; they are computed from raw fields.
+# name -> (factor_a, factor_b): result[name] = field[a] * field[b].
+DERIVED_FIELDS = {
+    'G': ('rho', 'u'),   # axial mass flux [kg/(m^2 s)]
+}
 
 
 # ================================================================
@@ -160,6 +167,13 @@ def build_axial_payload(
         snap = snapshots[src]
         for name in present:
             field_mats[name][row, :] = np.asarray(snap[name])
+
+    # Derived fields (e.g. mass flux G = rho * u). Only emitted when both
+    # factors were carried, so old results without the rho snapshot degrade
+    # gracefully (no G rather than a fabricated one).
+    for name, (fa, fb) in DERIVED_FIELDS.items():
+        if fa in field_mats and fb in field_mats:
+            field_mats[name] = field_mats[fa] * field_mats[fb]
 
     return AxialPayload(
         snap_times=snap_times,
