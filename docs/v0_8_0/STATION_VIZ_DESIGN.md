@@ -269,10 +269,20 @@ Viz core is cleared. Next work, in order:
    `.ric` and runs in openMotor's quasi-steady solver via sub-grain
    expansion (`motorlib/taper.py`; N from L/D, reduced sub-grain mapDim
    per a cost probe). srm_1d's `convert_geometry` reads the same block.
-   openMotor `test/unit/taper.py` (14) + srm_1d `test_taper.py` (+4).
-   **Still open:** GUI authoring panel (Phase 3); OD/end taper
-   (`linear|elliptical`, per-cell `cell_D_outer` refactor — Phase 4,
-   schema reserved); station auto-placement for tapered grains.
+   openMotor `test/unit/taper.py` + srm_1d `test_taper.py` (+4).
+   **Round 3 — GUI authoring (DONE 2026-06-08, openMotor fork):** the grain
+   editor renders an inline two-column **start | aft** taper editor (enable
+   checkbox + Profile dropdown + forward/aft preview toggle); the area graph
+   shows the slice-averaged burn area (`averaged_area_curve`). Conical /
+   end-burner grains opt out (`isTaperable=False`). `SimulationResult`
+   snapshots the expanded sub-grains so the port/throat ratio uses the
+   aft-most (throat-adjacent) slice. A QS `taperSlices` config knob
+   (0 = auto) controls slice density (auto floor raised to 8 to remove
+   short-grain thrust stepping). `test/unit/taper.py` (24).
+   **Still open:** OD/end taper (`linear|elliptical`, per-cell
+   `cell_D_outer` refactor — Phase 4, schema reserved); station
+   auto-placement for tapered grains; possible BATES-vs-Conical
+   consolidation (deferred).
 
 Beyond that the field is open, but the standing high-value target is the
 **high-L/D igniter / ignition-transient overshoot** (the QS-erosive limitation

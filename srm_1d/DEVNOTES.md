@@ -359,6 +359,20 @@ in geometry/burn rate/ignition (called every step or every N steps).
           start (frac 0) = the grain's base props. `od` reserved for the
           OD/end-taper phase (per-cell `cell_D_outer`). Tests:
           `tests/test_taper.py` (+4) and openMotor `test/unit/taper.py`.
+    - **Round 3 — GUI authoring (openMotor fork; srm_1d unchanged).** The
+      grain editor (`uilib/widgets/motorEditor.py`) gains an inline
+      two-column **start | aft** taper editor per taperable cross-section
+      property (enable checkbox + Profile dropdown + forward/aft preview
+      toggle); assembly/parse helpers live in `motorlib/taper.py`
+      (`taperable_property_names`, `build_bore_taper_def`,
+      `aft_props_from_grain`). The preview area graph shows the
+      slice-averaged burn perimeter (`averaged_area_curve`). Refinements:
+      Conical / end-burner grains opt out via `Grain.isTaperable`
+      (so `isTapered`/serialization/expander ignore any taper);
+      `SimulationResult` snapshots the expanded sub-grains so `getPortRatio`
+      uses the **aft-most** (throat-adjacent) slice (was a forward-cross-
+      section approximation); QS `MotorConfig.taperSlices` (0 = auto) knob,
+      auto floor raised 3→8 to remove short-grain thrust stepping.
 
 - v0.8.0 (openMotor frontend integration — one return-type break, rest
   additive/data-format; full narrative in `docs/v0_8_0/`):
