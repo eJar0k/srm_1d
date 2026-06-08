@@ -830,7 +830,35 @@ def convert_geometry(ric_grains, target_propellant_cells=100,
         inh_fwd, inh_aft = _INHIBIT_MAP[inhibit_str]
         seg_D_outer = props['diameter']
 
-        if gtype == 'BATES':
+        taper_def = props.get('taper')
+        is_tapered = isinstance(taper_def, dict) and taper_def.get('enabled')
+
+        if is_tapered:
+            # Axially-tapered grain: build a TaperSpec and route through
+            # build_snapped_geometry's per-cell taper path (round 1). The
+            # transient solver resolves real per-station FMM tables; the
+            # discretization (station count) is mesh-based and independent of
+            # the QS solver's L/D slicing.
+            if gtype in ('BATES', 'Conical'):
+                raise NotImplementedError(
+                    f"Grain {i}: the transient adapter supports tapering only "
+                    f"FMM cross-section grains (Finocyl, Star, ...), not "
+                    f"'{gtype}'. A linear bore taper of a BATES grain is a "
+                    f"Conical grain; use that instead."
+                )
+            from .fmm_grain import taper_spec_from_props
+            taper_spec = taper_spec_from_props(
+                gtype, props, taper_def, map_dim=fmm_map_dim,
+            )
+            spec = {
+                'D_bore_fwd': seg_D_outer,
+                'D_bore_aft': seg_D_outer,
+                'length': props['length'],
+                'inhibit_fwd': inh_fwd,
+                'inhibit_aft': inh_aft,
+                'taper': taper_spec,
+            }
+        elif gtype == 'BATES':
             spec = {
                 'D_bore_fwd': props['coreDiameter'],
                 'D_bore_aft': props['coreDiameter'],

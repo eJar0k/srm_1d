@@ -264,9 +264,15 @@ Viz core is cleared. Next work, in order:
    per-cell Riemann sum (`cell_A_port_init`), exact for nonlinear tapers.
    Example `examples/tapered_finocyl.py`, tests `tests/test_taper.py`
    (18). The slice viewer renders tapers automatically (already per-cell).
-   **Still open (oM-fork GUI side):** station auto-placement for tapered
-   grains (no clean fore/mid/aft anchors → web-fraction/geometric anchor),
-   and any GUI authoring surface (currently Python-API only).
+   **Round 2 — cross-solver + `.ric` (DONE 2026-06-08):** the taper is now
+   a solver-agnostic base-`Grain` `TaperProperty` that round-trips through
+   `.ric` and runs in openMotor's quasi-steady solver via sub-grain
+   expansion (`motorlib/taper.py`; N from L/D, reduced sub-grain mapDim
+   per a cost probe). srm_1d's `convert_geometry` reads the same block.
+   openMotor `test/unit/taper.py` (14) + srm_1d `test_taper.py` (+4).
+   **Still open:** GUI authoring panel (Phase 3); OD/end taper
+   (`linear|elliptical`, per-cell `cell_D_outer` refactor — Phase 4,
+   schema reserved); station auto-placement for tapered grains.
 
 Beyond that the field is open, but the standing high-value target is the
 **high-L/D igniter / ignition-transient overshoot** (the QS-erosive limitation

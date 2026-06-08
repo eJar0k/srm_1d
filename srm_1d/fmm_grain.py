@@ -587,6 +587,28 @@ def taper_profile(grain_type: str, control_stations, map_dim: int = 1001,
     )
 
 
+def taper_spec_from_props(grain_type: str, base_props: dict, taper_def: dict,
+                          map_dim: int = 1001, max_stations: int = 32) -> 'TaperSpec':
+    """
+    Build a `TaperSpec` from an openMotor `.ric` grain's properties + its
+    `taper` definition block (the solver-agnostic schema written by
+    openMotor's `TaperProperty`). The grain's normal properties are the
+    forward (frac 0) cross-section; each `bore.controlStations` entry gives
+    the overrides at its `frac`. Mirrors `motorlib.taper`'s control-point
+    construction so QS and transient read identical geometry.
+    """
+    base = {k: v for k, v in base_props.items() if k != 'taper'}
+    bore = (taper_def.get('bore', {}) or {}) if isinstance(taper_def, dict) else {}
+    stations = sorted(bore.get('controlStations', []),
+                      key=lambda s: float(s['frac']))
+    control = [(0.0, dict(base))]
+    for station in stations:
+        overrides = station.get('props', {}) or {}
+        control.append((float(station['frac']), {**base, **overrides}))
+    return taper_profile(grain_type, control, map_dim=map_dim,
+                         max_stations=max_stations)
+
+
 def _interp_control(control_stations: list, frac: float) -> dict:
     """Cross-section property dict at axial `frac` from sorted control points."""
     if len(control_stations) == 1:

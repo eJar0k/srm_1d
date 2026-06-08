@@ -10,7 +10,8 @@ import pytest
 try:
     from srm_1d.fmm_grain import (
         from_ric_grain, linear_taper, taper_profile, resolve_taper,
-        TaperSpec, _interpolate_props, _setup_openmotor_path,
+        taper_spec_from_props, TaperSpec, _interpolate_props,
+        _setup_openmotor_path,
     )
     _setup_openmotor_path()
     HAS_OPENMOTOR = True
@@ -278,3 +279,68 @@ class TestTaperVolume:
         seg_len = geo.segments[0].length  # snapped
         V_uniform = (casting - tab.initial_port_area) * seg_len
         assert V == pytest.approx(V_uniform, rel=1e-9)
+
+
+# ================================================================
+# .ric taper block -> TaperSpec (cross-solver read path)
+# ================================================================
+
+def _ric_taper_grain(fin_fwd=0.010, fin_aft=0.020):
+    """An openMotor .ric Finocyl grain dict carrying a bore-taper block."""
+    props = _finocyl_props(fin_fwd)
+    props['taper'] = {
+        'enabled': True,
+        'bore': {'profile': 'linear',
+                 'controlStations': [{'frac': 1.0, 'props': {'finLength': fin_aft}}]},
+    }
+    return {'type': 'Finocyl', 'properties': props}
+
+
+class TestRicTaperRead:
+
+    def test_convert_geometry_builds_tapered_segment(self):
+        from srm_1d.openmotor_adapter import convert_geometry
+        geo = convert_geometry([_ric_taper_grain()],
+                               target_propellant_cells=40, fmm_map_dim=MAP_DIM)
+        seg = geo.segments[0]
+        assert seg.is_tapered
+        assert len(seg.fmm_tables) > 1
+        perims = [t.initial_perimeter for t in seg.fmm_tables]
+        assert perims[-1] != perims[0]            # the taper took effect
+
+    def test_ric_read_matches_python_authored(self):
+        # The .ric read path must produce the same tables as the Python API.
+        from srm_1d.openmotor_adapter import convert_geometry
+        geo_ric = convert_geometry([_ric_taper_grain()],
+                                   target_propellant_cells=40, fmm_map_dim=MAP_DIM)
+        t = linear_taper('Finocyl', _finocyl_props(0.010),
+                         _finocyl_props(0.020), map_dim=MAP_DIM)
+        geo_py = build_snapped_geometry([{'length': 0.200, 'taper': t}],
+                                        D_outer=0.080, target_propellant_cells=40)
+        ric_tables = geo_ric.segments[0].fmm_tables
+        py_tables = geo_py.segments[0].fmm_tables
+        assert len(ric_tables) == len(py_tables)
+        for a, b in zip(ric_tables, py_tables):
+            assert np.allclose(a.perimeter, b.perimeter)
+            assert np.allclose(a.port_area, b.port_area)
+
+    def test_taper_spec_from_props_helper(self):
+        spec = taper_spec_from_props(
+            'Finocyl', _finocyl_props(0.010),
+            {'enabled': True, 'bore': {'controlStations':
+                [{'frac': 1.0, 'props': {'finLength': 0.020}}]}},
+            map_dim=MAP_DIM)
+        assert isinstance(spec, TaperSpec)
+        # frac 0 = base (0.010), frac 1 = override (0.020)
+        assert spec.control_stations[0][1]['finLength'] == pytest.approx(0.010)
+        assert spec.control_stations[-1][1]['finLength'] == pytest.approx(0.020)
+
+    def test_non_fmm_taper_raises(self):
+        from srm_1d.openmotor_adapter import convert_geometry
+        bates = {'type': 'BATES', 'properties': {
+            'diameter': 0.080, 'length': 0.200, 'coreDiameter': 0.020,
+            'inhibitedEnds': 'Neither',
+            'taper': {'enabled': True, 'bore': {'controlStations':
+                [{'frac': 1.0, 'props': {'coreDiameter': 0.040}}]}}}}
+        with pytest.raises(NotImplementedError):
+            convert_geometry([bates], target_propellant_cells=40, fmm_map_dim=MAP_DIM)

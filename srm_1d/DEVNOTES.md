@@ -334,6 +334,31 @@ in geometry/burn rate/ignition (called every step or every N steps).
     - Example `examples/tapered_finocyl.py`; tests `tests/test_taper.py`
       (18). Slice viewer / station-viz render the taper with no change
       (already per-cell `D_port` + `cell_wall_web`).
+    - **Round 2 — cross-solver (`.ric`) + QS port (ADDITIVE).** The taper
+      is now a first-class, solver-agnostic construct that round-trips
+      through `.ric` and runs in openMotor's quasi-steady (QS) solver too:
+        - **openMotor fork (`eJar0k/openMotor`):** a base-`Grain`
+          `TaperProperty` (`taper`) holding the definition dict (omitted
+          from `getProperties` when disabled, so non-tapered motors
+          serialize byte-identically). `motorlib/taper.py` expands one
+          tapered grain into N stacked sub-grains at `Motor.runSimulation`
+          time (cloned by `geomName`, props interpolated per slice,
+          internal faces inhibited `Bottom`/`Both`/`Top`), then restores
+          the authored grain list. QS picks N via L/D
+          (`clamp(round(L/D),3,12)`) at a reduced sub-grain `mapDim`
+          (500 — from the cost probe: skfmm setup is O(mapDim²) and
+          dominates). Each solver chooses its own discretization
+          (definition-only `.ric`); the transient side stays mesh-based.
+        - **srm_1d adapter:** `convert_geometry` reads `properties['taper']`
+          and routes it through `taper_spec_from_props` → the existing
+          `'taper'` spec path. Transient taper currently supports FMM
+          cross-section grains; a tapered BATES/Conical raises (a linear
+          bore taper of BATES *is* a Conical).
+        - Shared schema (the `taper` value): `{enabled, bore:{profile,
+          controlStations:[{frac, props-overrides}]}, od:{...reserved}}`;
+          start (frac 0) = the grain's base props. `od` reserved for the
+          OD/end-taper phase (per-cell `cell_D_outer`). Tests:
+          `tests/test_taper.py` (+4) and openMotor `test/unit/taper.py`.
 
 - v0.8.0 (openMotor frontend integration — one return-type break, rest
   additive/data-format; full narrative in `docs/v0_8_0/`):
