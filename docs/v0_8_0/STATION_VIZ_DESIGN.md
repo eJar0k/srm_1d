@@ -251,10 +251,22 @@ Viz core is cleared. Next work, in order:
    2026-06-07**, delivered as the longitudinal motor-slice viewer (§12/§13):
    a time-scrubbed field-vs-x slice with burnback (radial + axial face) in
    the grain tab.
-3. **Parametric tapering geometry for arbitrary FMM grains.** *(NEXT)*
-   Tapered/finocyl grains lack clean fore/mid/aft anchors — station auto-
-   placement may need web-fraction or geometric anchoring. Larger geometry
-   effort.
+3. **Parametric tapering geometry for arbitrary FMM grains.** — **ENGINE
+   DONE 2026-06-08.** A single FMM grain whose cross-section varies along
+   its axis (start/end cross-section → a stack of real per-station FMM
+   tables, interpolated), no hand-authored stepped segments. The per-cell
+   CSR FMM machinery was already general, so the hot loop is unchanged;
+   `compile_geometry_arrays` packs M tables per tapered segment and maps
+   each cell to its nearest station. New API in `srm_1d.fmm_grain`
+   (`TaperSpec`, `linear_taper`, `taper_profile`, `resolve_taper`);
+   `build_snapped_geometry` resolves a `'taper'` spec AFTER snapping so
+   station count tracks the mesh (`min(cells, max_stations)`). Mass via
+   per-cell Riemann sum (`cell_A_port_init`), exact for nonlinear tapers.
+   Example `examples/tapered_finocyl.py`, tests `tests/test_taper.py`
+   (18). The slice viewer renders tapers automatically (already per-cell).
+   **Still open (oM-fork GUI side):** station auto-placement for tapered
+   grains (no clean fore/mid/aft anchors → web-fraction/geometric anchor),
+   and any GUI authoring surface (currently Python-API only).
 
 Beyond that the field is open, but the standing high-value target is the
 **high-L/D igniter / ignition-transient overshoot** (the QS-erosive limitation

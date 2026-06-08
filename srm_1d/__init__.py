@@ -64,6 +64,21 @@ from .grain_geometry import (
     build_snapped_geometry,
 )
 
+# FMM grains + parametric axial tapers (optional — taper resolution needs
+# the openMotor checkout + scikit-fmm, but importing the module is light).
+try:
+    from .fmm_grain import (
+        FmmTable,
+        from_openmotor,
+        from_ric_grain,
+        TaperSpec,
+        linear_taper,
+        taper_profile,
+        resolve_taper,
+    )
+except ImportError:
+    pass
+
 # Propellant
 from .propellant import (
     Propellant,

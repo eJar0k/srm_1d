@@ -46,6 +46,22 @@ except ImportError:
         return wrapper
 
 
+def _nearest_station(frac, station_frac):
+    """
+    Index of the station (in a sorted [0,1] `station_frac` array) closest
+    to axial fraction `frac`. Setup-only helper used to map each cell of a
+    tapered segment to its nearest per-station FMM table.
+    """
+    best = 0
+    best_dist = abs(frac - station_frac[0])
+    for m in range(1, len(station_frac)):
+        d = abs(frac - station_frac[m])
+        if d < best_dist:
+            best_dist = d
+            best = m
+    return best
+
+
 # ================================================================
 # SECTION 1: Configuration Classes (setup only, not in hot path)
 # ================================================================
@@ -80,6 +96,16 @@ class GrainSegment:
         its perimeter and port area. Built via
         `srm_1d.fmm_grain.from_openmotor(om_grain)` or `from_ric_grain`.
         Cylindrical/conical segments leave this as None.
+    fmm_tables : list of FmmTable or None
+        If set, this segment is an axially-TAPERED FMM grain: a stack of
+        per-station regression tables (one real cross-section per station)
+        interpolated between a start and end geometry. `fmm_station_frac`
+        gives each table's axial fraction in [0, 1] (0 = fwd, 1 = aft).
+        Each cell maps to its nearest station. Built post-snapping via
+        `srm_1d.fmm_grain.resolve_taper`. Mutually exclusive with the
+        single-table `fmm_table`.
+    fmm_station_frac : ndarray or None
+        Axial fractions (length == len(fmm_tables)) of the tapered tables.
     """
     x_start: float
     length: float
@@ -89,10 +115,17 @@ class GrainSegment:
     inhibit_fwd: bool = False
     inhibit_aft: bool = False
     fmm_table: object = None  # forward-typed: avoid cyclic import of FmmTable
+    fmm_tables: object = None  # list[FmmTable] for tapered grains
+    fmm_station_frac: object = None  # ndarray of axial fractions, aligned
 
     def __post_init__(self):
         if self.D_bore_aft is None:
             self.D_bore_aft = self.D_bore_fwd
+
+    @property
+    def is_tapered(self) -> bool:
+        """True if this segment carries a per-station tapered FMM stack."""
+        return self.fmm_tables is not None and len(self.fmm_tables) > 0
 
 
 @dataclass
@@ -233,48 +266,80 @@ class MotorGeometry:
         # Per-cell FMM-table index (-1 if not FMM).
         cell_fmm_idx = np.full(N, -1, dtype=np.int64)
 
+        # Per-cell initial (regress=0) port area, [m²]. Analytic default;
+        # overwritten with the FMM table's initial port area below. Used by
+        # total_propellant_volume as a per-cell Riemann sum (the single
+        # source of truth for the cell->station mapping, valid for arbitrary
+        # tapers).
+        casting_area = np.pi / 4.0 * self.D_outer ** 2
+        cell_A_port_init = np.pi / 4.0 * cell_D_bore_init ** 2
+        for i in range(N):
+            if cell_segment_id[i] < 0:
+                cell_A_port_init[i] = casting_area
+
         # ------------------------------------------------------------
         # Pack FMM tables into flat (CSR-like) arrays
         # ------------------------------------------------------------
-        # Each FMM segment k contributes its (reg_depth, perimeter,
-        # port_area) sample arrays. We concatenate them and record
-        # per-grain offsets so the @njit hot loop can do an O(1)
-        # lookup with one indirection.
-        fmm_seg_indices = [k for k, seg in enumerate(self.segments)
-                           if seg.fmm_table is not None]
-        n_fmm_segs = len(fmm_seg_indices)
+        # Build a flat global list of FMM tables: a UNIFORM FMM segment
+        # contributes 1 table; a TAPERED segment contributes M (one real
+        # cross-section per axial station). We concatenate their
+        # (reg_depth, perimeter, port_area) samples and record per-table
+        # offsets so the @njit hot loop does an O(1) lookup with one
+        # indirection. Each cell points at the nearest station's table.
+        global_tables = []          # flat list[FmmTable]
+        seg_fmm_info = {}           # seg k -> (base table idx, station_frac)
+        n_fmm_segs = 0
+        for k, seg in enumerate(self.segments):
+            if seg.is_tapered:
+                base = len(global_tables)
+                global_tables.extend(seg.fmm_tables)
+                seg_fmm_info[k] = (base, np.asarray(seg.fmm_station_frac,
+                                                    dtype=float))
+                n_fmm_segs += 1
+            elif seg.fmm_table is not None:
+                base = len(global_tables)
+                global_tables.append(seg.fmm_table)
+                # Single station; fraction is unused (one table).
+                seg_fmm_info[k] = (base, np.array([0.0]))
+                n_fmm_segs += 1
 
-        if n_fmm_segs > 0:
-            # Build offset array (length n_fmm_segs+1)
-            fmm_offset = np.zeros(n_fmm_segs + 1, dtype=np.int64)
-            # First pass: compute total samples and offsets
-            for fi, k in enumerate(fmm_seg_indices):
-                fmm_offset[fi + 1] = fmm_offset[fi] + self.segments[k].fmm_table.n_samples
+        n_fmm_tables = len(global_tables)
+
+        if n_fmm_tables > 0:
+            fmm_offset = np.zeros(n_fmm_tables + 1, dtype=np.int64)
+            for ti, tab in enumerate(global_tables):
+                fmm_offset[ti + 1] = fmm_offset[ti] + tab.n_samples
             total_samples = int(fmm_offset[-1])
 
             fmm_reg_flat = np.empty(total_samples)
             fmm_perim_flat = np.empty(total_samples)
             fmm_port_flat = np.empty(total_samples)
-
-            # Map original-segment-index → fmm_idx for cell tagging
-            seg_to_fmm = {k: fi for fi, k in enumerate(fmm_seg_indices)}
-
-            # Second pass: copy samples + tag cells
-            for fi, k in enumerate(fmm_seg_indices):
-                tab = self.segments[k].fmm_table
-                start = fmm_offset[fi]
-                end = fmm_offset[fi + 1]
+            for ti, tab in enumerate(global_tables):
+                start = fmm_offset[ti]
+                end = fmm_offset[ti + 1]
                 fmm_reg_flat[start:end] = tab.reg_depth
                 fmm_perim_flat[start:end] = tab.perimeter
                 fmm_port_flat[start:end] = tab.port_area
 
-            # Tag cells belonging to FMM segments
+            # Tag cells: pick the nearest station within the cell's segment.
             for i in range(N):
                 k = cell_segment_id[i]
-                if k >= 0 and k in seg_to_fmm:
-                    cell_segment_type[i] = 1
-                    cell_fmm_idx[i] = seg_to_fmm[k]
-                    cell_wall_web[i] = self.segments[k].fmm_table.wall_web
+                if k < 0 or k not in seg_fmm_info:
+                    continue
+                base, station_frac = seg_fmm_info[k]
+                seg_lo = seg_x_start[k]
+                seg_len = seg_length[k]
+                if seg_len > 1e-10:
+                    frac = (x_centers[i] - seg_lo) / seg_len
+                    frac = max(0.0, min(1.0, frac))
+                else:
+                    frac = 0.5
+                m = _nearest_station(frac, station_frac)
+                ti = base + m
+                cell_segment_type[i] = 1
+                cell_fmm_idx[i] = ti
+                cell_wall_web[i] = global_tables[ti].wall_web
+                cell_A_port_init[i] = float(global_tables[ti].port_area[0])
         else:
             # No FMM segments — provide empty arrays Numba can accept.
             fmm_offset = np.zeros(1, dtype=np.int64)
@@ -302,6 +367,7 @@ class MotorGeometry:
             'seg_aft_regression': seg_aft_regression,
             'cell_segment_id': cell_segment_id,
             'cell_D_bore_init': cell_D_bore_init,
+            'cell_A_port_init': cell_A_port_init,
             'cell_wall_web': cell_wall_web,
             'cell_segment_type': cell_segment_type,
             'cell_fmm_idx': cell_fmm_idx,
@@ -318,10 +384,15 @@ class MotorGeometry:
         """
         Total initial propellant volume [m³].
 
-        Cylindrical/conical: integrated annular volume.
-        FMM: `(casting_area − initial_port_area) · length`, where the
-        port area comes from the segment's FmmTable. This includes the
-        non-circular core cross-section exactly.
+        Cylindrical/conical: integrated annular volume (exact closed form).
+        Uniform FMM: `(casting_area − initial_port_area) · length`, where
+        the port area comes from the segment's FmmTable (exact non-circular
+        core cross-section).
+        Tapered FMM: a per-cell Riemann sum over the SAME nearest-station
+        cell→table mapping the solver uses —
+        `Σ_cells (casting_area − A_port_init[i]) · dx`. This is exact and
+        mass-consistent for arbitrary (incl. nonlinear) tapers and any
+        station spacing; it does not assume linear behavior between stations.
 
         NOTE: This only counts bore volume, not end-face propellant.
         For BATES grains where end faces burn, this slightly
@@ -329,8 +400,23 @@ class MotorGeometry:
         """
         V = 0.0
         casting_area = np.pi / 4.0 * self.D_outer ** 2
-        for s in self.segments:
-            if s.fmm_table is not None:
+
+        # Tapered segments need the compiled per-cell assignment. Compile
+        # once only if any segment is tapered (setup-time, not a hot path).
+        has_taper = any(s.is_tapered for s in self.segments)
+        if has_taper:
+            ga = self.compile_geometry_arrays()
+            dx = ga['dx']
+            cell_segment_id = ga['cell_segment_id']
+            cell_A_port_init = ga['cell_A_port_init']
+
+        for k, s in enumerate(self.segments):
+            if s.is_tapered:
+                # Riemann sum over this segment's cells (single source of
+                # truth: the same cell->station map compile/solver use).
+                mask = cell_segment_id == k
+                V += float(np.sum(casting_area - cell_A_port_init[mask]) * dx)
+            elif s.fmm_table is not None:
                 V += (casting_area - s.fmm_table.initial_port_area) * s.length
             else:
                 # Cylindrical/conical: ∫ π/4 (D_outer² - D_bore(x)²) dx
@@ -818,6 +904,12 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float, target_pro
         - 'inhibit_aft': bool (optional, default False)
         - 'fmm_table': FmmTable or None (optional, attaches an FMM
           regression table to this segment for Finocyl/Star/etc.)
+        - 'taper': TaperSpec or None (optional, an axially-tapered FMM
+          grain — a start/end cross-section interpolated into a stack of
+          real per-station FMM tables). Resolved here AFTER snapping so the
+          station count tracks the segment's cell count
+          (`min(cells, taper.max_stations)`). Mutually exclusive with
+          'fmm_table'.
     D_outer : float
         Outer casing diameter [m].
     target_propellant_cells : int
@@ -869,18 +961,43 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float, target_pro
         # Snap the propellant segment
         n_seg = max(1, int(round(spec['length'] / dx)))
         snapped_length = n_seg * dx
-        
+
+        # Tapered FMM grain: resolve the per-station tables now that the
+        # cell count (n_seg) is known, so station density tracks the mesh.
+        taper = spec.get('taper', None)
+        fmm_tables = None
+        fmm_station_frac = None
+        if taper is not None:
+            if spec.get('fmm_table', None) is not None:
+                raise ValueError(
+                    "segment spec may set 'taper' or 'fmm_table', not both."
+                )
+            from .fmm_grain import resolve_taper  # lazy: only when tapered
+            n_stations = min(n_seg, taper.max_stations)
+            if n_seg >= 2:
+                n_stations = max(2, n_stations)
+            fmm_tables, fmm_station_frac = resolve_taper(taper, n_stations)
+
+        # D_bore_fwd is a placeholder for FMM/tapered cells (the port is
+        # set per-cell from the regression table); default it to D_outer.
+        is_fmm = taper is not None or spec.get('fmm_table', None) is not None
+        D_bore_fwd = spec.get('D_bore_fwd', D_outer if is_fmm else None)
+        if D_bore_fwd is None:
+            raise KeyError("segment spec missing required 'D_bore_fwd'")
+
         segments.append(GrainSegment(
             x_start=x_cursor,
             length=snapped_length,
-            D_bore_fwd=spec['D_bore_fwd'],
+            D_bore_fwd=D_bore_fwd,
             D_outer=D_outer,
-            D_bore_aft=spec.get('D_bore_aft', spec['D_bore_fwd']),
+            D_bore_aft=spec.get('D_bore_aft', D_bore_fwd),
             inhibit_fwd=spec.get('inhibit_fwd', False),
             inhibit_aft=spec.get('inhibit_aft', False),
             fmm_table=spec.get('fmm_table', None),
+            fmm_tables=fmm_tables,
+            fmm_station_frac=fmm_station_frac,
         ))
-        
+
         x_cursor += snapped_length
         total_cells += n_seg
         

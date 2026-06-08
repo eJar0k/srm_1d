@@ -296,6 +296,45 @@ in geometry/burn rate/ignition (called every step or every N steps).
 
 ## API Breaking Changes Log
 
+- parametric FMM tapering (ADDITIVE / non-breaking; viz-geometry
+  roadmap #3): a single FMM grain whose cross-section varies along its
+  axis (e.g. a finocyl whose fins grow fwd→aft), built from a start/end
+  cross-section without hand-authoring stepped segments.
+    - **Per-cell FMM tables generalized.** The CSR machinery
+      (`cell_fmm_idx[i]` → flat table list, `_fmm_lookup_flat`) was
+      already per-cell; `compile_geometry_arrays` now packs a flat list
+      where a UNIFORM FMM segment contributes 1 table and a TAPERED
+      segment contributes M (one real cross-section per axial station).
+      Each cell maps to its **nearest station**. The @njit hot loop is
+      UNCHANGED.
+    - **New API (`srm_1d.fmm_grain`):** `TaperSpec` (unresolved taper
+      definition: grain_type + sorted `(frac, props)` control stations +
+      `map_dim` + `max_stations`), `linear_taper(grain_type, props_fwd,
+      props_aft, ...)`, `taper_profile(grain_type, control_stations,
+      ...)` for curved/multi-stage tapers, `resolve_taper(spec,
+      n_stations)` (runs the real FMM pipeline per station, dedup-cached;
+      `np.linspace(0,1,n)` so endpoints reproduce exact fwd/aft tables).
+      `_interpolate_props` blends float dims; integer counts (`numFins`),
+      booleans (`invertedFins`), strings (`inhibitedEnds`) must match or
+      it raises.
+    - **`GrainSegment`** gains `fmm_tables` (list) + `fmm_station_frac`
+      (axial fracs), mutually exclusive with the singular `fmm_table`;
+      `is_tapered` property. `build_snapped_geometry` accepts a `'taper'`
+      key on a segment spec and **resolves it AFTER snapping** so the
+      station count tracks the mesh: `min(snapped_cells, max_stations)`
+      (FMM solves are deferred to this point, not eager at authoring).
+      `map_dim` stays a separate cross-sectional (radial) knob.
+    - **`compile_geometry_arrays` now also returns `cell_A_port_init`**
+      (per-cell initial port area). `total_propellant_volume` computes
+      tapered segments as a per-cell Riemann sum over the SAME
+      nearest-station mapping the solver uses — exact and
+      mass-consistent for arbitrary (incl. nonlinear) tapers, not a
+      `trapz` of endpoints. Analytic/uniform-FMM branches keep their
+      exact closed forms. `n_fmm_segs` still counts FMM *segments*.
+    - Example `examples/tapered_finocyl.py`; tests `tests/test_taper.py`
+      (18). Slice viewer / station-viz render the taper with no change
+      (already per-cell `D_port` + `cell_wall_web`).
+
 - v0.8.0 (openMotor frontend integration — one return-type break, rest
   additive/data-format; full narrative in `docs/v0_8_0/`):
     - **BREAK — `run_simulation` / `run_from_ric` now return a

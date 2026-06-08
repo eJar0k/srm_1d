@@ -466,6 +466,193 @@ def _instantiate_openmotor_grain(geom_name: str):
 
 
 # ================================================================
+# Parametric axial tapers
+# ================================================================
+#
+# A tapered grain is a single grain whose cross-section varies along its
+# axis (e.g. a finocyl whose fins grow from 0.25" to 0.5" tip-to-root).
+# Rather than hand-author many short stepped segments, we define the
+# taper by a start and end cross-section (or an arbitrary list of control
+# stations) and let srm_1d build a smooth axial stack of *real* FMM
+# regression tables — one per axial station — interpolated between them.
+#
+# The taper is authored as an UNRESOLVED `TaperSpec` (no FMM solves yet).
+# The actual number of stations is decided AFTER the geometry snapper
+# fixes the segment's cell count (see grain_geometry.build_snapped_geometry),
+# so station density tracks the mesh rather than a fixed integer. `map_dim`
+# is the cross-sectional (radial) FMM resolution and is independent of the
+# axial mesh.
+
+# Properties that cannot be linearly interpolated (integer-valued count).
+# Booleans / strings (invertedFins, inhibitedEnds) are caught generically
+# below by the "non-numeric" branch.
+_NON_INTERPOLABLE_KEYS = {'numFins'}
+
+
+def _interpolate_props(props_a: dict, props_b: dict, t: float) -> dict:
+    """
+    Linearly interpolate between two openMotor grain property dicts.
+
+    Float-valued dimensions (coreDiameter, finLength, finWidth, diameter,
+    length, ...) blend as `a + (b - a)*t`. Integer counts (`numFins`),
+    booleans (`invertedFins`) and strings (`inhibitedEnds`) cannot be
+    interpolated — they MUST be equal in both endpoints, else a
+    `ValueError` is raised. Pass dimensions as floats (e.g. 0.0, not 0).
+    """
+    if set(props_a) != set(props_b):
+        raise ValueError(
+            "taper endpoints must define the same property keys; got "
+            f"{sorted(props_a)} vs {sorted(props_b)}"
+        )
+    out = {}
+    for k, va in props_a.items():
+        vb = props_b[k]
+        numeric = (
+            isinstance(va, (int, float)) and not isinstance(va, bool)
+            and isinstance(vb, (int, float)) and not isinstance(vb, bool)
+        )
+        if numeric and k not in _NON_INTERPOLABLE_KEYS:
+            out[k] = va + (vb - va) * t
+        else:
+            if va != vb:
+                raise ValueError(
+                    f"taper property {k!r} cannot be interpolated "
+                    f"(integer count, boolean, or string): {va!r} != {vb!r}. "
+                    "Hold it constant across the taper."
+                )
+            out[k] = va
+    return out
+
+
+@dataclass
+class TaperSpec:
+    """
+    Unresolved definition of an axially-tapered FMM grain.
+
+    Attributes
+    ----------
+    grain_type : str
+        openMotor geomName ('Finocyl', 'Star', ...).
+    control_stations : list of (float, dict)
+        Sorted `[(frac, props), ...]` with `frac` in [0, 1] (0 = forward
+        / head end, 1 = aft / nozzle end). Two points = a linear taper;
+        more points define a piecewise-linear (curved / multi-stage)
+        profile. Cross-sections at intermediate fracs are obtained by
+        interpolating between bracketing control points.
+    map_dim : int
+        Cross-sectional FMM resolution per station (radial, NOT axial).
+    max_stations : int
+        Upper bound on the number of FMM solves along the axis. The
+        resolved station count is `min(segment_cells, max_stations)`.
+    """
+    grain_type: str
+    control_stations: list
+    map_dim: int = 1001
+    max_stations: int = 32
+
+    def __post_init__(self):
+        if not self.control_stations:
+            raise ValueError("TaperSpec needs at least one control station.")
+        # Sort by fraction and validate the range.
+        self.control_stations = sorted(
+            ((float(f), p) for f, p in self.control_stations),
+            key=lambda fp: fp[0],
+        )
+        for f, _ in self.control_stations:
+            if not (0.0 <= f <= 1.0):
+                raise ValueError(
+                    f"taper control-station fraction {f} outside [0, 1]."
+                )
+
+
+def linear_taper(grain_type: str, props_fwd: dict, props_aft: dict,
+                 map_dim: int = 1001, max_stations: int = 32) -> TaperSpec:
+    """Convenience: a two-point (forward → aft) linear taper."""
+    return TaperSpec(
+        grain_type=grain_type,
+        control_stations=[(0.0, dict(props_fwd)), (1.0, dict(props_aft))],
+        map_dim=map_dim,
+        max_stations=max_stations,
+    )
+
+
+def taper_profile(grain_type: str, control_stations, map_dim: int = 1001,
+                  max_stations: int = 32) -> TaperSpec:
+    """Convenience: an arbitrary piecewise-linear taper from control points."""
+    return TaperSpec(
+        grain_type=grain_type,
+        control_stations=[(float(f), dict(p)) for f, p in control_stations],
+        map_dim=map_dim,
+        max_stations=max_stations,
+    )
+
+
+def _interp_control(control_stations: list, frac: float) -> dict:
+    """Cross-section property dict at axial `frac` from sorted control points."""
+    if len(control_stations) == 1:
+        return dict(control_stations[0][1])
+    if frac <= control_stations[0][0]:
+        return dict(control_stations[0][1])
+    if frac >= control_stations[-1][0]:
+        return dict(control_stations[-1][1])
+    for j in range(len(control_stations) - 1):
+        f0, p0 = control_stations[j]
+        f1, p1 = control_stations[j + 1]
+        if f0 <= frac <= f1:
+            t = 0.0 if f1 == f0 else (frac - f0) / (f1 - f0)
+            return _interpolate_props(p0, p1, t)
+    return dict(control_stations[-1][1])  # unreachable; defensive
+
+
+def resolve_taper(taper: TaperSpec, n_stations: int):
+    """
+    Build the real per-station FMM tables for a taper.
+
+    Runs openMotor's FMM pipeline once per station (deduplicated when
+    consecutive interpolated cross-sections are identical, e.g. a
+    degenerate fwd == aft taper). Stations are placed at
+    `np.linspace(0, 1, n_stations)` so the endpoints reproduce the exact
+    forward/aft cross-sections.
+
+    Parameters
+    ----------
+    taper : TaperSpec
+    n_stations : int
+        Number of axial stations (>= 1). Decided by the caller from the
+        segment's snapped cell count.
+
+    Returns
+    -------
+    (tables, station_frac) : (list[FmmTable], np.ndarray)
+        `tables[m]` is the cross-section at `station_frac[m]`. The list may
+        contain repeated table references where stations are identical.
+    """
+    _setup_openmotor_path()
+
+    n = max(1, int(n_stations))
+    if n == 1:
+        fracs = np.array([0.5])
+    else:
+        fracs = np.linspace(0.0, 1.0, n)
+
+    tables = []
+    cache = {}  # interpolated-props signature -> FmmTable (avoid resolves)
+    for f in fracs:
+        props = _interp_control(taper.control_stations, float(f))
+        sig = tuple(
+            (k, round(v, 12) if isinstance(v, float) else v)
+            for k, v in sorted(props.items())
+        )
+        tab = cache.get(sig)
+        if tab is None:
+            ric = {'type': taper.grain_type, 'properties': props}
+            tab = from_ric_grain(ric, map_dim=taper.map_dim)
+            cache[sig] = tab
+        tables.append(tab)
+    return tables, fracs
+
+
+# ================================================================
 # Numba-compiled lookup helper
 # ================================================================
 
