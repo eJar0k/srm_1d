@@ -2377,6 +2377,11 @@ def run_simulation(
 
     # Compile geometry to arrays
     ga = geo.compile_geometry_arrays()
+    # Capture the INITIAL cell->grain map (t=0, as-designed grain layout)
+    # before the time loop mutates ga via end-face regression. Station-viz
+    # classification (fore/mid/aft, Head/Grain/Gap/Aft) keys off this so the
+    # markers sit on the original grain, not the final receded extent.
+    cell_segment_id_init = ga['cell_segment_id'].copy()
     D_port = ga['D_port']
     x_centers = ga['x_centers']
     regress = ga['regress']
@@ -3038,8 +3043,10 @@ def run_simulation(
         # v0.8.x station-viz data contract: per-cell axial geometry so the
         # GUI station model + axial-payload builder work from `result`
         # alone (cell->grain map; gap sentinel -1). x_cell mirrors each
-        # snapshot's constant 'x'.
-        'cell_segment_id': ga['cell_segment_id'].copy(),
+        # snapshot's constant 'x'. INITIAL map (t=0) so station placement /
+        # classification reflects the as-designed grain, not the final
+        # face-receded extent (which would push 'fore' inward over the burn).
+        'cell_segment_id': cell_segment_id_init,
         'x_cell': x_centers.copy(),
         # v0.8.x roadmap #2 (longitudinal motor-slice viewer): constant
         # per-cell geometry for drawing the burnback slice. All live OUTSIDE
