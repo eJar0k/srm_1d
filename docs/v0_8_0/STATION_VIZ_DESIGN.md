@@ -245,19 +245,16 @@ lossy.
 
 Viz core is cleared. Next work, in order:
 
-1. **Mass-flux `G` field + other solver-scraping plots.** Carry a per-cell
-   mass flux (`G = ρ·u`) — needs a per-cell ρ or R snapshot field in
-   `simulation.py` (do NOT fabricate from incomplete state); then expose `G`
-   as an axial field, plus any other per-cell quantities worth scraping from
-   the solver state.
-2. **Axial-profile-at-a-time plotting in the grain view.** A time-scrubbed
-   *field-vs-x* view (vector plots or heatmaps) that animates alongside the
-   station/regression cross-section — i.e. scrub time and see the whole axial
-   profile, not just per-station time series. Lives in the grain tab next to
-   the burnback cross-section.
-3. **Parametric tapering geometry for arbitrary FMM grains.** Tapered/finocyl
-   grains lack clean fore/mid/aft anchors — station auto-placement may need
-   web-fraction or geometric anchoring. Larger geometry effort.
+1. **Mass-flux `G` field + other solver-scraping plots.** — **DONE
+   2026-06-06** (see §13). Per-cell `rho` snapshot + derived `G = rho·u`.
+2. **Axial-profile-at-a-time plotting in the grain view.** — **DONE
+   2026-06-07**, delivered as the longitudinal motor-slice viewer (§12/§13):
+   a time-scrubbed field-vs-x slice with burnback (radial + axial face) in
+   the grain tab.
+3. **Parametric tapering geometry for arbitrary FMM grains.** *(NEXT)*
+   Tapered/finocyl grains lack clean fore/mid/aft anchors — station auto-
+   placement may need web-fraction or geometric anchoring. Larger geometry
+   effort.
 
 Beyond that the field is open, but the standing high-value target is the
 **high-L/D igniter / ignition-transient overshoot** (the QS-erosive limitation
@@ -327,3 +324,37 @@ artist-update/blit, unit-aware colorbar).
 render as an *equivalent hydraulic* radius, not literal geometry; the
 deferred sub-cell-grain snapping gap means a grain thinner than one cell
 won't appear; auto-stretched radial axis is not to scale (labeled).
+
+## 13. Delivered — roadmap #1 + #2 (2026-06-07)
+
+Both shipped. Canonical backend on `openmotor-frontend` (`3761dcb`); GUI on
+the openMotor fork `staging` (`7797048`). Highlights vs the scope above:
+
+- **#1 mass-flux G** — per-cell `rho` snapshot (`_SNAP_RHO`) + derived
+  `G = rho·u` in `build_axial_payload`; oM-fork `resultsWidget.stationFields`
+  plots `G` (Mass Flux) + `rho` (Gas Density) as station fields.
+- **#2 longitudinal slice viewer** (the "axial-profile-at-a-time" view):
+  - **Canonical data contract**: `result['seg_geom']` (per-segment
+    `seg_x_start`/`seg_length` + per-frame `seg_fwd_reg`/`seg_aft_reg`),
+    `dx`, `D_outer`, `cell_wall_web`, and the **initial** `cell_segment_id`
+    (t=0 map, so station fore/mid/aft track the as-designed grain). All
+    carried via `AxialPayload` → `sr.srm1d_axial`. 377 pytest green.
+  - **GUI** (`uilib/widgets/motorSliceWidget.py` + `resultsWidget`): full-
+    height bore heatmap (P/G/u/Mach/T/rho, **pinned per-field color scale**,
+    unit-aware colorbar) + grey propellant drawn **per segment over its live
+    `[x_fwd, x_aft]`** so both **radial port regression AND axial end-face
+    burnback** show (faces recede continuously, sub-cell). Mouseover cell
+    readout; theme-matched; **station highlights + labels** (Stations / Station
+    labels toggles, staggered labels). **Phase E**: True-scale (1:1) toggle +
+    trimmed nav toolbar (Home/Pan/Zoom/Save); **Original-profile ghost** (faint
+    t=0 grain behind the regressing grain) — replaced the abandoned %web
+    grayscale; edge-based bore wall (no half-cell ledge); sub-cell segments
+    render; `constrained_layout` (no label clipping when shrunk).
+  - **Deferred (optional):** Phase E **blitting** for buttery scrub; Phase D
+    **u/G vector overlay** (heatmap already conveys the quantity — user call).
+
+**Vectors / D**: deferred (heatmap suffices). **Next viz item: roadmap #3
+parametric tapering geometry** for FMM/finocyl grains (so station auto-
+placement works without clean fore/mid/aft anchors). Standing high-value
+non-viz target remains the high-L/D ignition-transient overshoot
+(`docs/v0_7_4/IGNITION_SPIKE_CLOSEOUT.md`).
