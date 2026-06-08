@@ -376,6 +376,16 @@ class TestEndToEndContract:
         grain = pl.cell_segment_id >= 0
         assert np.all(pl.fields['D_port'][:, grain] <= pl.D_outer + 1e-9)
 
+        # Roadmap #2 face burnback: per-segment geometry carried; faces recede.
+        sg = pl.seg_geom
+        assert sg and {'seg_x_start', 'seg_length', 'seg_fwd_reg', 'seg_aft_reg'} <= set(sg)
+        n_seg = sg['seg_x_start'].size
+        assert sg['seg_fwd_reg'].shape == (pl.n_frames, n_seg)
+        assert sg['seg_aft_reg'].shape == (pl.n_frames, n_seg)
+        # Faces start unburned and recede (uninhibited faces present this fixture).
+        assert np.all(sg['seg_fwd_reg'] >= -1e-12)
+        assert (sg['seg_fwd_reg'][-1].max() + sg['seg_aft_reg'][-1].max()) > 0.0
+
         st = default_stations(result['cell_segment_id'], result['x_cell'])
         assert len([s for s in st if s.role == 'fore' and s.active]) == 2
         # every default station samples a real grain cell

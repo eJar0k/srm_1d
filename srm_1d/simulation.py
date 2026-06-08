@@ -1365,6 +1365,7 @@ def _run_time_loop(
     max_hist,
     # --- Output: snapshots (pre-allocated) ---
     snap_data, snap_times, max_snaps,
+    snap_seg_fwd, snap_seg_aft,
     # --- v0.7.1: N-species state ---
     Y_species, species_params_arr, mass_source_by_species,
     gamma_mix_arr, Cp_mix_arr, R_mix_arr, M_mix_arr,
@@ -2127,6 +2128,11 @@ def _run_time_loop(
                 snap_data[snap_idx, _SNAP_RADIATION_HEAT_FLUX, i] = radiation_heat_flux[i]
                 snap_data[snap_idx, _SNAP_REGRESS, i] = regress[i]
                 snap_data[snap_idx, _SNAP_RHO, i] = rho[i]
+            # Per-segment end-face regression (axial face burnback) — small
+            # N_seg arrays kept parallel to the per-cell snapshot.
+            for k in range(N_seg):
+                snap_seg_fwd[snap_idx, k] = seg_fwd_regression[k]
+                snap_seg_aft[snap_idx, k] = seg_aft_regression[k]
             snap_idx += 1
             last_snapshot_t = t
 
@@ -2617,6 +2623,10 @@ def run_simulation(
     max_snaps = int(t_max / snapshot_interval) + 10
     snap_data = np.empty((max_snaps, N_SNAP_CHANNELS, N))
     snap_times = np.empty(max_snaps)
+    # Per-segment end-face regression history (axial face burnback) — parallel
+    # to the snapshots, for the longitudinal-slice viewer.
+    snap_seg_fwd = np.zeros((max_snaps, ga['N_seg']))
+    snap_seg_aft = np.zeros((max_snaps, ga['N_seg']))
 
     # ============================================================
     # STATUS PRINT
@@ -2729,6 +2739,7 @@ def run_simulation(
         max_hist,
         # Output: snapshots
         snap_data, snap_times, max_snaps,
+        snap_seg_fwd, snap_seg_aft,
         # v0.7.1: N-species state
         Y_species, species_params_arr, mass_source_by_species,
         gamma_mix_arr, Cp_mix_arr, R_mix_arr, M_mix_arr,
@@ -2894,8 +2905,9 @@ def run_simulation(
         'mass_produced': total_mass_produced,
         'mass_nozzle': total_mass_nozzle,
         'mass_balance_error': mass_balance_err,
-        'P_peak': float(P_head_arr[peak_idx]),
-        't_peak': float(time_arr[peak_idx]),
+        # Guard the empty-history case (run cancelled before the first step).
+        'P_peak': float(P_head_arr[peak_idx]) if len(P_head_arr) > 0 else 0.0,
+        't_peak': float(time_arr[peak_idx]) if len(time_arr) > 0 else 0.0,
         'P_mid': P_mid,
         't_burn': float(time_arr[-1]) if len(time_arr) > 0 else 0.0,
         't_first_burnout': first_burnthrough_time,
@@ -3038,6 +3050,16 @@ def run_simulation(
         'dx': float(dx),
         'D_outer': float(ga['D_outer']),
         'cell_wall_web': ga['cell_wall_web'].copy(),
+        # Per-segment end-face burnback over the snapshot frames: the grain
+        # extends axially from seg_x_start+fwd_reg to seg_x_start+seg_length-
+        # aft_reg, so the slice viewer can recede the faces continuously
+        # (not snap whole cells). fwd_reg/aft_reg are (n_snaps, N_seg).
+        'seg_geom': {
+            'seg_x_start': ga['seg_x_start'].copy(),
+            'seg_length': ga['seg_length'].copy(),
+            'seg_fwd_reg': snap_seg_fwd[:n_snaps].copy(),
+            'seg_aft_reg': snap_seg_aft[:n_snaps].copy(),
+        },
         'snapshots': snapshots, 'grains': grain_data,
         'summary': summary,
         'P_ambient': P_ambient,

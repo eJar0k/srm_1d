@@ -357,6 +357,7 @@ def _axial_payload_for_gui(result):
         'dx': payload.dx,
         'D_outer': payload.D_outer,
         'cell_wall_web': payload.cell_wall_web,
+        'seg_geom': payload.seg_geom,   # per-segment end-face burnback
         'stations': [
             {
                 'grain': s.grain, 'cell_index': s.cell_index,

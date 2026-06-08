@@ -81,6 +81,12 @@ class AxialPayload:
     cell_wall_web : ndarray (n_cells,)
         Per-cell initial web thickness [m]; %web remaining =
         1 - regress/cell_wall_web. Empty when absent.
+    seg_geom : dict
+        Per-segment end-face burnback for the longitudinal slice (face
+        recession). Keys: ``seg_x_start`` (N_seg,), ``seg_length`` (N_seg,),
+        ``seg_fwd_reg`` / ``seg_aft_reg`` (n_frames, N_seg) — decimated to the
+        kept frames. The grain spans [x_start+fwd_reg, x_start+length-aft_reg].
+        Empty when absent.
     """
     snap_times: np.ndarray
     x_cell: np.ndarray
@@ -90,6 +96,7 @@ class AxialPayload:
     dx: float = 0.0
     D_outer: float = 0.0
     cell_wall_web: np.ndarray = field(default_factory=lambda: np.array([], float))
+    seg_geom: dict = field(default_factory=dict)
 
     @property
     def n_frames(self) -> int:
@@ -191,6 +198,16 @@ def build_axial_payload(
     # cell width, casing OD, per-cell web. Absent in pre-v0.8.x results → the
     # slice viewer is simply unavailable (defaults below), no error.
     cww = result.get('cell_wall_web')
+    # Per-segment end-face burnback, decimated to the kept frames.
+    sg = result.get('seg_geom')
+    seg_geom = {}
+    if sg is not None and len(sg.get('seg_x_start', ())):
+        seg_geom = {
+            'seg_x_start': np.asarray(sg['seg_x_start'], dtype=float),
+            'seg_length': np.asarray(sg['seg_length'], dtype=float),
+            'seg_fwd_reg': np.asarray(sg['seg_fwd_reg'], dtype=float)[keep],
+            'seg_aft_reg': np.asarray(sg['seg_aft_reg'], dtype=float)[keep],
+        }
     return AxialPayload(
         snap_times=snap_times,
         x_cell=x_cell,
@@ -201,6 +218,7 @@ def build_axial_payload(
         D_outer=float(result.get('D_outer', 0.0) or 0.0),
         cell_wall_web=(np.asarray(cww, dtype=float)
                        if cww is not None else np.array([], dtype=float)),
+        seg_geom=seg_geom,
     )
 
 

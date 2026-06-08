@@ -192,6 +192,10 @@ def test_srm1d_axial_payload_attached(om):
     assert ax['dx'] > 0.0
     assert ax['D_outer'] > 0.0
     assert ax['cell_wall_web'].shape == (n_cells,)
+    # Face-burnback geometry for the slice viewer.
+    sg = ax['seg_geom']
+    assert {'seg_x_start', 'seg_length', 'seg_fwd_reg', 'seg_aft_reg'} <= set(sg)
+    assert sg['seg_fwd_reg'].shape[0] == n_frames
 
     # Default stations: at least one per grain, every station points at a real
     # grain cell, and exactly one fore station per grain is active by default.
