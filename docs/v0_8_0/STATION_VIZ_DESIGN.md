@@ -290,6 +290,20 @@ Viz core is cleared. Next work, in order:
    **Still open:** the srm_1d transient `cell_D_outer` refactor so the PISO
    solver honors OD taper (NEXT round); station auto-placement for tapered
    grains; possible BATES-vs-Conical consolidation (deferred).
+   **After the transient-OD round — upstream openMotor PR(s) for grain
+   tapering.** The taper feature is generic (no srm_1d deps), so it fits the
+   fork strategy's "upstream PRs = generic hooks only." Extract off
+   `upstream/master` (reapply additive edits onto vanilla files, since the
+   fork's `uilib`/`motor.py` have diverged): **PR1 = core motorlib** (`taper.py`
+   + `TaperProperty` + base-`Grain` taper/`isTaperable` + `MotorConfig.taperSlices`
+   + `Motor.runSimulation` expansion + `SimulationResult` snapshot + tests) —
+   clean, low-conflict; **PR2 = GUI** editor + preview (relocate
+   `renderGrainLongitudinal` out of the fork-only `motorSliceWidget.py` first);
+   trivial standalone PR = the `MainWindow.ui` `verticalLayout_3` warning fix.
+   Do it from the *completed* design (after transient OD) so the schema/API is
+   stable. Caveats if accepted: a one-time de-dup when the fork next syncs
+   upstream (drop the fork's copy for upstream's), and srm_1d then *tracks*
+   upstream's `taper['od']` schema + `motorlib.taper` API rather than owning it.
 
 Beyond that the field is open, but the standing high-value target is the
 **high-L/D igniter / ignition-transient overshoot** (the QS-erosive limitation
