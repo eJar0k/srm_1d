@@ -373,6 +373,27 @@ in geometry/burn rate/ignition (called every step or every N steps).
       uses the **aft-most** (throat-adjacent) slice (was a forward-cross-
       section approximation); QS `MotorConfig.taperSlices` (0 = auto) knob,
       auto floor raised 3→8 to remove short-grain thrust stepping.
+    - **Round 4 — OD / end taper, openMotor QS + GUI (srm_1d transient =
+      next round; srm_1d unchanged here).** A grain's OUTER diameter can
+      taper over an END region — independent of the bore taper, any grain —
+      for nozzle-convergence casts (aft cone) and hemispherical/elliptical
+      closures (fwd dome). Schema: a new `taper['od'] = {enabled,
+      ends:[{end:'fwd'|'aft', length, endDiameter, profile:'linear'|
+      'elliptical'}]}` (both ends allowed); `isTapered()` is now bore OR od.
+      `motorlib/taper.py` adds `od_diameter_at` (linear cone /
+      tangent-quarter-ellipse, `end_R=0`→hemisphere) + companion-coupling
+      helpers; the **expander sets each slice's `diameter` from the OD
+      profile pre-FMM** (openMotor's mask clips the cross-section — no
+      FMM-internal change) and force-inhibits the tapered end (positive
+      volume; a tiny-web clamp at a near-closed tip). GUI: an "End taper
+      (OD)" section (per end: profile + length + endDiameter + a
+      profile-dependent companion — half-**angle** for Linear, **end
+      fraction** for Elliptical — coupled to `endDiameter`) and a gated
+      **Longitudinal** preview tab (`renderGrainLongitudinal`; bore =
+      hydraulic radius, casing follows the OD profile). `PropertyEditor`
+      gained `setValue` (coupled fields). openMotor `test/unit/taper.py`
+      (72 total). **Pending (next round): the srm_1d transient
+      `cell_D_outer` refactor** so the PISO solver honors OD taper.
 
 - v0.8.0 (openMotor frontend integration — one return-type break, rest
   additive/data-format; full narrative in `docs/v0_8_0/`):

@@ -279,10 +279,17 @@ Viz core is cleared. Next work, in order:
    aft-most (throat-adjacent) slice. A QS `taperSlices` config knob
    (0 = auto) controls slice density (auto floor raised to 8 to remove
    short-grain thrust stepping). `test/unit/taper.py` (24).
-   **Still open:** OD/end taper (`linear|elliptical`, per-cell
-   `cell_D_outer` refactor — Phase 4, schema reserved); station
-   auto-placement for tapered grains; possible BATES-vs-Conical
-   consolidation (deferred).
+   **Round 4 — OD / end taper, QS + GUI (DONE 2026-06-08, openMotor fork):**
+   a grain's OUTER diameter can taper over an end region (aft nozzle cone /
+   fwd dome), independent of the bore taper, any grain. New `taper['od']`
+   schema (both ends; `linear` / tangent-`elliptical`); the expander sets
+   each slice's `diameter` from the OD profile (pre-FMM clip) and inhibits
+   the bonded end. GUI "End taper (OD)" section (profile-dependent companion:
+   half-angle for Linear, end-fraction for Elliptical) + a gated
+   **Longitudinal** preview tab (`renderGrainLongitudinal`). 72 oM tests.
+   **Still open:** the srm_1d transient `cell_D_outer` refactor so the PISO
+   solver honors OD taper (NEXT round); station auto-placement for tapered
+   grains; possible BATES-vs-Conical consolidation (deferred).
 
 Beyond that the field is open, but the standing high-value target is the
 **high-L/D igniter / ignition-transient overshoot** (the QS-erosive limitation
