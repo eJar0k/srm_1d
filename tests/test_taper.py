@@ -471,6 +471,37 @@ class TestTransientOdTaper:
         V = geo.total_propellant_volume()
         assert np.isfinite(V) and V > 0.0
 
+    def test_buffer_cells_pinned_to_grain_end_od(self):
+        # The leading/trailing gas-buffer cells follow the dome/cone (pinned to
+        # the fore-/aft-most propellant cell's OD) instead of jumping back to
+        # the full motor OD at the grain ends — so the casing + open-chamber
+        # flow field render continuously into the head/aft regions.
+        od = [
+            {'end': 'fwd', 'length': 0.04, 'endDiameter': 0.040,
+             'profile': 'elliptical'},
+            {'end': 'aft', 'length': 0.04, 'endDiameter': 0.045,
+             'profile': 'linear'},
+        ]
+        t = taper_profile('Finocyl', [(0.0, _finocyl_props(0.012))],
+                          map_dim=MAP_DIM, max_stations=16, od_ends=od,
+                          grain_length=0.200)
+        geo = build_snapped_geometry(
+            [{'length': 0.200, 'taper': t, 'od_ends': od,
+              'inhibit_fwd': True, 'inhibit_aft': True}],
+            D_outer=0.080, target_propellant_cells=40)
+        ga = geo.compile_geometry_arrays()
+        grain = np.where(ga['cell_segment_id'] >= 0)[0]
+        first, last = int(grain[0]), int(grain[-1])
+        co = ga['cell_D_outer']
+        assert first > 0 and last < geo.N_cells - 1   # buffers exist
+        # Head/aft buffers are pinned to the adjacent grain-end OD (tapered).
+        assert np.allclose(co[:first], co[first])
+        assert np.allclose(co[last + 1:], co[last])
+        assert co[first] < 0.080 - 1e-3 and co[last] < 0.080 - 1e-3
+        # The pinned buffers are fully-open chamber (bore == casing).
+        assert np.allclose(ga['D_port'][:first], co[first])
+        assert np.allclose(ga['D_port'][last + 1:], co[last])
+
     def test_od_degenerate_no_od_is_flat(self):
         # A bore-only taper (no OD) keeps a flat casing == D_outer.
         t = linear_taper('Finocyl', _finocyl_props(0.012),

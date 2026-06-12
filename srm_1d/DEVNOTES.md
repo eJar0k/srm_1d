@@ -430,6 +430,12 @@ in geometry/burn rate/ignition (called every step or every N steps).
       station table's `grain_outer_diameter` so the casing stays positive
       (never the analytic ~0) and `casting >= port`. Analytic (BATES) OD cells
       floor at the bore. (Triggered by `tapertest.ric`.)
+      **Head/aft buffer cells** (the leading/trailing gas buffers,
+      `cell_segment_id < 0`) are pinned to the fore-/aft-most propellant cell's
+      `cell_D_outer` so the casing + open-chamber flow field continue the
+      dome/cone into the head/aft instead of stepping back to the full motor OD
+      at the grain ends (self-correcting: a non-tapered end leaves its boundary
+      grain cell at the full OD, so the pin is a no-op there).
 
 - v0.8.0 (openMotor frontend integration — one return-type break, rest
   additive/data-format; full narrative in `docs/v0_8_0/`):

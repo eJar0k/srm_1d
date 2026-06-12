@@ -417,6 +417,24 @@ class MotorGeometry:
             fmm_perim_flat = np.empty(0)
             fmm_port_flat = np.empty(0)
 
+        # OD / end taper: pin the leading/trailing gas-buffer cells to the
+        # fore-/aft-most PROPELLANT cell's casing, so the casing (and the slice
+        # rendering's open-chamber flow field) continues the dome/cone into the
+        # head and aft regions instead of jumping back to the full motor OD at
+        # the grain ends. Self-correcting: an end with no OD taper leaves its
+        # boundary grain cell at the full OD, so the pin is a no-op there.
+        # No-op entirely without any OD taper.
+        if any(getattr(s, 'has_od', False) for s in self.segments):
+            grain_cells = np.where(cell_segment_id >= 0)[0]
+            if grain_cells.size:
+                first = int(grain_cells[0])
+                last = int(grain_cells[-1])
+                for lo, hi, ref in ((0, first, first), (last + 1, N, last)):
+                    for i in range(lo, hi):
+                        cell_D_outer[i] = cell_D_outer[ref]
+                        D_port[i] = cell_D_outer[ref]
+                        cell_A_port_init[i] = np.pi / 4.0 * cell_D_outer[ref] ** 2
+
         # Per-cell radial regression depth (primary state for the hot
         # loop). Starts at 0 (no regression yet).
         regress = np.zeros(N)
