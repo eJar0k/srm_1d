@@ -421,6 +421,15 @@ in geometry/burn rate/ignition (called every step or every N steps).
       Concave faces OUT of scope. Tests: `tests/test_taper.py`
       (`TestTransientOdTaper`) + `tests/test_station_viz.py` cell_D_outer
       carry; example `examples/tapered_finocyl.py` adds a forward OD dome.
+      **Near-closed tip robustness:** an OD taper that closes a tip to ~the
+      core (a true hemispherical dome, `endDiameter=0`) gives the FMM too thin
+      a web for openMotor's `savgol_filter(faceArea, 31, 5)`; `resolve_taper`
+      substitutes a `_closed_fmm_table` (zero perimeter, port==casting, tiny
+      web — no burn, no propellant) for such stations instead of crashing, and
+      `compile_geometry_arrays` floors each FMM cell's `cell_D_outer` at its
+      station table's `grain_outer_diameter` so the casing stays positive
+      (never the analytic ~0) and `casting >= port`. Analytic (BATES) OD cells
+      floor at the bore. (Triggered by `tapertest.ric`.)
 
 - v0.8.0 (openMotor frontend integration — one return-type break, rest
   additive/data-format; full narrative in `docs/v0_8_0/`):

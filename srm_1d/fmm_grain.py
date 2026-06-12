@@ -662,6 +662,35 @@ def _interp_control(control_stations: list, frac: float) -> dict:
     return dict(control_stations[-1][1])  # unreachable; defensive
 
 
+def _closed_fmm_table(props: dict, grain_type: str) -> FmmTable:
+    """A degenerate, fully-closed FMM table for a near-closed OD-tip station.
+
+    When an OD / end taper shrinks the casing to (near) the core — e.g. a true
+    hemispherical dome with `endDiameter = 0` — the cross-section is essentially
+    consumed (web → 0) and openMotor's FMM pipeline can't characterize it
+    (`savgol_filter` needs ≥ 31 face-area samples, which a sub-pixel web can't
+    provide). Such a tip carries negligible propellant, so model it as CLOSED:
+    zero burning perimeter, port == casting (no propellant), and a tiny web so
+    any cell mapping here is already burnt out. This mirrors the QS expander,
+    which dodges the tip entirely by sampling slice centers."""
+    god = float(props.get('diameter', 0.0))
+    casting = np.pi / 4.0 * god * god
+    w = 1.0e-4  # tiny positive web (cells mapping here contribute no burn)
+    inh_fwd, inh_aft = _INHIBIT_MAP.get(props.get('inhibitedEnds', 'Neither'),
+                                        (False, False))
+    return FmmTable(
+        reg_depth=np.array([0.0, w]),
+        perimeter=np.array([0.0, 0.0]),
+        port_area=np.array([casting, casting]),
+        wall_web=w,
+        grain_outer_diameter=god,
+        grain_length=float(props.get('length', 0.0)),
+        inhibited_fwd=inh_fwd,
+        inhibited_aft=inh_aft,
+        geom_name=grain_type,
+    )
+
+
 def resolve_taper(taper: TaperSpec, n_stations: int):
     """
     Build the real per-station FMM tables for a taper.
@@ -670,7 +699,9 @@ def resolve_taper(taper: TaperSpec, n_stations: int):
     consecutive interpolated cross-sections are identical, e.g. a
     degenerate fwd == aft taper). Stations are placed at
     `np.linspace(0, 1, n_stations)` so the endpoints reproduce the exact
-    forward/aft cross-sections.
+    forward/aft cross-sections. For an OD / end taper that closes a tip to
+    ~the core, the degenerate tip station(s) become a `_closed_fmm_table`
+    (no burn, no propellant) instead of crashing openMotor's FMM pipeline.
 
     Parameters
     ----------
@@ -720,7 +751,15 @@ def resolve_taper(taper: TaperSpec, n_stations: int):
         tab = cache.get(sig)
         if tab is None:
             ric = {'type': taper.grain_type, 'properties': props}
-            tab = from_ric_grain(ric, map_dim=taper.map_dim)
+            if od_ends:
+                # A near-closed OD tip can give the FMM too thin a web; fall
+                # back to a closed table rather than crash the solver.
+                try:
+                    tab = from_ric_grain(ric, map_dim=taper.map_dim)
+                except (ValueError, ZeroDivisionError):
+                    tab = _closed_fmm_table(props, taper.grain_type)
+            else:
+                tab = from_ric_grain(ric, map_dim=taper.map_dim)
             cache[sig] = tab
         tables.append(tab)
     return tables, fracs

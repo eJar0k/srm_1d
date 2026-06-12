@@ -182,13 +182,20 @@ class MotorGeometry:
         return 0.0
 
     def _fill_od_taper(self, cell_D_outer, cell_segment_id, x_centers,
-                       seg_x_start, seg_length, N):
+                       seg_x_start, seg_length, cell_D_bore_init, N):
         """Overwrite ``cell_D_outer`` for cells belonging to OD / end-tapered
         segments with the local casting diameter from
         ``motorlib.taper.od_diameter_at`` (the SAME analytic profile the
         openMotor QS expander and any per-station FMM clip use, so transient
         and QS read identical geometry). No-op (and no openMotor import) when
-        no segment carries an OD taper."""
+        no segment carries an OD taper.
+
+        For ANALYTIC (BATES/Conical) OD segments the casing cannot shrink below
+        the bore (a casing diameter < bore would give a negative web): the
+        floor at ``cell_D_bore_init`` yields a closed (zero-web, zero-mass)
+        tip. FMM OD cells keep the raw analytic value here; it is floored at
+        the per-station table diameter in ``compile_geometry_arrays`` so the
+        casing never falls below the cross-section the FMM table was built at."""
         if not any(getattr(s, 'od_ends', None) for s in self.segments):
             return
         from .fmm_grain import _setup_openmotor_path
@@ -198,7 +205,8 @@ class MotorGeometry:
             k = cell_segment_id[i]
             if k < 0:
                 continue
-            od_ends = getattr(self.segments[k], 'od_ends', None)
+            seg = self.segments[k]
+            od_ends = getattr(seg, 'od_ends', None)
             if not od_ends:
                 continue
             seg_len = seg_length[k]
@@ -207,8 +215,11 @@ class MotorGeometry:
                 frac = max(0.0, min(1.0, frac))
             else:
                 frac = 0.5
-            cell_D_outer[i] = od_diameter_at(frac, seg_len, self.D_outer,
-                                             od_ends)
+            d = od_diameter_at(frac, seg_len, self.D_outer, od_ends)
+            if not seg.is_tapered:
+                # Analytic grain: clamp at the bore (no negative web).
+                d = max(d, cell_D_bore_init[i])
+            cell_D_outer[i] = d
 
     def compile_geometry_arrays(self):
         """
@@ -300,7 +311,7 @@ class MotorGeometry:
         # array, so OD tapering is a pure data change.
         cell_D_outer = np.full(N, self.D_outer)
         self._fill_od_taper(cell_D_outer, cell_segment_id, x_centers,
-                            seg_x_start, seg_length, N)
+                            seg_x_start, seg_length, cell_D_bore_init, N)
 
         # Initial D_port from per-cell bore initialization
         D_port = cell_D_bore_init.copy()
@@ -393,6 +404,12 @@ class MotorGeometry:
                 cell_fmm_idx[i] = ti
                 cell_wall_web[i] = global_tables[ti].wall_web
                 cell_A_port_init[i] = float(global_tables[ti].port_area[0])
+                # OD taper: never let the casing fall below the diameter the
+                # station table was built at (the table's port is clipped to
+                # that casing), so casting >= port and a domed tip's casing
+                # stays positive instead of collapsing to the analytic ~0.
+                cell_D_outer[i] = max(cell_D_outer[i],
+                                      global_tables[ti].grain_outer_diameter)
         else:
             # No FMM segments — provide empty arrays Numba can accept.
             fmm_offset = np.zeros(1, dtype=np.int64)

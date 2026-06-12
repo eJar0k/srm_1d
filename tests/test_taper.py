@@ -444,6 +444,33 @@ class TestTransientOdTaper:
         seg = geo.segments[0]
         assert seg.has_od and not seg.is_tapered and seg.inhibit_aft
 
+    def test_near_closed_dome_tip_does_not_crash(self):
+        # A true hemispherical fwd dome (endDiameter=0) + an aft cone closing
+        # below the core give the FMM too thin a web at the tip; resolve_taper
+        # must substitute a closed table instead of crashing openMotor's
+        # savgol_filter, and cell_D_outer must stay strictly positive (the
+        # tapertest.ric regression).
+        od = [
+            {'end': 'fwd', 'length': 0.025, 'endDiameter': 0.0,
+             'profile': 'elliptical'},
+            {'end': 'aft', 'length': 0.013, 'endDiameter': 0.006,
+             'profile': 'linear'},
+        ]
+        t = taper_profile('Finocyl', [(0.0, _finocyl_props(0.012))],
+                          map_dim=MAP_DIM, max_stations=16, od_ends=od,
+                          grain_length=0.200)
+        geo = build_snapped_geometry(
+            [{'length': 0.200, 'taper': t, 'od_ends': od,
+              'inhibit_fwd': True, 'inhibit_aft': True}],
+            D_outer=0.080, target_propellant_cells=40)
+        ga = geo.compile_geometry_arrays()
+        cD = ga['cell_D_outer']
+        assert np.all(cD > 0.0), "casing must not collapse to 0 at a dome tip"
+        grain = ga['cell_segment_id'] >= 0
+        assert cD[grain].std() > 1e-4
+        V = geo.total_propellant_volume()
+        assert np.isfinite(V) and V > 0.0
+
     def test_od_degenerate_no_od_is_flat(self):
         # A bore-only taper (no OD) keeps a flat casing == D_outer.
         t = linear_taper('Finocyl', _finocyl_props(0.012),
