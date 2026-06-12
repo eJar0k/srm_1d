@@ -78,6 +78,11 @@ class AxialPayload:
     D_outer : float
         Motor outer (casing/grain OD) diameter [m]; slice R_outer = D_outer/2.
         ``0.0`` when absent.
+    cell_D_outer : ndarray (n_cells,)
+        Per-cell casing (outer) diameter [m] — varies over an end region for
+        OD / end-tapered grains; constant == ``D_outer`` otherwise. The slice
+        viewer draws ``R_outer(x) = 0.5 * cell_D_outer`` when present, else
+        falls back to the scalar ``0.5 * D_outer``. Empty when absent.
     cell_wall_web : ndarray (n_cells,)
         Per-cell initial web thickness [m]; %web remaining =
         1 - regress/cell_wall_web. Empty when absent.
@@ -95,6 +100,7 @@ class AxialPayload:
     frame_index: np.ndarray = field(default_factory=lambda: np.array([], int))
     dx: float = 0.0
     D_outer: float = 0.0
+    cell_D_outer: np.ndarray = field(default_factory=lambda: np.array([], float))
     cell_wall_web: np.ndarray = field(default_factory=lambda: np.array([], float))
     seg_geom: dict = field(default_factory=dict)
 
@@ -198,6 +204,7 @@ def build_axial_payload(
     # cell width, casing OD, per-cell web. Absent in pre-v0.8.x results → the
     # slice viewer is simply unavailable (defaults below), no error.
     cww = result.get('cell_wall_web')
+    cdo = result.get('cell_D_outer')
     # Per-segment end-face burnback, decimated to the kept frames.
     sg = result.get('seg_geom')
     seg_geom = {}
@@ -216,6 +223,8 @@ def build_axial_payload(
         frame_index=keep,
         dx=float(result.get('dx', 0.0) or 0.0),
         D_outer=float(result.get('D_outer', 0.0) or 0.0),
+        cell_D_outer=(np.asarray(cdo, dtype=float)
+                      if cdo is not None else np.array([], dtype=float)),
         cell_wall_web=(np.asarray(cww, dtype=float)
                        if cww is not None else np.array([], dtype=float)),
         seg_geom=seg_geom,

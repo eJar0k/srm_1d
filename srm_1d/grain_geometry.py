@@ -106,6 +106,14 @@ class GrainSegment:
         single-table `fmm_table`.
     fmm_station_frac : ndarray or None
         Axial fractions (length == len(fmm_tables)) of the tapered tables.
+    od_ends : list of dict or None
+        OD / end-taper entries (the openMotor `taper['od']['ends']` schema:
+        `[{end:'fwd'|'aft', length, endDiameter, profile:'linear'|'elliptical'}]`).
+        When set, the segment's casing (outer) diameter shrinks over an end
+        region; `compile_geometry_arrays` builds a per-cell `cell_D_outer`
+        from `motorlib.taper.od_diameter_at`. None / empty = constant
+        `D_outer` (the non-OD default). Applies to both FMM and analytic
+        (BATES) segments.
     """
     x_start: float
     length: float
@@ -117,6 +125,7 @@ class GrainSegment:
     fmm_table: object = None  # forward-typed: avoid cyclic import of FmmTable
     fmm_tables: object = None  # list[FmmTable] for tapered grains
     fmm_station_frac: object = None  # ndarray of axial fractions, aligned
+    od_ends: object = None  # list[dict] OD/end-taper entries (None = no OD taper)
 
     def __post_init__(self):
         if self.D_bore_aft is None:
@@ -126,6 +135,12 @@ class GrainSegment:
     def is_tapered(self) -> bool:
         """True if this segment carries a per-station tapered FMM stack."""
         return self.fmm_tables is not None and len(self.fmm_tables) > 0
+
+    @property
+    def has_od(self) -> bool:
+        """True if this segment carries an OD / end taper (axially-varying
+        casing diameter)."""
+        return self.od_ends is not None and len(self.od_ends) > 0
 
 
 @dataclass
@@ -165,6 +180,35 @@ class MotorGeometry:
         if self.segments:
             return (self.D_outer - self.segments[0].D_bore_fwd) / 2.0
         return 0.0
+
+    def _fill_od_taper(self, cell_D_outer, cell_segment_id, x_centers,
+                       seg_x_start, seg_length, N):
+        """Overwrite ``cell_D_outer`` for cells belonging to OD / end-tapered
+        segments with the local casting diameter from
+        ``motorlib.taper.od_diameter_at`` (the SAME analytic profile the
+        openMotor QS expander and any per-station FMM clip use, so transient
+        and QS read identical geometry). No-op (and no openMotor import) when
+        no segment carries an OD taper."""
+        if not any(getattr(s, 'od_ends', None) for s in self.segments):
+            return
+        from .fmm_grain import _setup_openmotor_path
+        _setup_openmotor_path()
+        from motorlib.taper import od_diameter_at
+        for i in range(N):
+            k = cell_segment_id[i]
+            if k < 0:
+                continue
+            od_ends = getattr(self.segments[k], 'od_ends', None)
+            if not od_ends:
+                continue
+            seg_len = seg_length[k]
+            if seg_len > 1e-10:
+                frac = (x_centers[i] - seg_x_start[k]) / seg_len
+                frac = max(0.0, min(1.0, frac))
+            else:
+                frac = 0.5
+            cell_D_outer[i] = od_diameter_at(frac, seg_len, self.D_outer,
+                                             od_ends)
 
     def compile_geometry_arrays(self):
         """
@@ -248,17 +292,27 @@ class MotorGeometry:
                     seg_D_bore_fwd[k] * (1.0 - frac) + seg_D_bore_aft[k] * frac
                 )
 
+        # Per-cell casing (outer) diameter. Default = the motor's scalar
+        # D_outer for EVERY cell (a no-op for non-OD motors). Segments
+        # carrying an OD / end taper (`seg.od_ends`) overwrite their cells
+        # with the local casting diameter below (Phase B). Every per-cell
+        # geometry term that referenced the scalar D_outer now reads this
+        # array, so OD tapering is a pure data change.
+        cell_D_outer = np.full(N, self.D_outer)
+        self._fill_od_taper(cell_D_outer, cell_segment_id, x_centers,
+                            seg_x_start, seg_length, N)
+
         # Initial D_port from per-cell bore initialization
         D_port = cell_D_bore_init.copy()
         # Gap cells get full outer diameter
         for i in range(N):
             if cell_segment_id[i] < 0:
-                D_port[i] = self.D_outer
+                D_port[i] = cell_D_outer[i]
 
         # Per-cell wall web (radial regression to burnout). For
         # cylindrical/conical: (D_outer - D_bore_init) / 2. For FMM
         # cells: overwritten with FmmTable.wall_web below.
-        cell_wall_web = (self.D_outer - cell_D_bore_init) / 2.0
+        cell_wall_web = (cell_D_outer - cell_D_bore_init) / 2.0
 
         # Per-cell segment type (0=cylindrical/conical, 1=FMM).
         cell_segment_type = np.zeros(N, dtype=np.int64)
@@ -270,12 +324,11 @@ class MotorGeometry:
         # overwritten with the FMM table's initial port area below. Used by
         # total_propellant_volume as a per-cell Riemann sum (the single
         # source of truth for the cell->station mapping, valid for arbitrary
-        # tapers).
-        casting_area = np.pi / 4.0 * self.D_outer ** 2
+        # tapers). Gap cells take the local casting area.
         cell_A_port_init = np.pi / 4.0 * cell_D_bore_init ** 2
         for i in range(N):
             if cell_segment_id[i] < 0:
-                cell_A_port_init[i] = casting_area
+                cell_A_port_init[i] = np.pi / 4.0 * cell_D_outer[i] ** 2
 
         # ------------------------------------------------------------
         # Pack FMM tables into flat (CSR-like) arrays
@@ -357,6 +410,7 @@ class MotorGeometry:
             'N': N,
             'N_seg': N_seg,
             'D_outer': self.D_outer,
+            'cell_D_outer': cell_D_outer,
             'seg_x_start': seg_x_start,
             'seg_length': seg_length,
             'seg_D_bore_fwd': seg_D_bore_fwd,
@@ -401,21 +455,26 @@ class MotorGeometry:
         V = 0.0
         casting_area = np.pi / 4.0 * self.D_outer ** 2
 
-        # Tapered segments need the compiled per-cell assignment. Compile
-        # once only if any segment is tapered (setup-time, not a hot path).
-        has_taper = any(s.is_tapered for s in self.segments)
-        if has_taper:
+        # Tapered OR OD-tapered segments need the compiled per-cell
+        # assignment (the casing diameter and/or port area vary along the
+        # axis). Compile once only if any such segment exists (setup-time,
+        # not a hot path).
+        needs_cells = any(s.is_tapered or s.has_od for s in self.segments)
+        if needs_cells:
             ga = self.compile_geometry_arrays()
             dx = ga['dx']
             cell_segment_id = ga['cell_segment_id']
             cell_A_port_init = ga['cell_A_port_init']
+            cell_casting = np.pi / 4.0 * ga['cell_D_outer'] ** 2
 
         for k, s in enumerate(self.segments):
-            if s.is_tapered:
+            if s.is_tapered or s.has_od:
                 # Riemann sum over this segment's cells (single source of
                 # truth: the same cell->station map compile/solver use).
+                # Per-cell casting honors OD/end taper (cell_casting is the
+                # scalar casting_area when this segment has no OD taper).
                 mask = cell_segment_id == k
-                V += float(np.sum(casting_area - cell_A_port_init[mask]) * dx)
+                V += float(np.sum(cell_casting[mask] - cell_A_port_init[mask]) * dx)
             elif s.fmm_table is not None:
                 V += (casting_area - s.fmm_table.initial_port_area) * s.length
             else:
@@ -488,7 +547,7 @@ def _saint_robert_local(P, tab_min_p, tab_max_p, tab_a, tab_n, n_tabs):
 
 @njit(cache=True)
 def update_cell_geometry(
-    regress, D_port, x_centers, dx, N, N_seg, D_outer,
+    regress, D_port, x_centers, dx, N, N_seg, cell_D_outer,
     seg_x_start, seg_length, seg_fwd_reg, seg_aft_reg,
     seg_inhibit_fwd, seg_inhibit_aft,
     cell_segment_id,
@@ -531,8 +590,10 @@ def update_cell_geometry(
         Number of cells.
     N_seg : int
         Number of grain segments.
-    D_outer : float
-        Outer diameter [m].
+    cell_D_outer : ndarray (N,)
+        Per-cell casing (outer) diameter [m]. Constant = the motor D_outer
+        for non-OD motors; varies over an end region for OD / end-tapered
+        grains.
     seg_x_start, seg_length : ndarray (N_seg,)
         Segment positions and initial lengths [m].
     seg_fwd_reg, seg_aft_reg : ndarray (N_seg,)
@@ -567,6 +628,11 @@ def update_cell_geometry(
     PI = 3.141592653589793
 
     for i in range(N):
+        # Per-cell casing diameter (honors OD / end taper) and its casting
+        # area. Constant = motor D_outer for non-OD motors.
+        Do = cell_D_outer[i]
+        casting_area = PI / 4.0 * Do * Do
+
         # Derive port shape from per-cell regression depth.
         # Branch on cell_segment_type:
         #   0 = cylindrical/conical: D_port = D_bore_init + 2·regress (analytic)
@@ -585,9 +651,9 @@ def update_cell_geometry(
             if A_port_cell > 0.0:
                 D_eff = (4.0 * A_port_cell / PI) ** 0.5
             else:
-                D_eff = D_outer
-            if D_eff > D_outer:
-                D_eff = D_outer
+                D_eff = Do
+            if D_eff > Do:
+                D_eff = Do
             D = D_eff
             D_port[i] = D
             A_port[i] = A_port_cell
@@ -595,12 +661,12 @@ def update_cell_geometry(
             if base_perimeter > 1e-10:
                 D_hyd[i] = 4.0 * A_port_cell / base_perimeter
             else:
-                D_hyd[i] = D_outer
+                D_hyd[i] = Do
         else:
             # Cylindrical/conical analytic path
             D = cell_D_bore_init[i] + 2.0 * regress[i]
-            if D > D_outer:
-                D = D_outer
+            if D > Do:
+                D = Do
             D_port[i] = D
             A_port[i] = PI / 4.0 * D * D
             D_hyd[i] = D
@@ -658,34 +724,36 @@ def update_cell_geometry(
             # 2. End-face mass sources (Linear Distribution Kernel)
             # Evaluated independently of grain_frac so mass is not dropped
             # when the hat function pushes it into an empty gap cell.
+            # The casting area is taken at the FACE's sample cell so an
+            # OD / end-tapered grain's shrinking casing reduces the burning
+            # face area correctly.
             # -----------------------------------------------
-            casting_area = PI / 4.0 * D_outer * D_outer
-
             if not seg_inhibit_fwd[k]:
                 dist_fwd = abs(x_fwd - x)
                 weight = 0.0
-                
+
                 if dist_fwd < dx:
                     weight = 1.0 - (dist_fwd / dx)
                 if i == 0 and x_fwd < x:
                     weight = 1.0
                 elif i == N - 1 and x_fwd > x:
                     weight = 1.0
-                    
+
                 if weight > 0.0:
                     x_sample = min(x_fwd + 0.1 * dx, x_aft - 1e-6)
                     i_sample = max(0, min(N - 1, int(x_sample / dx)))
-                    
+                    Do_face = cell_D_outer[i_sample]
+
                     if cell_segment_type[i_sample] == 1 and cell_fmm_idx[i_sample] >= 0:
                         A_port_face = _fmm_lookup_flat(regress[i_sample], cell_fmm_idx[i_sample], fmm_offset, fmm_port_flat, fmm_reg_flat)
                     else:
                         D_face = cell_D_bore_init[i_sample] + 2.0 * regress[i_sample]
-                        D_face = min(D_face, D_outer)
+                        D_face = min(D_face, Do_face)
                         A_port_face = PI / 4.0 * D_face * D_face
-                        
-                    A_face = casting_area - A_port_face
+
+                    A_face = PI / 4.0 * Do_face * Do_face - A_port_face
                     if A_face < 0.0: A_face = 0.0
-                    
+
                     r_normal = _saint_robert_local(P[i], tab_min_p, tab_max_p, tab_a, tab_n, n_tabs)
                     endface_msource[i] += weight * rho_propellant * r_normal * A_face / dx
 
@@ -703,17 +771,18 @@ def update_cell_geometry(
                 if weight > 0.0:
                     x_sample = max(x_aft - 0.1 * dx, x_fwd + 1e-6)
                     i_sample = max(0, min(N - 1, int(x_sample / dx)))
-                    
+                    Do_face = cell_D_outer[i_sample]
+
                     if cell_segment_type[i_sample] == 1 and cell_fmm_idx[i_sample] >= 0:
                         A_port_face = _fmm_lookup_flat(regress[i_sample], cell_fmm_idx[i_sample], fmm_offset, fmm_port_flat, fmm_reg_flat)
                     else:
                         D_face = cell_D_bore_init[i_sample] + 2.0 * regress[i_sample]
-                        D_face = min(D_face, D_outer)
+                        D_face = min(D_face, Do_face)
                         A_port_face = PI / 4.0 * D_face * D_face
-                        
-                    A_face = casting_area - A_port_face
+
+                    A_face = PI / 4.0 * Do_face * Do_face - A_port_face
                     if A_face < 0.0: A_face = 0.0
-                    
+
                     r_normal = _saint_robert_local(P[i], tab_min_p, tab_max_p, tab_a, tab_n, n_tabs)
                     endface_msource[i] += weight * rho_propellant * r_normal * A_face / dx
 
@@ -721,16 +790,18 @@ def update_cell_geometry(
         # Volumetric Flow Area Smoothing
         # -----------------------------------------------
         if total_grain_frac > 0.0:
-            casting_area = PI / 4.0 * D_outer * D_outer
-            # Smoothly blend the port area based on how much grain is in the cell
+            # Smoothly blend the port area based on how much grain is in the
+            # cell (casting_area uses this cell's local OD, set at loop top).
             A_port[i] = A_port[i] * total_grain_frac + casting_area * (1.0 - total_grain_frac)
             D_port[i] = (4.0 * A_port[i] / PI) ** 0.5
             D_hyd[i] = D_port[i]
         else:
             # Pure Gap Cell
-            D_port[i] = D_outer
-            A_port[i] = PI / 4.0 * D_outer * D_outer
-            D_hyd[i] = D_outer
+            D_port[i] = Do
+            A_port[i] = casting_area
+            D_hyd[i] = Do
+
+    return cell_segment_id
 
     return cell_segment_id
 
@@ -910,6 +981,11 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float, target_pro
           station count tracks the segment's cell count
           (`min(cells, taper.max_stations)`). Mutually exclusive with
           'fmm_table'.
+        - 'od_ends': list of dict or None (optional, OD / end-taper entries —
+          the casing diameter shrinks over an end region). Carried onto the
+          GrainSegment; `compile_geometry_arrays` builds the per-cell
+          `cell_D_outer` from it. Works with an FMM 'taper' (the per-station
+          tables are OD-clipped) or standalone on an analytic BATES/Conical.
     D_outer : float
         Outer casing diameter [m].
     target_propellant_cells : int
@@ -973,6 +1049,11 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float, target_pro
                     "segment spec may set 'taper' or 'fmm_table', not both."
                 )
             from .fmm_grain import resolve_taper  # lazy: only when tapered
+            # OD taper: pin the end-region mapping to the SNAPPED length so the
+            # per-station FMM clip and the analytic cell_D_outer (built in
+            # compile_geometry_arrays from the same od_diameter_at) agree.
+            if getattr(taper, 'od_ends', None):
+                taper.grain_length = snapped_length
             n_stations = min(n_seg, taper.max_stations)
             if n_seg >= 2:
                 n_stations = max(2, n_stations)
@@ -996,6 +1077,7 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float, target_pro
             fmm_table=spec.get('fmm_table', None),
             fmm_tables=fmm_tables,
             fmm_station_frac=fmm_station_frac,
+            od_ends=spec.get('od_ends', None),
         ))
 
         x_cursor += snapped_length

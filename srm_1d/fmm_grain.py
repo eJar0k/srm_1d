@@ -544,11 +544,25 @@ class TaperSpec:
     max_stations : int
         Upper bound on the number of FMM solves along the axis. The
         resolved station count is `min(segment_cells, max_stations)`.
+    od_ends : list of dict or None
+        OD / end-taper entries (openMotor `taper['od']['ends']` schema). When
+        set, each station's `props['diameter']` is reduced to the local
+        casting diameter (`motorlib.taper.od_diameter_at`) BEFORE the FMM
+        runs, so the regression map / port area / wall_web are clipped to the
+        shrinking casing (no FMM-internal change — mirrors the QS expander).
+        Forces the per-station path even with one control point (constant
+        cross-section, varying casing diameter).
+    grain_length : float
+        Axial length [m] used for the OD-taper end-region mapping. Set to the
+        SNAPPED segment length by `build_snapped_geometry` so the transient
+        and analytic `cell_D_outer` use an identical end-region extent.
     """
     grain_type: str
     control_stations: list
     map_dim: int = 1001
     max_stations: int = 32
+    od_ends: object = None        # list[dict] OD/end-taper entries (None = none)
+    grain_length: float = 0.0     # snapped axial length for the OD mapping
 
     def __post_init__(self):
         if not self.control_stations:
@@ -566,25 +580,42 @@ class TaperSpec:
 
 
 def linear_taper(grain_type: str, props_fwd: dict, props_aft: dict,
-                 map_dim: int = 1001, max_stations: int = 32) -> TaperSpec:
+                 map_dim: int = 1001, max_stations: int = 32,
+                 od_ends=None, grain_length: float = 0.0) -> TaperSpec:
     """Convenience: a two-point (forward → aft) linear taper."""
     return TaperSpec(
         grain_type=grain_type,
         control_stations=[(0.0, dict(props_fwd)), (1.0, dict(props_aft))],
         map_dim=map_dim,
         max_stations=max_stations,
+        od_ends=od_ends,
+        grain_length=grain_length,
     )
 
 
 def taper_profile(grain_type: str, control_stations, map_dim: int = 1001,
-                  max_stations: int = 32) -> TaperSpec:
+                  max_stations: int = 32, od_ends=None,
+                  grain_length: float = 0.0) -> TaperSpec:
     """Convenience: an arbitrary piecewise-linear taper from control points."""
     return TaperSpec(
         grain_type=grain_type,
         control_stations=[(float(f), dict(p)) for f, p in control_stations],
         map_dim=map_dim,
         max_stations=max_stations,
+        od_ends=od_ends,
+        grain_length=grain_length,
     )
+
+
+def od_ends_from_taper(taper_def):
+    """The OD / end-taper entries of a `.ric` `taper` block ([] when absent or
+    disabled). Thin re-export of `motorlib.taper.od_ends_from_taper` that sets
+    up the openMotor path first, so the adapter has one import surface."""
+    if not isinstance(taper_def, dict):
+        return []
+    _setup_openmotor_path()
+    from motorlib.taper import od_ends_from_taper as _od
+    return _od(taper_def)
 
 
 def taper_spec_from_props(grain_type: str, base_props: dict, taper_def: dict,
@@ -594,8 +625,10 @@ def taper_spec_from_props(grain_type: str, base_props: dict, taper_def: dict,
     `taper` definition block (the solver-agnostic schema written by
     openMotor's `TaperProperty`). The grain's normal properties are the
     forward (frac 0) cross-section; each `bore.controlStations` entry gives
-    the overrides at its `frac`. Mirrors `motorlib.taper`'s control-point
-    construction so QS and transient read identical geometry.
+    the overrides at its `frac`. The `od` sub-block (end taper) is carried as
+    `od_ends` so each per-station FMM table is clipped to the local casting
+    diameter. Mirrors `motorlib.taper`'s control-point construction so QS and
+    transient read identical geometry.
     """
     base = {k: v for k, v in base_props.items() if k != 'taper'}
     bore = (taper_def.get('bore', {}) or {}) if isinstance(taper_def, dict) else {}
@@ -605,8 +638,11 @@ def taper_spec_from_props(grain_type: str, base_props: dict, taper_def: dict,
     for station in stations:
         overrides = station.get('props', {}) or {}
         control.append((float(station['frac']), {**base, **overrides}))
+    od_ends = od_ends_from_taper(taper_def)
+    grain_length = float(base.get('length', 0.0))
     return taper_profile(grain_type, control, map_dim=map_dim,
-                         max_stations=max_stations)
+                         max_stations=max_stations,
+                         od_ends=(od_ends or None), grain_length=grain_length)
 
 
 def _interp_control(control_stations: list, frac: float) -> dict:
@@ -657,10 +693,26 @@ def resolve_taper(taper: TaperSpec, n_stations: int):
     else:
         fracs = np.linspace(0.0, 1.0, n)
 
+    # OD / end taper: each station's casting diameter is reduced to the local
+    # value BEFORE the FMM runs (the mask then clips the cross-section). Same
+    # analytic profile the QS expander and the transient cell_D_outer use.
+    od_ends = getattr(taper, 'od_ends', None)
+    od_diameter_at = None
+    if od_ends:
+        from motorlib.taper import od_diameter_at as _od_at
+        od_diameter_at = _od_at
+
     tables = []
     cache = {}  # interpolated-props signature -> FmmTable (avoid resolves)
     for f in fracs:
         props = _interp_control(taper.control_stations, float(f))
+        if od_diameter_at is not None:
+            full_d = props['diameter']
+            d = od_diameter_at(float(f), taper.grain_length, full_d, od_ends)
+            # Keep a tiny positive web at a near-closed tip so the FMM doesn't
+            # choke (mirrors the QS expander's min-diameter clamp).
+            min_d = props.get('coreDiameter', 0.0) + 2.0e-4
+            props['diameter'] = max(d, min_d)
         sig = tuple(
             (k, round(v, 12) if isinstance(v, float) else v)
             for k, v in sorted(props.items())

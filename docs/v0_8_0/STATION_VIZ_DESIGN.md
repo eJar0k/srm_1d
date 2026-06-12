@@ -287,10 +287,32 @@ Viz core is cleared. Next work, in order:
    the bonded end. GUI "End taper (OD)" section (profile-dependent companion:
    half-angle for Linear, end-fraction for Elliptical) + a gated
    **Longitudinal** preview tab (`renderGrainLongitudinal`). 72 oM tests.
-   **Still open:** the srm_1d transient `cell_D_outer` refactor so the PISO
-   solver honors OD taper (NEXT round); station auto-placement for tapered
-   grains; possible BATES-vs-Conical consolidation (deferred).
-   **After the transient-OD round — upstream openMotor PR(s) for grain
+
+   **Round 5 — srm_1d transient OD / end taper (DONE 2026-06-12):** the PISO
+   solver now honors OD taper. The scalar `D_outer` became a per-cell
+   `cell_D_outer[i]`, built in `compile_geometry_arrays`
+   (`_fill_od_taper` → `motorlib.taper.od_diameter_at`, the SAME analytic
+   profile QS uses) and threaded through `update_cell_geometry` /
+   `_run_time_loop` (casting area, wall_web, clamps, gap fill, end-face area,
+   burnthrough). FMM grains clip each per-station table to the local casting
+   diameter PRE-FMM (OD forces the per-station path even with no bore taper);
+   analytic BATES/Conical get `cell_wall_web = (cell_D_outer − bore)/2` and a
+   per-cell-casting Riemann mass sum. The adapter detects bore OR od, attaches
+   `od_ends`, auto-inhibits the bonded end, and stops raising for an OD-only
+   BATES/Conical. The result dict + `AxialPayload` + plugin `srm1d_axial`
+   carry `cell_D_outer`; the **slice viewer draws the casing as a per-edge
+   `R_outer(x)`** (mesh ±Ro_edge / propellant top / hover / outline), falling
+   back to the scalar `0.5·D_outer` for pre-OD results. Mass conserved
+   (transient OD finocyl + BATES ≈ 0.1 %); the user's "render OD in the flow
+   field" ask resolves here. srm_1d 133 affected tests + oM 72 green.
+   Concave faces OUT of scope. Tests: `tests/test_taper.py`
+   (`TestTransientOdTaper`); example `examples/tapered_finocyl.py` adds a
+   forward OD dome.
+
+   **Still open:** station auto-placement for tapered grains; possible
+   BATES-vs-Conical consolidation (deferred); BALLSStick aft-finocyl CAD
+   QS-vs-transient validation; deferred slice perf (blitting) / u·G vectors.
+   **Next — upstream openMotor PR(s) for grain
    tapering.** The taper feature is generic (no srm_1d deps), so it fits the
    fork strategy's "upstream PRs = generic hooks only." Extract off
    `upstream/master` (reapply additive edits onto vanilla files, since the

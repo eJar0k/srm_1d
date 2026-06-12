@@ -344,3 +344,139 @@ class TestRicTaperRead:
                 [{'frac': 1.0, 'props': {'coreDiameter': 0.040}}]}}}}
         with pytest.raises(NotImplementedError):
             convert_geometry([bates], target_propellant_cells=40, fmm_map_dim=MAP_DIM)
+
+
+# ================================================================
+# OD / end taper — transient cell_D_outer (the casing tapers)
+# ================================================================
+
+_OD_AFT_CONE = [{'end': 'aft', 'length': 0.06, 'endDiameter': 0.050,
+                 'profile': 'linear'}]
+_OD_FWD_DOME = [{'end': 'fwd', 'length': 0.05, 'endDiameter': 0.040,
+                 'profile': 'elliptical'}]
+
+
+class TestTransientOdTaper:
+    """OD / end taper drives a per-cell casing diameter (cell_D_outer) for both
+    FMM (per-station OD-clipped tables) and analytic (BATES) grains."""
+
+    def _fmm_od_geo(self, od_ends=_OD_AFT_CONE, inhibit_aft=True):
+        t = taper_profile('Finocyl', [(0.0, _finocyl_props(0.012))],
+                          map_dim=MAP_DIM, max_stations=12,
+                          od_ends=od_ends, grain_length=0.200)
+        return build_snapped_geometry(
+            [{'length': 0.200, 'taper': t, 'od_ends': od_ends,
+              'inhibit_aft': inhibit_aft}],
+            D_outer=0.080, target_propellant_cells=40)
+
+    def test_fmm_od_cone_varies_cell_d_outer(self):
+        geo = self._fmm_od_geo()
+        seg = geo.segments[0]
+        assert seg.has_od and seg.is_tapered
+        ga = geo.compile_geometry_arrays()
+        grain = ga['cell_segment_id'] >= 0
+        cD = ga['cell_D_outer'][grain]
+        # Casing is full-OD in the uniform region and shrinks over the cone.
+        assert cD.max() == pytest.approx(0.080, abs=1e-6)
+        assert cD.min() < 0.080 - 1e-3
+        assert cD.std() > 1e-4
+        # The aft cone clips the FMM tables -> smaller wall_web toward the aft.
+        ww = ga['cell_wall_web'][grain]
+        assert ww[-1] < ww[0]
+
+    def test_fmm_od_mass_is_per_cell_riemann_sum(self):
+        geo = self._fmm_od_geo()
+        ga = geo.compile_geometry_arrays()
+        grain = ga['cell_segment_id'] >= 0
+        cell_casting = np.pi / 4.0 * ga['cell_D_outer'] ** 2
+        V_expected = float(
+            np.sum(cell_casting[grain] - ga['cell_A_port_init'][grain]) * ga['dx']
+        )
+        assert geo.total_propellant_volume() == pytest.approx(V_expected, rel=1e-9)
+        assert geo.total_propellant_volume() > 0.0
+
+    def test_analytic_bates_od_dome(self):
+        geo = build_snapped_geometry(
+            [{'D_bore_fwd': 0.030, 'length': 0.200, 'od_ends': _OD_FWD_DOME,
+              'inhibit_fwd': True}],
+            D_outer=0.080, target_propellant_cells=40)
+        seg = geo.segments[0]
+        assert seg.has_od and not seg.is_tapered
+        ga = geo.compile_geometry_arrays()
+        grain = ga['cell_segment_id'] >= 0
+        cD = ga['cell_D_outer'][grain]
+        ww = ga['cell_wall_web'][grain]
+        assert cD.min() < 0.080 - 1e-3 and cD.std() > 1e-4
+        # Forward (domed) end has the thinner web; bore (port) is unchanged.
+        assert ww[0] < ww[-1]
+        assert np.allclose(ga['cell_A_port_init'][grain],
+                           np.pi / 4.0 * ga['cell_D_bore_init'][grain] ** 2)
+        # wall_web is exactly (cell_D_outer - bore)/2 for analytic cells.
+        assert np.allclose(ww, (cD - ga['cell_D_bore_init'][grain]) / 2.0)
+
+    def test_ric_od_block_converts_and_inhibits_end(self):
+        from srm_1d.openmotor_adapter import convert_geometry
+        props = _finocyl_props(0.012)
+        props['taper'] = {'enabled': False, 'od': {'enabled': True,
+            'ends': [{'end': 'aft', 'length': 0.06, 'endDiameter': 0.050,
+                      'profile': 'linear'}]}}
+        geo = convert_geometry([{'type': 'Finocyl', 'properties': props}],
+                               target_propellant_cells=40, fmm_map_dim=MAP_DIM)
+        seg = geo.segments[0]
+        # OD-only on an FMM grain still forces the per-station path, and the
+        # coned end is auto-inhibited (bonded to the closure).
+        assert seg.has_od and seg.is_tapered and seg.inhibit_aft
+        ga = geo.compile_geometry_arrays()
+        cD = ga['cell_D_outer'][ga['cell_segment_id'] >= 0]
+        assert cD.std() > 1e-4
+
+    def test_bates_od_only_does_not_raise(self):
+        # A *bore* taper of BATES raises; an OD-only taper is supported.
+        from srm_1d.openmotor_adapter import convert_geometry
+        bates = {'type': 'BATES', 'properties': {
+            'diameter': 0.080, 'length': 0.200, 'coreDiameter': 0.030,
+            'inhibitedEnds': 'Neither',
+            'taper': {'enabled': False, 'od': {'enabled': True,
+                'ends': [{'end': 'aft', 'length': 0.05, 'endDiameter': 0.050,
+                          'profile': 'linear'}]}}}}
+        geo = convert_geometry([bates], target_propellant_cells=40,
+                               fmm_map_dim=MAP_DIM)
+        seg = geo.segments[0]
+        assert seg.has_od and not seg.is_tapered and seg.inhibit_aft
+
+    def test_od_degenerate_no_od_is_flat(self):
+        # A bore-only taper (no OD) keeps a flat casing == D_outer.
+        t = linear_taper('Finocyl', _finocyl_props(0.012),
+                         _finocyl_props(0.020), map_dim=MAP_DIM)
+        geo = build_snapped_geometry([{'length': 0.200, 'taper': t}],
+                                     D_outer=0.080, target_propellant_cells=40)
+        ga = geo.compile_geometry_arrays()
+        assert np.allclose(ga['cell_D_outer'], 0.080)
+        assert not geo.segments[0].has_od
+
+    def test_transient_od_run_mass_balance(self):
+        # A full transient run on the OD-coned finocyl conserves mass.
+        from srm_1d import run_simulation
+        from srm_1d.nozzle import Nozzle
+        from srm_1d.propellant import Pyrogen
+        from srm_1d.igniter_plenum import PyrogenChamber
+        from tests._motor_fixtures import hasegawa_propellant_1
+
+        geo = self._fmm_od_geo()
+        prop = hasegawa_propellant_1()
+        nozzle = Nozzle(D_throat=0.020, D_exit=0.035, efficiency=0.95)
+        pyro = Pyrogen("t", 3.0e-5, 0.5, 1700.0, 2800.0, 0.030, 1.25,
+                       heat_flux_cal_cm2_s=69.4)
+        chamber = PyrogenChamber(pyro, 0.005, 5.0e-4, 2.0e-5, 3.0e-6,
+                                 "end_burning")
+        res = run_simulation(geo, prop, nozzle, chamber, roughness=20e-6,
+                             T_ignition=294.0, P_cutoff=0.5e6,
+                             snapshot_interval=2.0, print_interval=1e9,
+                             t_max=3.0)
+        s = res['summary']
+        mb = abs(s['mass_produced'] - s['mass_nozzle']) / max(s['mass_produced'], 1e-6)
+        assert mb < 0.01, f"mass balance {mb*100:.2f}% > 1%"
+        assert np.isfinite(s['P_peak']) and s['P_peak'] > 1e6
+        # The result carries the per-cell casing for the slice viewer.
+        assert 'cell_D_outer' in res
+        assert np.asarray(res['cell_D_outer']).std() > 1e-4

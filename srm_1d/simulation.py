@@ -1317,7 +1317,7 @@ def _run_time_loop(
     cell_wall_web, cell_segment_type, cell_fmm_idx,
     fmm_offset, fmm_reg_flat, fmm_perim_flat, fmm_port_flat,
     # --- Geometry scalars ---
-    N, N_seg, dx, D_outer,
+    N, N_seg, dx, cell_D_outer,
     # --- Gas/propellant scalars ---
     gamma, R_specific, T_flame, Cp_gas, mu_gas, k_thermal, Pr,
     rho_propellant, Cps, T_surface, T_initial, T_initial_gas, k_solid,
@@ -1609,7 +1609,7 @@ def _run_time_loop(
 
         if step % burn_update_interval == 0:
             update_cell_geometry(
-                regress, D_port, x_centers, dx, N, N_seg, D_outer,
+                regress, D_port, x_centers, dx, N, N_seg, cell_D_outer,
                 seg_x_start, seg_length,
                 seg_fwd_regression, seg_aft_regression,
                 seg_inhibit_fwd, seg_inhibit_aft,
@@ -2017,7 +2017,7 @@ def _run_time_loop(
         # Burnthrough detection
         if first_bt_time < 0.0 and n_ignited > 0:
             for i in range(N):
-                if is_grain[i] and D_port[i] >= D_outer:
+                if is_grain[i] and D_port[i] >= cell_D_outer[i]:
                     first_bt_time = t
                     break
 
@@ -2395,7 +2395,7 @@ def run_simulation(
 
     # Initialize geometry
     update_cell_geometry(
-        regress, D_port, x_centers, dx, N, ga['N_seg'], ga['D_outer'],
+        regress, D_port, x_centers, dx, N, ga['N_seg'], ga['cell_D_outer'],
         ga['seg_x_start'], ga['seg_length'],
         ga['seg_fwd_regression'], ga['seg_aft_regression'],
         ga['seg_inhibit_fwd'], ga['seg_inhibit_aft'],
@@ -2688,7 +2688,7 @@ def run_simulation(
         ga['fmm_offset'], ga['fmm_reg_flat'],
         ga['fmm_perim_flat'], ga['fmm_port_flat'],
         # Geometry scalars
-        N, ga['N_seg'], dx, ga['D_outer'],
+        N, ga['N_seg'], dx, ga['cell_D_outer'],
         # Gas/propellant scalars (gas thermo from representative tab)
         gas.gamma, gas.R_specific, rep_tab.T_flame,
         gas.Cp, gas.mu, gas.k_thermal, gas.Pr,
@@ -3056,6 +3056,10 @@ def run_simulation(
         # the hydraulic-equivalent bore for FMM/non-circular grains).
         'dx': float(dx),
         'D_outer': float(ga['D_outer']),
+        # Per-cell casing (outer) diameter for the slice viewer's OD-tapered
+        # casing. Constant == D_outer for non-OD motors (slice falls back to
+        # the scalar when this key is absent in pre-OD results).
+        'cell_D_outer': ga['cell_D_outer'].copy(),
         'cell_wall_web': ga['cell_wall_web'].copy(),
         # Per-segment end-face burnback over the snapshot frames: the grain
         # extends axially from seg_x_start+fwd_reg to seg_x_start+seg_length-

@@ -831,21 +831,39 @@ def convert_geometry(ric_grains, target_propellant_cells=100,
         seg_D_outer = props['diameter']
 
         taper_def = props.get('taper')
-        is_tapered = isinstance(taper_def, dict) and taper_def.get('enabled')
+        bore_tapered = isinstance(taper_def, dict) and taper_def.get('enabled')
+        # OD / end taper (independent of the bore taper): the casing diameter
+        # shrinks over an end region (aft nozzle cone, fwd/aft dome). Applies
+        # to FMM and analytic (BATES/Conical) grains alike.
+        od_ends = []
+        if isinstance(taper_def, dict):
+            from .fmm_grain import od_ends_from_taper
+            od_ends = od_ends_from_taper(taper_def)
+        has_taper = bore_tapered or bool(od_ends)
 
-        if is_tapered:
-            # Axially-tapered grain: build a TaperSpec and route through
-            # build_snapped_geometry's per-cell taper path (round 1). The
-            # transient solver resolves real per-station FMM tables; the
-            # discretization (station count) is mesh-based and independent of
-            # the QS solver's L/D slicing.
-            if gtype in ('BATES', 'Conical'):
-                raise NotImplementedError(
-                    f"Grain {i}: the transient adapter supports tapering only "
-                    f"FMM cross-section grains (Finocyl, Star, ...), not "
-                    f"'{gtype}'. A linear bore taper of a BATES grain is a "
-                    f"Conical grain; use that instead."
-                )
+        # A *bore* taper of a BATES/Conical is just a Conical — reject it (an
+        # OD-only taper on them IS supported, analytically).
+        if bore_tapered and gtype in ('BATES', 'Conical'):
+            raise NotImplementedError(
+                f"Grain {i}: the transient adapter supports BORE tapering only "
+                f"for FMM cross-section grains (Finocyl, Star, ...), not "
+                f"'{gtype}'. A linear bore taper of a BATES grain is a "
+                f"Conical grain; use that instead. (An OD/end taper on "
+                f"BATES/Conical is supported.)"
+            )
+
+        # A domed / coned end is bonded to the closure, so its end face does
+        # not burn — force-inhibit it (mirrors the QS taper expander).
+        eff_inh_fwd = inh_fwd or any(e.get('end') == 'fwd' for e in od_ends)
+        eff_inh_aft = inh_aft or any(e.get('end') == 'aft' for e in od_ends)
+        od_spec = (od_ends or None)
+
+        if has_taper and gtype not in ('BATES', 'Conical'):
+            # Axially-tapered FMM grain (bore and/or OD): build a TaperSpec and
+            # route through build_snapped_geometry's per-cell taper path. The
+            # transient solver resolves real per-station FMM tables (OD-clipped
+            # where an OD taper is present); the discretization (station count)
+            # is mesh-based and independent of the QS solver's L/D slicing.
             from .fmm_grain import taper_spec_from_props
             taper_spec = taper_spec_from_props(
                 gtype, props, taper_def, map_dim=fmm_map_dim,
@@ -854,25 +872,28 @@ def convert_geometry(ric_grains, target_propellant_cells=100,
                 'D_bore_fwd': seg_D_outer,
                 'D_bore_aft': seg_D_outer,
                 'length': props['length'],
-                'inhibit_fwd': inh_fwd,
-                'inhibit_aft': inh_aft,
+                'inhibit_fwd': eff_inh_fwd,
+                'inhibit_aft': eff_inh_aft,
                 'taper': taper_spec,
+                'od_ends': od_spec,
             }
         elif gtype == 'BATES':
             spec = {
                 'D_bore_fwd': props['coreDiameter'],
                 'D_bore_aft': props['coreDiameter'],
                 'length': props['length'],
-                'inhibit_fwd': inh_fwd,
-                'inhibit_aft': inh_aft,
+                'inhibit_fwd': eff_inh_fwd,
+                'inhibit_aft': eff_inh_aft,
+                'od_ends': od_spec,
             }
         elif gtype == 'Conical':
             spec = {
                 'D_bore_fwd': props['forwardCoreDiameter'],
                 'D_bore_aft': props['aftCoreDiameter'],
                 'length': props['length'],
-                'inhibit_fwd': inh_fwd,
-                'inhibit_aft': inh_aft,
+                'inhibit_fwd': eff_inh_fwd,
+                'inhibit_aft': eff_inh_aft,
+                'od_ends': od_spec,
             }
         else:
             from .fmm_grain import from_ric_grain

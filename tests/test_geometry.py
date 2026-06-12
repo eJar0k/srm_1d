@@ -59,7 +59,7 @@ def _init_geometry_arrays(geo):
     endface_msource = np.zeros(N)
     P = np.full(N, 3e6)
     update_cell_geometry(
-        regress, D_port, ga['x_centers'], geo.dx, N, ga['N_seg'], ga['D_outer'],
+        regress, D_port, ga['x_centers'], geo.dx, N, ga['N_seg'], ga['cell_D_outer'],
         ga['seg_x_start'], ga['seg_length'],
         ga['seg_fwd_regression'], ga['seg_aft_regression'],
         ga['seg_inhibit_fwd'], ga['seg_inhibit_aft'],
@@ -197,7 +197,7 @@ class TestMassConservation:
         P = np.full(N, 3e6)
 
         update_cell_geometry(
-            regress, D_port, ga['x_centers'], dx, N, ga['N_seg'], ga['D_outer'],
+            regress, D_port, ga['x_centers'], dx, N, ga['N_seg'], ga['cell_D_outer'],
             ga['seg_x_start'], ga['seg_length'],
             ga['seg_fwd_regression'], ga['seg_aft_regression'],
             ga['seg_inhibit_fwd'], ga['seg_inhibit_aft'],
@@ -219,7 +219,7 @@ class TestMassConservation:
                 ga['cell_wall_web'], ga['cell_segment_id'],
             )
             update_cell_geometry(
-                regress, D_port, ga['x_centers'], dx, N, ga['N_seg'], ga['D_outer'],
+                regress, D_port, ga['x_centers'], dx, N, ga['N_seg'], ga['cell_D_outer'],
                 ga['seg_x_start'], ga['seg_length'],
                 ga['seg_fwd_regression'], ga['seg_aft_regression'],
                 ga['seg_inhibit_fwd'], ga['seg_inhibit_aft'],

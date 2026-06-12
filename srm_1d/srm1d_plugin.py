@@ -356,6 +356,7 @@ def _axial_payload_for_gui(result):
         # Roadmap #2 longitudinal motor-slice geometry (constant per run).
         'dx': payload.dx,
         'D_outer': payload.D_outer,
+        'cell_D_outer': payload.cell_D_outer,   # per-cell OD-tapered casing
         'cell_wall_web': payload.cell_wall_web,
         'seg_geom': payload.seg_geom,   # per-segment end-face burnback
         'stations': [

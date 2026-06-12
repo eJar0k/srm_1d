@@ -392,8 +392,35 @@ in geometry/burn rate/ignition (called every step or every N steps).
       **Longitudinal** preview tab (`renderGrainLongitudinal`; bore =
       hydraulic radius, casing follows the OD profile). `PropertyEditor`
       gained `setValue` (coupled fields). openMotor `test/unit/taper.py`
-      (72 total). **Pending (next round): the srm_1d transient
-      `cell_D_outer` refactor** so the PISO solver honors OD taper.
+      (72 total).
+    - **Round 5 — srm_1d transient OD / end taper (`cell_D_outer` refactor).**
+      The PISO solver now honors OD taper. `D_outer` was a single scalar
+      threaded through `update_cell_geometry` / `_run_time_loop`; it is now a
+      per-cell `cell_D_outer[i]` built in `compile_geometry_arrays`
+      (`MotorGeometry._fill_od_taper` → `motorlib.taper.od_diameter_at`,
+      so transient and QS read the SAME analytic profile). Default ==
+      the motor scalar for every non-OD cell (a pure no-op refactor; the
+      `@njit` signature changed — clear `__pycache__`). **API break:**
+      `update_cell_geometry` and `_run_time_loop` take a `cell_D_outer`
+      array where they took the `D_outer` scalar; `compile_geometry_arrays`
+      returns `'cell_D_outer'`; the result dict + station-viz `AxialPayload`
+      + plugin `srm1d_axial` carry it. OD sources: `GrainSegment.od_ends` +
+      `has_od`; `TaperSpec.od_ends`/`grain_length` (resolve_taper clips each
+      per-station FMM table to the local casting diameter PRE-FMM, the same
+      approach as the QS expander — OD forces the per-station path even with
+      no bore taper); `taper_spec_from_props` + `od_ends_from_taper` re-export
+      parse `taper['od']`. The adapter detects bore OR od, attaches `od_ends`,
+      auto-inhibits the domed/coned end, and stops raising for an OD-only
+      BATES/Conical (still raises for a *bore* taper on them — that's a
+      Conical). Analytic (BATES) OD cells get `cell_wall_web =
+      (cell_D_outer − cell_D_bore_init)/2`, `cell_A_port_init` from the bore,
+      and a per-cell-casting Riemann sum in `total_propellant_volume`. The
+      openMotor-fork slice viewer (`motorSliceWidget`) draws the casing as a
+      per-edge `R_outer(x)` (mesh ±Ro_edge, propellant top, hover, casing
+      outline) when `cell_D_outer` is present, else falls back to the scalar.
+      Concave faces OUT of scope. Tests: `tests/test_taper.py`
+      (`TestTransientOdTaper`) + `tests/test_station_viz.py` cell_D_outer
+      carry; example `examples/tapered_finocyl.py` adds a forward OD dome.
 
 - v0.8.0 (openMotor frontend integration — one return-type break, rest
   additive/data-format; full narrative in `docs/v0_8_0/`):
