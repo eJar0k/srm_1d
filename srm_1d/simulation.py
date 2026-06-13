@@ -1531,11 +1531,22 @@ def _run_time_loop(
     hist_idx = 0
     snap_idx = 0
 
+    # Progress denominator: total burnable web over every real grain cell
+    # (constant). Cells with negligible web — gaps, pinned buffers, near-closed
+    # OD-taper tip stations — drop out, so the progress fraction is the bulk
+    # web actually consumed rather than the single fastest-burning cell.
+    web_total = 0.0
+    for i in range(N):
+        if cell_wall_web[i] > 1e-9:
+            web_total += cell_wall_web[i]
+
     while t < t_max:
         # --- v0.8.0: publish progress + honor cooperative cancel ---
         # Composite, monotonic metric (plain array ops keep the loop nopython):
-        #  • burn phase — web-consumed fraction of the most-regressed grain
-        #    cell (mirrors the QS bar) or simulated-time fraction, whichever
+        #  • burn phase — web-consumed fraction = total web burned / total web
+        #    available (mass-representative: weighted by each cell's web depth,
+        #    so thin-web OD-taper tip cells can't snap the bar near 1 the
+        #    instant they burn through), or simulated-time fraction, whichever
         #    leads;
         #  • tail phase (web > 0.9) — head-pressure decay toward P_cutoff fills
         #    the final 10%. Without this the bar stalls near 99% through the
@@ -1543,14 +1554,14 @@ def _run_time_loop(
         # Gated on web > 0.9 so mid-burn pressure dips can't make the bar jump.
         if P[0] > p_peak:
             p_peak = P[0]
-        web_frac = 0.0
+        web_num = 0.0
         for i in range(N):
-            if is_grain[i] and cell_wall_web[i] > 1e-9:
-                f = regress[i] / cell_wall_web[i]
-                if f > web_frac:
-                    web_frac = f
-        if web_frac > 1.0:
-            web_frac = 1.0
+            if cell_wall_web[i] > 1e-9:
+                r = regress[i]
+                if r > cell_wall_web[i]:
+                    r = cell_wall_web[i]
+                web_num += r
+        web_frac = web_num / web_total if web_total > 1e-12 else 0.0
         time_frac = t / t_max
         progress = web_frac if web_frac > time_frac else time_frac
         if web_frac > 0.9 and p_peak > 2.0 * P_cutoff:

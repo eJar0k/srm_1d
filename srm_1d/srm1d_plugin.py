@@ -22,6 +22,7 @@ back to the built-in BPNV pyrogen for motors that predate the block. The GUI
 solver picker (D6) is Phase 6 task 1, verified live in the openMotor app.
 """
 
+import math as _math
 import threading
 import time as _time
 
@@ -175,18 +176,29 @@ def _run_with_progress(run_simulation, geo, prop, args, callback,
         except BaseException as exc:  # propagate to the caller's thread
             holder['error'] = exc
 
-    # Tail smoothing. The @njit metric jumps to ~0.98 quickly then crawls the
-    # last ~2% over a large fraction of wall time (the most-regressed cell
-    # asymptotes to burnthrough at the low-pressure taildown), so the raw bar
-    # stalls near completion. Once it crosses TAIL_GATE we ignore the crawling
-    # physics value and fill the remainder at a steady, wall-clock rate so the
-    # bar advances visibly. The fill duration is proportional to how long the
-    # burn took to reach the gate, so fast and slow motors both feel right.
+    # Progress display has three regimes, because no single signal predicts the
+    # wall-clock cost of the whole run:
+    #   • WARMUP — before the @njit loop publishes anything (JIT compile + the
+    #     first geometry/burn setup), creep slowly to WARMUP_CAP so the bar
+    #     shows life instead of sitting frozen at 0.
+    #   • BURN (phys < TAIL_GATE) — follow the physics fraction. The in-loop
+    #     metric is now web-depth-weighted (total web burned / total web), so it
+    #     tracks the BULK burn and no longer snaps to the gate the instant a
+    #     thin-web OD-taper tip cell burns through.
+    #   • TAIL (phys >= TAIL_GATE) — the end-of-burn / depressurization. Keep
+    #     following the (still-moving) physics tail, but add an ASYMPTOTIC
+    #     wall-clock floor toward TAIL_CAP so the bar keeps creeping even if the
+    #     physics value flattens — always moving, never a hard stall at a fixed
+    #     %, decelerating over a horizon scaled by the burn-to-gate time.
+    #     Everything is capped at TAIL_CAP while the worker runs; completion
+    #     snaps to 1.0.
+    WARMUP_CAP = 0.05
+    WARMUP_DUR = 8.0          # ~JIT-compile time; creep 0 -> WARMUP_CAP over it
     TAIL_GATE = 0.9
-    TAIL_CAP = 0.99           # hold here until the run actually completes
+    TAIL_CAP = 0.995          # asymptote; only true completion fills the bar
     displayed = 0.0
     tail_start = None
-    fill_rate = None
+    tail_tau = None
     start = _time.monotonic()
 
     worker = threading.Thread(target=_worker, daemon=True)
@@ -194,19 +206,24 @@ def _run_with_progress(run_simulation, geo, prop, args, callback,
     while worker.is_alive():
         phys = float(progress_state[0])
         now = _time.monotonic()
-        if phys < TAIL_GATE:
-            if phys > displayed:
-                displayed = phys           # follow physics through the burn
+        if phys <= 0.0:
+            # Setup / JIT-compile: indeterminate slow creep (bounded).
+            target = min(WARMUP_CAP, (now - start) / WARMUP_DUR * WARMUP_CAP)
         else:
-            if tail_start is None:         # entering the tail — calibrate
-                tail_start = now
-                fill_dur = max(2.0, 0.6 * (now - start))
-                fill_rate = (TAIL_CAP - TAIL_GATE) / fill_dur
-            ramp = TAIL_GATE + fill_rate * (now - tail_start)
-            if ramp > TAIL_CAP:
-                ramp = TAIL_CAP
-            if ramp > displayed:
-                displayed = ramp           # steady wall-clock fill
+            target = phys                  # follow the (representative) burn
+            if phys >= TAIL_GATE:
+                if tail_start is None:     # entering the tail — calibrate
+                    tail_start = now
+                    tail_tau = max(1.5, 0.5 * (now - start))
+                # Asymptotic anti-stall floor — decelerates but never stops.
+                floor = TAIL_GATE + (TAIL_CAP - TAIL_GATE) * (
+                    1.0 - _math.exp(-(now - tail_start) / tail_tau))
+                if floor > target:
+                    target = floor
+            if target > TAIL_CAP:
+                target = TAIL_CAP          # only true completion fills the bar
+        if target > displayed:
+            displayed = target             # monotonic
         if callback(displayed):
             progress_state[1] = 1.0         # request cooperative cancel
         _time.sleep(poll_interval)

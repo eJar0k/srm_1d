@@ -312,6 +312,14 @@ Viz core is cleared. Next work, in order:
    **Still open:** station auto-placement for tapered grains; possible
    BATES-vs-Conical consolidation (deferred); BALLSStick aft-finocyl CAD
    QS-vs-transient validation; deferred slice perf (blitting) / u·G vectors.
+   - **End-cell slice rendering needs a tweak (TODO):** the exact rendering of
+     the head/aft end cells of an OD-tapered grain leaves some *degenerate grey
+     area at burnout* — the per-segment propellant polygon over the domed/coned
+     end region doesn't fully vacate as those thin-web tip cells regress, so a
+     sliver of grey propellant lingers after it should be gone. The casing /
+     buffer pinning is correct; this is purely the propellant-fill polygon at
+     the tapered ends. Revisit `_seg_bore_path` / `_draw_frame_artists` so the
+     end-region fill tracks the (near-zero) remaining web of the tip cells.
    **Next — upstream openMotor PR(s) for grain
    tapering.** The taper feature is generic (no srm_1d deps), so it fits the
    fork strategy's "upstream PRs = generic hooks only." Extract off

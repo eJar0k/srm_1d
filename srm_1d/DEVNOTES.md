@@ -436,6 +436,24 @@ in geometry/burn rate/ignition (called every step or every N steps).
       dome/cone into the head/aft instead of stepping back to the full motor OD
       at the grain ends (self-correcting: a non-tapered end leaves its boundary
       grain cell at the full OD, so the pin is a no-op there).
+      **Progress-bar rework (triggered by OD taper):** the thin-web tip cells
+      broke the GUI progress metric. The in-loop fraction was
+      `max(regress/wall_web)` over grain cells, which a near-closed tip cell
+      snapped to ~1 the instant it burned through, jamming the bar at the
+      poller's tail gate near the start of the burn. It is now web-DEPTH-
+      weighted — `Σ min(regress_i, wall_web_i) / Σ wall_web_i` (total web
+      burned / total web), so thin tips contribute negligibly and the fraction
+      tracks the BULK burn (empirically near-linear in wall-clock for
+      `tapertest.ric`). The plugin poller (`_run_with_progress`) follows that
+      physics value through the burn, adds a bounded WARMUP creep (0→5%) during
+      the JIT-compile/setup window so the bar isn't frozen at 0, and in the
+      tail (≥0.9) adds an ASYMPTOTIC anti-stall floor toward 0.995 (always
+      moving, decelerating; no hard stall at a fixed %) — completion snaps to
+      1.0. **Known gap (future work):** the per-station FMM resolve
+      (`resolve_taper`, run in `convert_geometry` BEFORE the worker thread /
+      poller exists) is still un-instrumented, so a heavily-tapered grain shows
+      no progress during that setup; threading a progress callback through
+      `convert_geometry`/`resolve_taper` would close it.
 
 - v0.8.0 (openMotor frontend integration — one return-type break, rest
   additive/data-format; full narrative in `docs/v0_8_0/`):
