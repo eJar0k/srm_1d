@@ -1,5 +1,15 @@
 # v0.7.4 — Ignition-Spike Investigation Close-Out (2026-06-01)
 
+> **UPDATE (2026-06-16/17): re-opened — see `IGNITION_SPIKE_REOPENED.md`.**
+> The core conclusion below (no parameter-free closure for the residual erosive
+> hump) was re-tested from multiple new angles and **stands, reinforced**
+> (Mukunda-Paul: the hump is largely real QS physics; relaminarization lever
+> tested and dead). Two refinements to this document's claims: (1) the *sharp
+> early* spike is structural (supersonic-fill convective ignition gate), distinct
+> from the residual hump; (2) "flame-front can't suppress at physical speeds" was
+> partly an artifact of a now-fixed bug — the Phase F front was silently bypassed
+> for `forward_plenum` by a marching DeMar-flux target.
+
 **Verdict: the residual Chunc ignition over-prediction is the genuine,
 faithful Ma-2020 quasi-steady erosive response to the real transient
 mass-flux during fast ignition of a high-L/D motor — a regime Ma's paper

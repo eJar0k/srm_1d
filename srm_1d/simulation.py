@@ -1100,23 +1100,30 @@ def _goodman_ignition_sources_and_mass(
             r_erosive[i] = 0.0
         else:
             # v0.7.4 Phase F: withhold bulk-gas surface heating from grain
-            # cells the flame front has not yet reached. Cells receiving
-            # pyrogen igniter flux (cartridge/induction) are exempt so the
-            # seed can light. A gated-out unignited cell skips the whole
-            # heating + ignition sub-block → T_surf stays frozen at
-            # T_initial (no pre-heat, no ignition until the front arrives).
-            # flame_front_enabled=False → heat_cell is always True →
-            # byte-for-byte the prior behaviour. For forward_plenum
-            # (topology 0) the single-cell DeMar plume target is the
-            # induction site and stays exempt; for head_basket/aft_basket
-            # the cartridge cells are already in `ignitable`, so the broad
-            # pyrogen RADIATION flux must NOT exempt distant cells (that
-            # was the v1 bypass that made the gate a no-op for Chunc).
+            # cells the flame front has not yet reached. A gated-out
+            # unignited cell skips the whole heating + ignition sub-block →
+            # T_surf stays frozen at T_initial (no pre-heat, no ignition
+            # until the front arrives). flame_front_enabled=False →
+            # heat_cell is always True → byte-for-byte the prior behaviour.
+            #
+            # The seed grain cell is always in `ignitable` (set by
+            # _advance_flame_front), so it lights from the head-end pyrogen
+            # plume + bore gas, and the front then propagates from it. DeMar
+            # surface flux (applied below) is delivered only at ignitable
+            # cells, so it cannot ignite cells ahead of the front.
+            #
+            # BUGFIX (2026-06-16): the previous gate also exempted ANY cell
+            # carrying forward_plenum DeMar flux (pyrogen_heat_flux_arr_in[i]
+            # > 0). But that flux targets `head_grain_cell` = the FIRST
+            # UNIGNITED grain cell, which marches down the grain as cells
+            # ignite — a self-propagating DeMar cascade that bypassed the
+            # front entirely (flame_front_velocity had ~no effect on
+            # forward_plenum; full ignition was fixed at ~4.6 ms for v=15..100
+            # m/s on Chunc). Removing the exemption makes the front
+            # authoritative: ignition spread now tracks grain_length / v.
             if not flame_front_enabled:
                 heat_cell = True
             elif ignitable[i]:
-                heat_cell = True
-            elif topology_code == 0 and pyrogen_heat_flux_arr_in[i] > 0.0:
                 heat_cell = True
             else:
                 heat_cell = False
