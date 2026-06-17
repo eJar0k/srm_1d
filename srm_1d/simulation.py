@@ -1333,7 +1333,7 @@ def _run_time_loop(
         # --- Simulation parameters ---
     roughness, kappa,
     cfl_target, dt_max, burn_update_interval,
-    source_cfl_factor,
+    source_cfl_factor, port_mach_cap,
     T_ignition, P_ambient, ambient_temperature,
     diagnostic_disable_erosive, diagnostic_disable_endfaces,
     diagnostic_disable_momentum, diagnostic_disable_pyrogen_surface_heating,
@@ -1983,6 +1983,7 @@ def _run_time_loop(
             mass_source, thermal_source, momentum_source, f_darcy,
             dx, dt, gamma_mix_arr, R_mix_arr, Cp_mix_arr, T_ceiling_arr,
             A_throat, P_ambient, ambient_temperature, N,
+            port_mach_cap,
         )
 
         # ============================================
@@ -2210,6 +2211,14 @@ def run_simulation(
     cfl_target=0.3,
     dt_max=0.002,
     source_cfl_factor=0.05,
+    # Aerodynamic-choking velocity limiter: cap interior port face velocities
+    # at this Mach (~local sound speed). Bounds the grid-divergent supersonic
+    # fill artifact that the pressure-based PISO produces at the cold/hot
+    # contact during ignition (no interior choking limit, not shock-capturing;
+    # docs/v0_7_4/IGNITION_SPIKE_REOPENED.md §6). 0.0 disables (default; prior
+    # behaviour). ~1.0 is the physical choking limit. No-op at the subsonic
+    # plateau.
+    port_mach_cap=0.0,
     burn_update_interval=None,
     # --- Ignition ---
     T_ignition=756.0,  # v0.7.5 cross-motor re-LHS (was 850); docs/v0_7_5/RESULT.md
@@ -2718,7 +2727,7 @@ def run_simulation(
         # Simulation parameters
         roughness, kappa,
         cfl_target, dt_max, burn_update_interval,
-        source_cfl_factor,
+        source_cfl_factor, float(port_mach_cap),
         T_ignition, P_ambient, T_ambient,
         bool(diagnostic_disable_erosive), bool(diagnostic_disable_endfaces),
         bool(diagnostic_disable_momentum),

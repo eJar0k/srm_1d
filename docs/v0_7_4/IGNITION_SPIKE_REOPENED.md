@@ -6,15 +6,19 @@ assumptions* and test whether the spike is a structural solver artifact rather
 than fundamental burn-rate physics. The verdict after a full multi-angle
 re-investigation:
 
-> **The spike splits into two distinct phenomena. The dramatic *sharp early
-> 1.54× spike* IS a structural solver artifact (and the user was right about
-> it). The smaller *residual ~1.25× erosive hump* is largely genuine quasi-steady
-> erosive physics — the closeout's core conclusion stands, now on far stronger,
-> quantitative, multi-source evidence.**
+> **STATUS: OPEN — deliberately left open for a new session (2026-06-17, see §8).**
+> The re-opening found and fixed two genuine solver issues — the Phase F flame-front
+> DeMar-cascade bug, and a grid-divergent PISO velocity artifact in the ignition fill
+> — but **neither drives the spike.** The spike grid-CONVERGES to a real value
+> (~14 MPa) and reads as genuine quasi-steady erosive physics (Mukunda-Paul gives
+> η≈2.1 at the spike condition). Every non-tuning lever tested IN ISOLATION fails to
+> close it. BUT lever COUPLING is largely untested and the ms-scale ignition snap-on
+> is still physically suspect (§8), so the closeout's erosive verdict holds only for
+> what was tested — it is not the last word.
 
-One real bug was found and fixed along the way (the Phase F flame-front was
-silently bypassed for `forward_plenum`). Two physically-grounded fidelity
-upgrades were recorded for future implementation. The diagnostic motor
+Two genuine solver issues were found and fixed (Phase F DeMar-cascade flame-front
+bypass; PISO fill velocity artifact, `port_mach_cap`). Two physically-grounded
+fidelity upgrades were recorded for future implementation. The diagnostic motor
 throughout is Chunc / `machbusterNew` (high-L/D, canonical knobs: bpnv pyrogen,
 Sutton sizing, roughness 32 µm, kappa 0.44, T_ignition 756 K).
 
@@ -168,18 +172,95 @@ would alter the plateau.)
 
 ---
 
-## 6. Conclusion & disposition
+## 6. The supersonic fill is a grid-divergent NUMERICAL ARTIFACT (2026-06-17)
 
-- **No parameter-free closure removes the residual erosive hump.** Every
-  physically-grounded lever — ignition timing (flame spread), burn buildup
-  (establishment ramp), ignition criterion (Liñán-Williams validates Goodman),
-  erosive threshold (Mukunda-Paul: not tripped), relaminarization (K dead) — has
-  been eliminated. The hump is ~⅔ genuine QS erosive physics + ~⅓ Ma high-g
-  over-prediction. **The v0.7.4 closeout stands, reinforced.**
-- **The sharp early spike is structural** (supersonic-fill convective ignition
-  gate + the now-fixed DeMar-cascade flame-front bug). With the flame-front bug
-  fixed and the front enabled, the 0–10 ms rise reshapes toward the experimental
-  trace; the sharp spike becomes a modest delayed hump.
+Re-examining §2: is the supersonic ignition fill (which over-drives the convective
+ignition gate) even physical? **No — it is a numerical artifact of the pressure-based
+PISO solver at the cold/hot contact, and it diverges under grid refinement.**
+
+| grid (cfl 0.3) | max Mach (fill, t<3 ms) | P_peak |
+|---|---|---|
+| 50 cells | 3.36 | 11.77 |
+| 100 cells | 4.81 | 12.65 |
+| 200 cells | **12.04** | 13.22 |
+
+| CFL (100 cells) | max Mach (fill) | P_peak |
+|---|---|---|
+| 0.30 | 4.81 | 12.65 |
+| 0.15 | 4.31 | 12.66 |
+| 0.05 | 4.27 | 12.67 |
+
+The fill Mach **grows without bound as dx→0** (3.4→4.8→12) but is **converged in
+CFL** → a spatial artifact, not a time-stepping one. The spike tracks it (P_peak
+11.8→12.7→13.2). The v0.7.4 closeout's "numerical resolution ruled out" tested CFL
+and burn-cadence only — never grid refinement — and missed this.
+
+**Mechanism (mass-balance probe).** At the Mach peak (~1.0 ms): the bore is nearly
+empty (0.37 g of gas), the nozzle is NOT yet flowing (the aft is still cold, so the
+nozzle BC sees `P[N-1]`≈ambient → unchoked, outflow = 0), and the igniter is forcing
+~130 g/s into the head. Hot igniter gas (~10:1 density ratio vs the cold bore) fills
+a near-vacuum duct with no outlet. The PISO momentum predictor has **no aerodynamic-
+choking limit** on the interior port (only the nozzle THROAT chokes), and a
+pressure-based scheme is **not shock-capturing**, so the velocity that conserves mass
+flux across the contact discontinuity blows up — and sharpens as the grid refines.
+Once the bore fills and the nozzle passes flow (~1.5 ms), Mach collapses to 0.33–0.37
+and the steady state is physical and converged: **the artifact is confined to the
+violent fill.** Corroborating: pressurization is ~2.4× too fast (8 MPa at 4.2 ms vs
+experimental ~10 ms), and the head port (127 mm²) is smaller than the nozzle throat
+(228 mm²) — the worst case for the contact blow-up.
+
+**But the artifact is DECOUPLED from the spike (cap implemented + tested).** A
+physically-grounded aerodynamic-choking limiter — `port_mach_cap`, which clamps
+interior face |u| to that Mach × local sound speed in
+`_piso_step_with_energy_diagnostics` — was added (default 0.0 = off) and tested at
+`port_mach_cap=1.0`. The fill Mach is then bounded and grid-converged
+(3.4/4.8/12 → 1.03/1.07/1.16 for 50/100/200 cells): **the velocity artifact is
+fixed.** But **the spike is UNCHANGED** — P_peak 12.64 vs 12.65 at 100 cells, and
+still grid-climbing 11.76/12.64/13.20. So the supersonic velocity, though a genuine
+grid-divergent artifact, does NOT drive the spike. The spike is set by hot-gas
+PRESENCE igniting the grain (velocity-magnitude-independent — the §2 / Mach-0.3
+ignition-gate clamp was also a no-op), and the hot gas fills the short 0.8 m bore in
+<1 ms even at Mach 1. The spike P_peak **grid-CONVERGES** (increments 0.88, 0.56 →
+~14 MPa), so it is a **real erosive feature, not a divergent artifact.** Flame spread
+(§3) reduces the spike by slowing ignition TIMING, not by touching the velocity.
+
+**Literature.** Peretz–Kuo–Caveny–Summerfield 1973 ("Starting Transient … with High
+Internal Gas Velocities") confirms high-L/D startups run genuinely transonic — but
+**bounded by choking (~Mach 1)**, not Mach 12. Salita lists "compression of chamber
+gases during pressurization" as a distinct, real spike mechanism — choke-limited.
+The sim exceeds that physical bound, confirming the artifact.
+
+**Disposition:** `port_mach_cap` is kept as a default-off (0.0) solver-hygiene fix —
+the Mach-12 velocity field is genuinely unphysical, the cap makes the velocity / Mach
+diagnostics physical, and it is a no-op at the subsonic plateau — but it is **NOT a
+spike fix.** The §4 conclusion (a real erosive hump) is unchanged. Lesson: the
+supersonic fill and the ignition spike are two independent phenomena; the velocity
+artifact was a red herring for the spike, though a genuine artifact worth bounding.
+
+---
+
+## 7. Conclusion & disposition
+
+- **No parameter-free closure removes the residual erosive hump — among levers tested
+  IN ISOLATION.** Each physically-grounded lever individually — ignition timing (flame
+  spread), burn buildup (establishment ramp), ignition criterion (Liñán-Williams
+  validates Goodman), erosive threshold (Mukunda-Paul: not tripped), relaminarization
+  (K dead), velocity (cap decoupled) — failed to close it, and the hump reads as ~⅔
+  genuine QS erosive physics + ~⅓ Ma high-g over-prediction. The closeout's erosive
+  verdict holds **for what was tested.** It is NOT the last word: see §8 — lever
+  coupling is largely untested, the ms snap-on is still suspect, and the spike
+  grid-converges to ~14 MPa (worse than the 100-cell 1.54×).
+- **A separate grid-divergent VELOCITY artifact exists but is DECOUPLED from the
+  spike (§6).** The pressure-based PISO blows the cold/hot contact velocity up to a
+  grid-divergent Mach 12 during the fill (no interior choking limit, not
+  shock-capturing). A `port_mach_cap` limiter fixes it (Mach 12 → ~1, grid-converged)
+  but leaves P_peak unchanged (12.64 vs 12.65) — the spike is the erosive response to
+  hot-gas-presence ignition, grid-CONVERGING to ~14 MPa (real, not an artifact). Kept
+  default-off as solver hygiene; not a spike fix.
+- **The v0.7.4 closeout's spike conclusion stands.** "Faithful Ma erosive / numerical
+  ruled out" holds — the spike grid-converges (real). The genuine corrections from the
+  re-opening are the now-fixed DeMar-cascade flame-front bug and the (decoupled,
+  separately-fixed) PISO velocity artifact — neither changes the erosive verdict.
 - **Landed (working tree, uncommitted):** the DeMar-cascade flame-front fix
   (correctness; opt-in Phase F now functional; default-off, no regression).
 - **Recorded for future (fidelity, NOT spike fixes):** (1) de-tune Phase Z to the
@@ -188,8 +269,75 @@ would alter the plateau.)
   AP-decomposition debit (Liñán-Williams §5 plateau mechanism). See the
   `project-ignition-fidelity-candidates` memory.
 
+---
+
+## 8. OPEN THREADS — investigation deliberately left OPEN (next session)
+
+This investigation is **not closed.** The residual hump survived every lever tested
+*in isolation*, and Mukunda-Paul makes a chunk of it look physical — but the
+ms-scale ignition snap-on remains physically suspicious, lever coupling is largely
+untested, and there is an unresolved tension with experiment. Leads for a fresh
+session, roughly in priority order:
+
+**(A) The ~ms surface-heating snap-on is still implausibly fast (the prime suspect).**
+Each cell heats 293→756 K in <1 ms once hot gas arrives, at q″ ~ 40 MW/m² from the
+Gnielinski h_c. We proved this is hot-gas-PRESENCE-driven, not velocity-driven (Mach
+cap was a no-op). But the *heating closure itself* is untested:
+- Is the steady, fully-developed-pipe-flow Gnielinski Nu valid for the transient,
+  developing, contact-front fill even at subsonic Mach? It likely over-predicts q″.
+- The Goodman gate has NO endothermic AP-decomposition sink and NO finite ignition
+  energy (recorded fidelity candidate 2). Liñán-Williams validates the surface-T
+  threshold to LEADING order, but its §5 endothermic *plateau* is a real,
+  flux-insensitive delay we never implemented. If the real per-cell snap-on is ~10×
+  slower, the grain never reaches whole-grain-min-port simultaneously → lower transient
+  G → smaller hump. **TEST:** implement the integrated-energy / AP-melt criterion +
+  endothermic debit; does the snap-on slow AND the spike drop (alone, and with flame
+  spread)?
+
+**(B) Lever COUPLING is largely untested — confounding is plausible.** We eliminated
+levers mostly in isolation (or in pairs). A lever that is a no-op alone may matter in
+combination, or one lever's effect may be masked by another. Untested:
+- velocity cap + flame spread + establishment ramp together;
+- endothermic / integrated-energy criterion + flame spread;
+- whether `port_mach_cap` shifts the flame-spread result (it shouldn't — verify).
+Build a small Cartesian sweep over {port_mach_cap, flame_front_velocity,
+tau_establishment, ignition-criterion} and look for non-additive interactions.
+
+**(C) The spike GRID-CONVERGES to ~14 MPa — the canonical 100-cell run UNDER-resolves
+it.** P_peak 11.76 / 12.64 / 13.20 for 50 / 100 / 200 cells (increments 0.88, 0.56 →
+~14). So the "true" model spike is ~1.7×, WORSE vs experiment than the 100-cell 1.54×.
+Leading suspect for the grid-climb: the Gnielinski ENTRANCE correction `1+(D/L)^(2/3)`
+in the *erosive* burn rate uses L = x_from_head, which is grid-sensitive near the head
+(first cell L ~ dx/2 → enhancement grows as dx→0). **TEST:** is the grid-climb the
+entrance term? Is L=x_from_head physical or a discretization artifact for erosive
+enhancement (a possible *third* artifact, distinct from the bulk erosive physics)?
+
+**(D) The Mukunda-Paul tension is unresolved.** The validated universal law predicts
+η≈2.1 (a real hump) at the sim's spike *condition*, yet experimental Chunc shows ~no
+spike. Two possibilities, not yet discriminated: (i) the sim's transient G is itself
+too high (the ignition/fill produces a G the real motor never reaches — ties to A), or
+(ii) the real erosive response is transiently suppressed by physics no validated model
+captures. **Discriminator:** reconstruct the EXPERIMENTAL transient G from the measured
+P(t) + geometry and compare to the sim's; if the real G is much lower, the problem is
+upstream (ignition/fill), not the erosive closure.
+
+**(E) Shock-aware / better compressible transient treatment.** `port_mach_cap` is a
+crude clamp. The pressure-based PISO is not shock-capturing and the ignition fill is a
+genuine shock-tube-like blowdown. Consider a proper aerodynamic-choking source term,
+artificial viscosity / flux limiting at contacts, or a density-based (Riemann)
+sub-step for the transient — making the fill velocity physical *without* the clamp,
+which might also surface coupling the clamp currently hides. Lower priority than A–D
+for the spike, but the right long-term fix for the flow field.
+
+**Meta-caution (user, 2026-06-17):** treat every "eliminated" lever as eliminated
+IN ISOLATION only. Something is still missing; the per-cell ms snap-on is the most
+likely seat of it. Next session should **re-derive from the snap-on**, not from the
+erosive term — and watch for coupling between levers and unknown confounders.
+
+---
+
 Diagnostic scripts used live under `c:/tmp/` (chunc_spike_probe, chunc_fill_probe,
 chunc_gate_audit, chunc_mach_audit, chunc_cell_history, run_gate_clamp_experiment,
 run_flamespread_experiment, run_flamespread_combo, chunc_mukunda_compare,
-chunc_K_relaminarization); comparison plots under
-`artifacts/ignition_mach_clamp/`, `artifacts/ignition_flamespread*/`.
+chunc_K_relaminarization, chunc_fill_physics, chunc_mach_convergence); comparison
+plots under `artifacts/ignition_mach_clamp/`, `artifacts/ignition_flamespread*/`.

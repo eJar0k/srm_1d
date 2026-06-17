@@ -279,6 +279,7 @@ def _piso_step_with_energy_diagnostics(
     mass_source, thermal_source, momentum_source, f_darcy,
     dx, dt, gamma_arr, R_arr, Cp_arr, T_ceiling_arr,
     A_throat, P_ambient, T_ambient, N,
+    port_mach_cap=0.0,
 ):
     """
     One complete PISO time step on a staggered grid.
@@ -571,6 +572,34 @@ def _piso_step_with_energy_diagnostics(
     u_new[N] = mdot_boundary / max(rho_boundary * A_face[N], 1.0e-12)
 
     # -------------------------------------------------------
+    # STEP 3c: AERODYNAMIC-CHOKING VELOCITY LIMITER
+    # -------------------------------------------------------
+    # The pressure-based PISO has no choking limit on the interior port
+    # (only the nozzle THROAT chokes via _nozzle_boundary_flow) and is not
+    # shock-capturing, so during the violent ignition fill the cold/hot
+    # contact velocity can blow up to grid-divergent supersonic values (max
+    # fill Mach 3.4 / 4.8 / 12 for 50 / 100 / 200 cells; see
+    # docs/v0_7_4/IGNITION_SPIKE_REOPENED.md §6). Physically a constant- or
+    # diverging-area port cannot exceed ~Mach 1 under distributed mass
+    # addition without a converging-diverging passage. When port_mach_cap > 0,
+    # clamp the interior face velocities |u[j]| to port_mach_cap times the
+    # local sound speed. No-op at the subsonic plateau (Mach ~0.36), so steady
+    # operation is untouched; applied BEFORE the energy advection below so the
+    # convective enthalpy flux is bounded too. The head wall (face 0) and the
+    # nozzle face (N, set by the choked BC) are left as-is.
+    if port_mach_cap > 0.0:
+        for j in range(1, N):
+            gamma_f = 0.5 * (gamma_arr[j - 1] + gamma_arr[j])
+            R_f = 0.5 * (R_arr[j - 1] + R_arr[j])
+            T_f = 0.5 * (T[j - 1] + T[j])
+            a_f = (gamma_f * R_f * max(T_f, 1.0)) ** 0.5
+            u_lim = port_mach_cap * a_f
+            if u_new[j] > u_lim:
+                u_new[j] = u_lim
+            elif u_new[j] < -u_lim:
+                u_new[j] = -u_lim
+
+    # -------------------------------------------------------
     # STEP 3b: ENERGY EQUATION  (v0.7.1 Phase 3: sensible-enthalpy form)
     # -------------------------------------------------------
     # We advect h_i = Cp_arr[i] * T[i] (specific sensible enthalpy)
@@ -683,18 +712,24 @@ def piso_step(
     mass_source, thermal_source, momentum_source, f_darcy,
     dx, dt, gamma_arr, R_arr, Cp_arr, T_ceiling_arr,
     A_throat, P_ambient, T_ambient, N,
+    port_mach_cap=0.0,
 ):
     """Public PISO step returning only the updated flow state.
 
     v0.7.1 (Phase 3): the scalar (gamma, R_specific, Cp_gas, T_flame)
     arguments are now per-cell arrays. See
     ``_piso_step_with_energy_diagnostics`` for the full signature.
+
+    ``port_mach_cap`` (default 0.0 = disabled) bounds interior port face
+    velocities to that Mach number; see the limiter block in
+    ``_piso_step_with_energy_diagnostics``.
     """
     out = _piso_step_with_energy_diagnostics(
         rho, u, P, T, A_port, D_hyd,
         mass_source, thermal_source, momentum_source, f_darcy,
         dx, dt, gamma_arr, R_arr, Cp_arr, T_ceiling_arr,
         A_throat, P_ambient, T_ambient, N,
+        port_mach_cap,
     )
     return out[0], out[1], out[2], out[3]
 
