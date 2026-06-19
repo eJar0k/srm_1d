@@ -15,6 +15,16 @@ re-investigation:
 > close it. BUT lever COUPLING is largely untested and the ms-scale ignition snap-on
 > is still physically suspect (§8), so the closeout's erosive verdict holds only for
 > what was tested — it is not the last word.
+>
+> **Update 2026-06-18 (§9):** thread D is RESOLVED — the spike is the erosive feedback,
+> not a G-inflation artifact (sim G only 1.29× experiment; no gas-dynamic inflation;
+> direct mass-flux measurement). The ignition criterion is Keller-1966-validated and
+> the transient-h_c lever is probe-FALSIFIED (it only postpones the spike). A separate
+> igniter gas-generation over-production was found and FIXED (commit bfc2f3f, ProPep
+> impetus + condensed-phase split). The one surviving lever for tamping the erosive
+> spike is the **Ma-vs-Mukunda-Paul high-g model fidelity** (§9.5) — needs user
+> sign-off on the keep-Ma dogma. BALLSstick (bpnv, high-L/D) still over-spikes post-fix:
+> same erosive-feedback residual as Chunc.
 
 Two genuine solver issues were found and fixed (Phase F DeMar-cascade flame-front
 bypass; PISO fill velocity artifact, `port_mach_cap`). Two physically-grounded
@@ -336,8 +346,139 @@ erosive term — and watch for coupling between levers and unknown confounders.
 
 ---
 
+## 9. Session 2026-06-18 — G reconstruction (thread D), Keller validation + h_c probe (thread A), igniter fix
+
+Threads A and D were worked and one structural fix (igniter gas generation) landed.
+**The investigation stays OPEN, but the snap-on / h_c seat suspected in §8 is now
+largely eliminated, and the steady erosive-model fidelity (Mukunda-Paul, §8(D)
+option ii) is the one surviving lever for tamping the spike.**
+
+### 9.1 Thread D RESOLVED — the spike is the erosive feedback, NOT a G-inflation artifact
+A full-resolution Chunc static-fire trace (`ThomasMach5_edited.xlsx`, 346 pts @ 7 ms —
+now the canonical Chunc experimental, superseding the 59-pt digitization) made the
+discriminator executable. Reconstructing the aft-port mass flux G at the spike
+(t ≈ 11 ms, P_sim = 12.64 MPa):
+
+| quantity | value | meaning |
+|---|---|---|
+| sim actual ρ\|u\| (erosion-driving) | 3763 kg/m²s | what Ma's erosive rate sees |
+| experimental aft-G ceiling (from measured P) | 2922 kg/m²s | real motor never exceeds |
+| **sim G / exp G** | **1.29×** | modest excess, not gross |
+| **sim ρ\|u\| / sim quasi-steady ṁ/A** | **0.87×** | **no transient gas-dynamic inflation** |
+| aft Mach at spike | **0.23** | subsonic — the supersonic fill is over |
+
+So §8(D) option (i) "sim's transient G is itself too high" is **false in the
+gas-dynamic sense**: the spike-time G is quasi-steady and only 1.29× experiment, and
+the supersonic fill is decoupled from the spike — now confirmed by *direct mass-flux
+measurement*, independent of the §6 `port_mach_cap` test. The 1.54× pressure spike is
+a genuine **erosive feedback loop** (G→r_erosive→P→ρ→G) amplifying a modest 1.29× G
+excess through Ma's super-linear high-g response. (Scripts: `c:/tmp/
+chunc_G_reconstruction.py`, `chunc_G_analyze.py`; plot `artifacts/chunc_G_reconstruction.png`.)
+
+### 9.2 Thread A — ignition criterion VALIDATED, h_c over-predicted, but the h_c lever FALSIFIED
+Literature pulled to `docs/references/` (keller1966, cain2006, kulkarni1982,
+jacobs1969, bircumshaw1954, + Kuo/Summerfield `Fundamentals_of_Solid-Propellant_Combustion.pdf`;
+Liñán-Williams re-read firsthand via pypdf):
+- **Keller-Baer-Ryan 1966** — convective AP/HTPB shock-tube ignition, 20–160 cal/cm²·s,
+  to Mach 1.0 (the motor-startup analog) — **validates the surface-T criterion AND the
+  756 K value**: Eq. 17 `T_ign = 300 + 286.1·F_s^0.08 ≈ 664–730 K`, ~flux-independent.
+  **Hermance 1984** (Kuo/Summerfield ch. 5) + **Kulkarni-Kumar-Kuo 1982** confirm
+  surface-T is the standard convective-ignition criterion and that there is *no
+  universal* criterion. **The Goodman gate is not the bug** (reinforces the closeout
+  from a new, on-point paper). The earlier "energy-gap" idea (vs Cain's radiant
+  E_ign ~30 J/cm²) is **RETRACTED** — radiant ignition is in-depth (volumetric)
+  absorbed (Cain: "surface absorption not appropriate"), not comparable to convective
+  surface flux.
+- **The Gnielinski h_c IS ~7× Keller's measured convective h** at matched mass flux
+  (14,254 vs ~2,000 W/m²K at G = 72 g/cm²s); ignition q″ median 31 MW/m² (peak 64),
+  ~10× Keller's 6.7 MW/m² ceiling → the <1 ms snap-on. So §8(A)'s "Gnielinski
+  over-predicts q″" is *confirmed*.
+- **BUT the h_c lever is DEAD.** A transient h_c knock-down probe — scaling the shared
+  `Nu·k/D` that feeds BOTH the ignition gate AND the Ma erosive rate, gated to a time
+  window (default-off scaffold; since reverted) — only **POSTPONES** the spike:
+  `t_peak` tracks the window (suppress 80 ms → spike at 99 ms, 1.14×). Reaching ratio
+  ~1.0 needs ~120 ms suppression (unphysical; physical flow-establishment is ~1–2 ms
+  via `L_e/u ≈ 10D/u`). A parameter-free h_c establishment law restores full h_c ~8 ms
+  *before* the 11 ms spike forms → no effect. **§8(A)'s integrated-energy/endothermic
+  TEST is therefore de-prioritized as a spike fix**: it would slow the snap-on, but
+  flame-spread + establishment-ramp already bottom at the same ~1.25× erosive floor
+  (§4), Keller validates the existing threshold, and the L-W endothermic correction is
+  only ~35% (e^b = 0.65). (Scripts: `chunc_hc_probe_sweep.py`, `chunc_flux_vs_keller.py`,
+  `chunc_hc_decomp.py`.)
+
+### 9.3 Igniter gas-generation over-production — FOUND + FIXED (commit bfc2f3f)
+Prompted by "sim spikes at LOW igniter mass; real firings use MORE mass with no spike."
+The pyrogen gas physics ignored both the cited impetus and the condensed phase:
+BPNV `M = 0.030` / 100%-gas gave `R·T/M = 6869 psi·in³/g` — **2.1× the ProPep
+per-charge value (3245)** and 1.37× BPNV's own cited DeMar 5000. ProPep (BPNV 25:60:15
+@1000 psi): gas MW 48.2, T 2719 K, γ 1.17, **gas_mass_fraction 0.781** (condensed =
+B(liq) 0.746 + BN(s) 0.557 = 21.9 g/100 g). Fix (committed): bpnv gas properties + new
+`Pyrogen.gas_mass_fraction` wired into both igniter paths (solid depletes fully, only
+the gas fraction pressurizes). Effect: Chunc Sutton 0.9 g spike **1.50→1.36**, as-fired
+6 g **5.08→3.22**, plenum P_ig **17.6→11.5 MPa**; **Hasegawa A unchanged (6.14 MPa** —
+its peak is the late progressive peak, not the ignition transient). Resolves the
+low-mass over-drive but **leaves the erosive-feedback residual** (1.36×). **MTV (1.47×)
+and Cu/Al thermite (6.54×)** carry the same impetus error + all-gas assumption → need
+their own ProPep/CEA runs. **BALLSstick** (bpnv, high-L/D) still over-spikes far beyond
+steady state after the fix — the same erosive-feedback residual as Chunc.
+
+### 9.4 Net state — every transient / ignition lever is now exhausted
+Eliminated: igniter mass/topology/IC/**gas-over-production**, ignition kernel
+(**Keller-validated**), sequencing (flame-front), Beddini, numerical resolution,
+velocity/gas-dynamic G inflation (**thread D, direct-measured**), transient h_c
+relaxation (**probe-falsified**). The spike is the **genuine Ma quasi-steady erosive
+feedback to a modestly-elevated (1.29×) transient G**; ~2/3 of the hump is real physics
+(Mukunda-Paul η ≈ 2.08 at the spike g), ~1/3 is Ma's high-g over-prediction.
+
+### 9.5 DIRECTIONS FOR TAMPING THE EROSIVE SPIKE
+The remaining lever is **not** transient/ignition — it is the **steady erosive model's
+high-g fidelity**. Priority order:
+
+1. **Ma-vs-Mukunda-Paul high-g recalibration (primary; touches the keep-Ma dogma →
+   needs user sign-off).** Ma over-predicts ~1.33× vs the Hasegawa-validated
+   Mukunda-Paul universal law `η = 1 + 0.023(g^0.8 − 35^0.8)·H(g−35)` at the spike
+   (η 2.76 vs 2.08), but they **agree within 6% at the plateau**. This is a
+   model-fidelity question between two *validated* QS models — NOT a transient closure
+   or tuned smoothing. Steps: (a) cell-by-cell Ma-vs-MP comparison at high g across the
+   fired set (Chunc / BALLSstick / Zerox) to confirm the over-prediction is systematic
+   and confined to g ≫ 35; (b) if so, a high-g fidelity correction toward MP cuts the
+   spike ~1.33× (Chunc 1.36→~1.0; BALLSstick similarly) **without altering the plateau**
+   (6% agreement) — the only lever shown able to break the erosive floor without an
+   unphysical/tuned transient. Caveat: `feedback_keep_ma_erosive_model` reserves Ma as
+   the model of record, but MP is itself Hasegawa-validated (not an "inferior
+   correlation"), so this is a fidelity cross-check, not a downgrade. Decide before
+   implementing.
+
+2. **Grid-climb forensics (thread C, still open; secondary).** The spike
+   grid-CONVERGES to ~14 MPa (worse than the canonical 100-cell). Quick check first:
+   the erosive entrance term `1 + (D/L)^(2/3)` uses `L = max(x_from_head, D_hyd)` — the
+   `max(·, D)` clamp already bounds it ≤ 2, so it is probably **NOT** the grid driver
+   (contra §8(C)). More likely the grid-climb is **simultaneity sharpening** (finer grid
+   → sharper contact front → tighter ignition window → bigger synchronized aft-G surge),
+   which ties back to thread D — in which case the MP high-g correction (lever 1)
+   addresses it at the source.
+
+3. **Post-igniter-fix coupling sweep (thread B; low).** Re-run a small Cartesian sweep
+   {igniter gas_mass_fraction/mass × flame_front_velocity × MP-vs-Ma erosive} for
+   non-additive interactions — though each lever alone bottoms at the erosive floor.
+
+**Explicitly NOT to retry** (recorded so they are not re-derived): transient h_c
+establishment relaxation (probe-falsified — only postpones); velocity / `port_mach_cap`
+as a spike fix (decoupled, thread D direct-measured); integrated-energy / endothermic
+ignition criterion *as a spike fix* (Keller validates the existing surface-T gate +
+756 K; the snap-on is not the controlling lever; the L-W endothermic refinement is a
+~35% fidelity item, not a spike fix).
+
+---
+
 Diagnostic scripts used live under `c:/tmp/` (chunc_spike_probe, chunc_fill_probe,
 chunc_gate_audit, chunc_mach_audit, chunc_cell_history, run_gate_clamp_experiment,
 run_flamespread_experiment, run_flamespread_combo, chunc_mukunda_compare,
 chunc_K_relaminarization, chunc_fill_physics, chunc_mach_convergence); comparison
 plots under `artifacts/ignition_mach_clamp/`, `artifacts/ignition_flamespread*/`.
+2026-06-18 session scripts (§9): `chunc_G_reconstruction.py`, `chunc_G_analyze.py`,
+`chunc_G_plot.py`, `chunc_flux_vs_keller.py`, `chunc_hc_decomp.py`,
+`chunc_hc_probe_sweep.py`, `igniter_survey.py`, `igniter_impetus_test.py`; plot
+`artifacts/chunc_G_reconstruction.png`. Experimental trace: `srm_1d/plotting.py`
+`CHUNC_EXPERIMENTAL` is the 59-pt digitization; the full 346-pt trace is
+`ThomasMach5_edited.xlsx` (user-supplied).
