@@ -22,9 +22,13 @@ re-investigation:
 > the transient-h_c lever is probe-FALSIFIED (it only postpones the spike). A separate
 > igniter gas-generation over-production was found and FIXED (commit bfc2f3f, ProPep
 > impetus + condensed-phase split). The one surviving lever for tamping the erosive
-> spike is the **Ma-vs-Mukunda-Paul high-g model fidelity** (§9.5) — needs user
-> sign-off on the keep-Ma dogma. BALLSstick (bpnv, high-L/D) still over-spikes post-fix:
-> same erosive-feedback residual as Chunc.
+> spike (Ma-vs-Mukunda-Paul high-g model fidelity, §9.5) was **REJECTED by the user
+> (2026-06-18): Ma's no-tuning property is a SHIPPING requirement** (it lets srm_1d ship
+> without users quantifying their own erosive burning), and any high-g correction adds a
+> fitted figure. **→ The high-L/D ignition-transient erosive over-spike is now an
+> ACCEPTED, DOCUMENTED LIMITATION — there is no remaining non-dogma lever, and the spike
+> thread is effectively CLOSED on a product decision, not a physics gap.** BALLSstick
+> (bpnv, high-L/D) still over-spikes post-fix: same erosive-feedback residual as Chunc.
 
 Two genuine solver issues were found and fixed (Phase F DeMar-cascade flame-front
 bypass; PISO fill velocity artifact, `port_mach_cap`). Two physically-grounded
@@ -417,10 +421,20 @@ B(liq) 0.746 + BN(s) 0.557 = 21.9 g/100 g). Fix (committed): bpnv gas properties
 the gas fraction pressurizes). Effect: Chunc Sutton 0.9 g spike **1.50→1.36**, as-fired
 6 g **5.08→3.22**, plenum P_ig **17.6→11.5 MPa**; **Hasegawa A unchanged (6.14 MPa** —
 its peak is the late progressive peak, not the ignition transient). Resolves the
-low-mass over-drive but **leaves the erosive-feedback residual** (1.36×). **MTV (1.47×)
-and Cu/Al thermite (6.54×)** carry the same impetus error + all-gas assumption → need
-their own ProPep/CEA runs. **BALLSstick** (bpnv, high-L/D) still over-spikes far beyond
-steady state after the fix — the same erosive-feedback residual as Chunc.
+low-mass over-drive but **leaves the erosive-feedback residual** (1.36×). **BALLSstick**
+(bpnv, high-L/D) still over-spikes far beyond steady state after the fix — the same
+erosive-feedback residual as Chunc.
+
+> **MARKED FOR LATER IMPLEMENTATION (igniter CEA extension).** MTV (impetus 1.47×) and
+> Cu/Al thermite (6.54×) carry the *same* impetus + all-gas error that BPNV did, but were
+> NOT fixed (the user supplied ProPep only for BPNV). To extend commit bfc2f3f to them:
+> run ProPep/CEA on each at the 1000 psi chamber standard, read off the **gas-phase mean
+> MW**, **T_flame**, **γ**, and **gas mass fraction** (gas_mass / charge_mass = gas mols ×
+> gas MW / 100 g), then set those four fields in `mtv.yaml` / `mtv_fast.yaml` /
+> `thermite.yaml`. This is a pure correctness fix (no dogma issue — it just honours
+> measured thermochemistry, like BPNV). Until then those pyrogens over-produce igniter gas
+> by their listed factors. Thermite is also architecturally mismatched with the 0D-plenum
+> mass-injection model (low-gas/high-flux) — see [[reference_copper_thermite_igniter]].
 
 ### 9.4 Net state — every transient / ignition lever is now exhausted
 Eliminated: igniter mass/topology/IC/**gas-over-production**, ignition kernel
@@ -434,22 +448,22 @@ feedback to a modestly-elevated (1.29×) transient G**; ~2/3 of the hump is real
 The remaining lever is **not** transient/ignition — it is the **steady erosive model's
 high-g fidelity**. Priority order:
 
-1. **Ma-vs-Mukunda-Paul high-g recalibration (primary; touches the keep-Ma dogma →
-   needs user sign-off).** Ma over-predicts ~1.33× vs the Hasegawa-validated
-   Mukunda-Paul universal law `η = 1 + 0.023(g^0.8 − 35^0.8)·H(g−35)` at the spike
-   (η 2.76 vs 2.08), but they **agree within 6% at the plateau**. This is a
-   model-fidelity question between two *validated* QS models — NOT a transient closure
-   or tuned smoothing. Steps: (a) cell-by-cell Ma-vs-MP comparison at high g across the
-   fired set (Chunc / BALLSstick / Zerox) to confirm the over-prediction is systematic
-   and confined to g ≫ 35; (b) if so, a high-g fidelity correction toward MP cuts the
-   spike ~1.33× (Chunc 1.36→~1.0; BALLSstick similarly) **without altering the plateau**
-   (6% agreement) — the only lever shown able to break the erosive floor without an
-   unphysical/tuned transient. Caveat: `feedback_keep_ma_erosive_model` reserves Ma as
-   the model of record, but MP is itself Hasegawa-validated (not an "inferior
-   correlation"), so this is a fidelity cross-check, not a downgrade. Decide before
-   implementing.
+1. **Ma-vs-Mukunda-Paul high-g recalibration — REJECTED (user decision 2026-06-18).**
+   Ma over-predicts ~1.33× vs the Hasegawa-validated Mukunda-Paul universal law
+   `η = 1 + 0.023(g^0.8 − 35^0.8)·H(g−35)` at the spike (η 2.76 vs 2.08), while
+   agreeing within 6% at the plateau — so a high-g correction toward MP would cut the
+   spike ~1.33× without altering the plateau. **It is the only lever shown able to break
+   the erosive floor.** But the user rejects it: **Ma's lack of empirical tuning figures
+   is a SHIPPING requirement** — the no-tuning guarantee is what lets srm_1d ship as an
+   end product that does NOT require users to quantify their own erosive burning. Any
+   high-g blend/correction toward MP introduces a fitted figure (even if MP is
+   Hasegawa-validated) and erodes that guarantee. **Therefore there is no remaining
+   non-dogma lever, and the high-L/D ignition-transient erosive over-spike is an
+   ACCEPTED, DOCUMENTED LIMITATION** — the cost of the no-tuning property. (Read-only
+   Ma-vs-MP *diagnostic* comparison is fine for understanding; do not wire any
+   correction.) See [[feedback_keep_ma_erosive_model]].
 
-2. **Grid-climb forensics (thread C, still open; secondary).** The spike
+2. **Grid-climb forensics (thread C, still open; secondary — understanding only).** The spike
    grid-CONVERGES to ~14 MPa (worse than the canonical 100-cell). Quick check first:
    the erosive entrance term `1 + (D/L)^(2/3)` uses `L = max(x_from_head, D_hyd)` — the
    `max(·, D)` clamp already bounds it ≤ 2, so it is probably **NOT** the grid driver
@@ -458,9 +472,11 @@ high-g fidelity**. Priority order:
    which ties back to thread D — in which case the MP high-g correction (lever 1)
    addresses it at the source.
 
-3. **Post-igniter-fix coupling sweep (thread B; low).** Re-run a small Cartesian sweep
-   {igniter gas_mass_fraction/mass × flame_front_velocity × MP-vs-Ma erosive} for
-   non-additive interactions — though each lever alone bottoms at the erosive floor.
+3. **Post-igniter-fix coupling sweep (thread B; very low — likely moot).** With the MP
+   high-g lever rejected (#1), the only remaining axes are the igniter
+   (gas_mass_fraction/mass) and flame_front_velocity, both of which bottom at the
+   erosive floor alone. A coupling sweep could check for non-additive interactions, but
+   with no floor-breaking lever left, it can at best re-confirm the documented limitation.
 
 **Explicitly NOT to retry** (recorded so they are not re-derived): transient h_c
 establishment relaxation (probe-falsified — only postpones); velocity / `port_mach_cap`
