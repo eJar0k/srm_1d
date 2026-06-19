@@ -79,7 +79,7 @@ except ImportError:
 # Step 1: Friction Factor
 # ================================================================
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def haaland_friction(Re, roughness, D):
     """
     Darcy friction factor from the Haaland (1983) correlation.
@@ -150,7 +150,7 @@ def haaland_friction(Re, roughness, D):
 # Step 2: Nusselt Number (Heat Transfer)
 # ================================================================
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def gnielinski_nusselt(Re, Pr, D, L, f, T_gas, T_surface, kappa):
     """
     Nusselt number from the Gnielinski (2013) correlation.
@@ -254,7 +254,7 @@ def gnielinski_nusselt(Re, Pr, D, L, f, T_gas, T_surface, kappa):
 # Step 3: Transpiration Correction
 # ================================================================
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def transpiration_correction(beta):
     """
     Transpiration (blowing) correction for heat transfer.
@@ -305,7 +305,7 @@ def transpiration_correction(beta):
 # Step 4: Single-Cell Burn Rate (Bisection Solver)
 # ================================================================
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def select_tab_idx(P, tab_min_p, tab_max_p, n_tabs):
     """
     Hard-switchover tab lookup matching openMotor's
@@ -329,7 +329,7 @@ def select_tab_idx(P, tab_min_p, tab_max_p, n_tabs):
     return best
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def saint_robert_from_tabs(P, tab_min_p, tab_max_p, tab_a, tab_n, n_tabs):
     """r₀ = a(P)·P^n(P) using tab-lookup."""
     P_pos = max(P, 0.0)
@@ -339,7 +339,7 @@ def saint_robert_from_tabs(P, tab_min_p, tab_max_p, tab_a, tab_n, n_tabs):
     return tab_a[k] * P_pos ** tab_n[k]
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def burn_rate_cell(
     P, Re_local, D_hyd, x_from_head, roughness,
     Pr, k_thermal, Cp_gas, T_flame, T_surface,
@@ -509,7 +509,7 @@ def burn_rate_cell(
 # Vectorized Wrapper
 # ================================================================
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def compute_burn_rates(
     P, Re, D_hyd, x_centers, is_burning, roughness,
     Pr, k_thermal, Cp_gas, T_flame, T_surface,

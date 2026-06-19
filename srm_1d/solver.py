@@ -89,7 +89,7 @@ except ImportError:
 # TDMA (Thomas Algorithm)
 # ================================================================
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def thomas_solve(a, b, c, d, N):
     """
     Solve a tridiagonal system using the Thomas algorithm (TDMA).
@@ -164,19 +164,19 @@ NOZZLE_STATE_SUBSONIC_OUT = 1
 NOZZLE_STATE_CHOKED_OUT = 2
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _critical_pressure_ratio(gamma):
     return (2.0 / (gamma + 1.0)) ** (gamma / (gamma - 1.0))
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _critical_flow_function(gamma):
     return np.sqrt(gamma) * (2.0 / (gamma + 1.0)) ** (
         (gamma + 1.0) / (2.0 * (gamma - 1.0))
     )
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _subsonic_throat_mdot_mag(P0, T0, Pb, A_throat, gamma, R_specific):
     """Magnitude of isentropic subsonic throat flow from reservoir to back pressure."""
     if (P0 <= 0.0 or T0 <= 0.0 or Pb <= 0.0 or Pb >= P0 or
@@ -192,7 +192,7 @@ def _subsonic_throat_mdot_mag(P0, T0, Pb, A_throat, gamma, R_specific):
     return A_throat * P0 * np.sqrt(coeff * f)
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _subsonic_outflow_dmdp(P_cell, T_cell, P_ambient, A_throat, gamma, R_specific):
     """Derivative d(mdot_out)/dP_cell for the subsonic outflow branch."""
     pr = P_ambient / P_cell
@@ -210,7 +210,7 @@ def _subsonic_outflow_dmdp(P_cell, T_cell, P_ambient, A_throat, gamma, R_specifi
     return dmdp
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _subsonic_inflow_dmdp(P_cell, T_ambient, P_ambient, A_throat, gamma, R_specific):
     """Derivative d(signed mdot)/dP_cell for the subsonic ambient-inflow branch."""
     pr = P_cell / P_ambient
@@ -228,7 +228,7 @@ def _subsonic_inflow_dmdp(P_cell, T_ambient, P_ambient, A_throat, gamma, R_speci
     return dmdp
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _nozzle_boundary_flow(
     P_cell, T_cell, A_throat, gamma, R_specific, P_ambient, T_ambient,
 ):
@@ -273,7 +273,7 @@ def _nozzle_boundary_flow(
     return -mdot, dmdp, Ta, NOZZLE_STATE_SUBSONIC_IN
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _piso_step_with_energy_diagnostics(
     rho, u, P, T, A_port, D_hyd,
     mass_source, thermal_source, momentum_source, f_darcy,
@@ -706,7 +706,7 @@ def _piso_step_with_energy_diagnostics(
             energy_residual)
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def piso_step(
     rho, u, P, T, A_port, D_hyd,
     mass_source, thermal_source, momentum_source, f_darcy,
@@ -738,7 +738,7 @@ def piso_step(
 # CFL Time Step
 # ================================================================
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def compute_dt_cfl(u, a_sound, dx, N, cfl_target, dt_max):
     """
     Compute the adaptive time step from the CFL condition.
@@ -782,7 +782,7 @@ def compute_dt_cfl(u, a_sound, dx, N, cfl_target, dt_max):
     return min(dt, dt_max)
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def compute_dt_source_cap(
     rho, A_port, thermal_source, mass_source, N,
     Cp_arr, T_flame, T_ambient, source_cfl_factor, dt_floor,

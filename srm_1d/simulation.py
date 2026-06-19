@@ -102,7 +102,7 @@ _SPECIES_AMBIENT = 2
 # Fused per-step helpers (called from inside _run_time_loop)
 # ================================================================
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _post_piso_update(
     rho, u, P, T, D_hyd, Re, Mach, u_cell, f_darcy,
     N, mu_gas, gamma_arr, R_arr, roughness,
@@ -127,7 +127,7 @@ def _post_piso_update(
     return a_max
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _bare_heat_transfer_coeff(
     Re_local, D_hyd, x_from_head, f_local, Pr, k_thermal,
     T_gas, T_wall, kappa,
@@ -142,7 +142,7 @@ def _bare_heat_transfer_coeff(
     return Nu * k_thermal / D_hyd
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _orifice_exit_velocity(P_ig, T_ig, P_main, gamma, M):
     """Ideal-gas pyrogen orifice exit velocity from plenum state."""
     if P_ig <= 0.0 or T_ig <= 0.0 or P_main >= P_ig:
@@ -167,13 +167,13 @@ def _orifice_exit_velocity(P_ig, T_ig, P_main, gamma, M):
     return v2 ** 0.5
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _cal_cm2_s_to_w_m2(heat_flux_cal_cm2_s):
     """Convert cal/(cm^2*s) to W/m^2."""
     return heat_flux_cal_cm2_s * CAL_CM2_S_TO_W_M2
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _pyrogen_surface_heat_power(
     mdot_igniter, T_ig, T_surf, C_burn, dx, Cp_pyrogen,
     measured_heat_flux_w_m2,
@@ -213,7 +213,7 @@ def _pyrogen_surface_heat_power(
     return delivered_power, delivered_power / contact_area
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _pyrogen_surface_thermal_sink(
     surface_heat_power_w, dx, pyrogen_enthalpy_source_w_per_m,
 ):
@@ -234,7 +234,7 @@ def _pyrogen_surface_thermal_sink(
     return sink
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _gas_sensible_energy(rho, T, A_port, dx, Cp_arr, N):
     """Discrete gas sensible energy used by diagnostics [J].
 
@@ -247,7 +247,7 @@ def _gas_sensible_energy(rho, T, A_port, dx, Cp_arr, N):
     return total
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _thermal_source_power(thermal_source, dx, N):
     """Sum solver enthalpy-source units to thermal power [W].
 
@@ -260,7 +260,7 @@ def _thermal_source_power(thermal_source, dx, N):
     return total
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _compute_mixture_cell(Y_row, species_params):
     """
     Ideal-gas mass-fraction mixing for one cell.
@@ -322,7 +322,7 @@ def _compute_mixture_cell(Y_row, species_params):
     return gamma_mix, Cp_mix, R_mix, M_mix
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _refresh_mixture_arrays(
     Y, species_params, gamma_arr, Cp_arr, R_arr, M_arr, N,
 ):
@@ -345,7 +345,7 @@ def _refresh_mixture_arrays(
         M_arr[i] = M_i
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _compute_pyrogen_axial_weights(x_centers, dx, L_jet, N):
     """v0.7.2 Phase A — exponential-decay axial weights for pyrogen injection.
 
@@ -387,7 +387,7 @@ def _compute_pyrogen_axial_weights(x_centers, dx, L_jet, N):
     return w
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _compute_uncontained_pyrogen_mdot(
     P_bore, a, n, rho_p, A_burn_per_cell, m_pyrogen_remaining, dt,
     i_start, i_end, N, mdot_arr, gas_mass_fraction=1.0,
@@ -479,7 +479,7 @@ def _compute_uncontained_pyrogen_mdot(
     return new_remaining
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _compute_uniform_band_weights(dx, i_start, i_end, N, w):
     """v0.7.3 Phase A — uniform top-hat axial weights for submerged-igniter
     pyrogen injection.
@@ -564,7 +564,7 @@ def _heat_delivery_code(mode):
     raise ValueError(f"unknown heat_delivery_mode: {mode!r}")
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _compute_pyrogen_heat_flux_arr(
     topology_code, heat_delivery_mode_code,
     # Common
@@ -738,7 +738,7 @@ def _compute_pyrogen_heat_flux_arr(
             pyrogen_heat_flux_arr[j] = q_total
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _compute_flame_front_augment(
     is_burning, has_ignited, ignition_time, t,
     tau_window, augment_value, N, augment_arr,
@@ -791,7 +791,7 @@ def _compute_flame_front_augment(
         augment_arr[j + 1] = augment_value
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _advance_flame_front(
     is_burning, x_centers, flame_front_velocity,
     x_front, front_direction, front_seed_idx,
@@ -843,7 +843,7 @@ def _advance_flame_front(
     return x_front
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _advance_zn_burn_rate(r_dyn, r_qs, is_burning, alpha_solid,
                           kappa_zn, r_floor, dt, N):
     """v0.7.4 Phase Z — lumped Zeldovich-Novozhilov dynamic burn-rate
@@ -882,7 +882,7 @@ def _advance_zn_burn_rate(r_dyn, r_qs, is_burning, alpha_solid,
         r_dyn[i] = rq + (r_dyn[i] - rq) * np.exp(-dt / tau)
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _compute_T_ceiling_arr(
     Y, species_params, T_ceiling_arr, N, T_initial_gas,
     Y_min=0.05,
@@ -935,7 +935,7 @@ def _compute_T_ceiling_arr(
         T_ceiling_arr[i] = ceiling
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _advect_species(
     Y, rho_old, rho_new, u, A_port,
     nozzle_mdot, dx, dt,
@@ -1016,7 +1016,7 @@ def _advect_species(
                 Y[i, s] *= inv
 
 
-@njit(cache=True)
+@njit(cache=True, fastmath=True)
 def _goodman_ignition_sources_and_mass(
     P, T, T_surf, delta, has_ignited, is_burning, is_grain, ignition_time,
     r_total, r_erosive, mass_source, thermal_source,
@@ -1313,7 +1313,7 @@ def _goodman_ignition_sources_and_mass(
 # Compiled time loop
 # ================================================================
 
-@njit(cache=True, nogil=True)
+@njit(cache=True, nogil=True, fastmath=True)
 def _run_time_loop(
     # --- Cell arrays (N) ---
     rho, u, P, T,
