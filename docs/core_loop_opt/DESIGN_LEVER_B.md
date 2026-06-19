@@ -1,6 +1,14 @@
 # Lever B — acoustic-CFL escape (design + mechanism + revert reference)
 
-**Status:** design (greenlit 2026-06-19). Companion to
+**Status:** DESIGNED / **DEFERRED — not started on the real solver**
+(2026-06-19). The probes (§2) revealed the full fix is research-grade
+surgery on the co-reviewed solver core — bigger than originally greenlit.
+**Decision: do NOT touch the real solver yet.** Next steps before any
+implementation: (1) user reads the primary literature (Klein 1995,
+Degond–Tang 2011 — possibly with research help), (2) build an isolated
+**git-worktree prototype** to measure real tractability + speedup, (3)
+only then decide on a real implementation, coordinated with the areilley
+code review. This doc is the spec for that work. Companion to
 [`README.md`](README.md) (profiling) and
 [`LITERATURE_ALLSPEED_PISO.md`](LITERATURE_ALLSPEED_PISO.md) (lit + DOIs).
 

@@ -130,18 +130,33 @@ density-based rewrite.
 
 ---
 
-## 4. Status / next steps
+## 4. Status / next steps — THREAD CLOSED OUT 2026-06-19
 
 - [x] Macro profiling (overturned the Mach-as-perf-tax assumption).
 - [x] A1 de-risk → deprioritized (~5 %).
-- [x] fastmath → ~+30 %, result-identical; **validated (406 passed) +
-      committed** 2026-06-19.
-- [ ] **A2** burn-rate bisection attribution + warm-start (cheap O(N) win).
-- [~] **Lever B** acoustic-CFL escape (IMEX or AUSM⁺-up) — the 2× prize;
-      **IN PROGRESS** (greenlit 2026-06-19). Design + mechanism in
-      [`DESIGN_LEVER_B.md`](DESIGN_LEVER_B.md); companion lit doc has the
-      recommended path and the paywalled papers to obtain.
+- [x] **fastmath → ~+30 %, result-identical; validated (406 passed) +
+      committed** (`eaa017b`). **The shipped win from this thread.**
+- [x] Lever B diagnosis + hard design doc committed (`7185e06`,
+      [`DESIGN_LEVER_B.md`](DESIGN_LEVER_B.md)).
+- [ ] **A2** burn-rate bisection attribution + warm-start — DEFERRED
+      ("work on later"). Safe, contained per-step win; does NOT touch the
+      acoustic-CFL / solver-stability machinery; stacks with fastmath.
+      Attribute the bisection's per-step share before implementing.
+- [ ] **Lever B (IMEX)** — DEFERRED, NOT started on the real solver. It is
+      research-grade surgery on the co-reviewed solver core. Plan: user
+      does the literature reading first (Klein 1995 / Degond–Tang —
+      possibly with research help), then an **isolated git-worktree
+      prototype** to gauge tractability + real speedup, BEFORE any
+      real-solver implementation, coordinated with the areilley review.
+      `DESIGN_LEVER_B.md` is the spec.
 
-Benchmark harnesses live in `c:/tmp/` (`bench_srm1d.py`,
-`alloc_microbench.py`, `quick_bench.py`) — promote to `srm_1d/tools/`
-if/when this work is committed.
+**Why closed out now:** the project's near-term focus is to chunk up and
+review ALL the code over the next several sessions so areilley + the user
+can build proper upstream PRs. Further core-loop changes (A2, Lever B)
+wait until that review cadence is established, to avoid churning the
+solver core mid-review.
+
+Benchmark/probe harnesses live in `c:/tmp/` (`bench_srm1d.py`,
+`alloc_microbench.py`, `quick_bench.py`, `cfl_probe.py`,
+`cfl_crossmotor.py`) — promote to `srm_1d/tools/` if/when A2 or Lever B
+work resumes.
