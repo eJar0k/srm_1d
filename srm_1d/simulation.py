@@ -390,7 +390,7 @@ def _compute_pyrogen_axial_weights(x_centers, dx, L_jet, N):
 @njit(cache=True)
 def _compute_uncontained_pyrogen_mdot(
     P_bore, a, n, rho_p, A_burn_per_cell, m_pyrogen_remaining, dt,
-    i_start, i_end, N, mdot_arr,
+    i_start, i_end, N, mdot_arr, gas_mass_fraction=1.0,
 ):
     """v0.7.3 Phase A — per-cell pyrogen mdot for uncontained
     submerged-igniter topologies (head_basket, aft_basket).
@@ -457,15 +457,26 @@ def _compute_uncontained_pyrogen_mdot(
         mdot_arr[i] = m
         total_mdot += m
 
-    # Mass conservation: cap total consumption at m_pyrogen_remaining
+    # Mass conservation: cap SOLID consumption at m_pyrogen_remaining.
+    # mdot_arr currently holds the SOLID burn rate (sets pyrogen depletion).
     if total_mdot * dt > m_pyrogen_remaining:
         if total_mdot > 0.0:
             scale = m_pyrogen_remaining / (total_mdot * dt)
             for i in range(lo, hi + 1):
                 mdot_arr[i] *= scale
-            return 0.0
-        return m_pyrogen_remaining
-    return m_pyrogen_remaining - total_mdot * dt
+            new_remaining = 0.0
+        else:
+            new_remaining = m_pyrogen_remaining
+    else:
+        new_remaining = m_pyrogen_remaining - total_mdot * dt
+
+    # Condensed-phase split: the solid depletes at the full burn rate (above),
+    # but the bore receives only gas_mass_fraction of it as pressurizing gas
+    # (the rest is condensed B/BN/Al2O3). Mirrors the forward_plenum split.
+    if gas_mass_fraction != 1.0:
+        for i in range(lo, hi + 1):
+            mdot_arr[i] *= gas_mass_fraction
+    return new_remaining
 
 
 @njit(cache=True)
@@ -1725,7 +1736,7 @@ def _run_time_loop(
             new_remaining = _compute_uncontained_pyrogen_mdot(
                 P, a_pyro, n_pyro, rho_pyro, A_burn_per_cell,
                 plenum_state[0], dt, cart_i_start, cart_i_end, N,
-                mdot_uncontained_arr,
+                mdot_uncontained_arr, pyrogen_params_arr[6],
             )
             plenum_state[0] = new_remaining
             # Diagnostics: aggregate per-cell mdot for the existing

@@ -24,10 +24,25 @@ name: BPNV
 a: 2.0e-5
 n: 0.50
 rho: 1700.0
-T_flame: 2800.0
-M: 0.030
-gamma: 1.25
+# v0.8.x igniter gas-property fix (ProPep, BPNV 25:60:15 @ 1000 psi = chamber
+# standard). ProPep chamber results: T = 2719 K, CP/CV(eff) = 1.1046, gas mols
+# = 1.621/100g, condensed = 1.303/100g (= B(liq) 0.746 + BN(s) 0.557 exactly).
+# Gas-phase mean MW = (100 g - 21.88 g condensed)/1.621 mol = 48.2 g/mol; the
+# gas-frozen gamma from the gas molar Cp (13.679 cal/mol/K) is Cp/(Cp-R)=1.17
+# (used here — the plenum models gas only; ProPep's 1.1046 includes the
+# condensed-phase heat capacity). Replaces the prior M=0.030 / T=2800 / g=1.25
+# whose impetus R*T/M = 6869 psi*in3/g was 2.1x the ProPep per-charge value
+# (3245) and drove the low-mass ignition over-spike.
+T_flame: 2719.0
+M: 0.0482
+gamma: 1.17
+# DeMar 2021 cited W ~= 5000 psi*in3/g (reference only; the gas physics uses
+# M/T/gamma/gas_mass_fraction above, which give a per-charge impetus of 3245).
 impetus_W: 5000.0
+# Condensed-phase split (ProPep @1000 psi): gas = 78.12 g per 100 g charge
+# (1.621 mol gas-phase), condensed = 21.88 g (B(liq) 0.746 mol + BN(s) 0.557
+# mol). Only this fraction pressurizes; the rest is condensed B/BN.
+gas_mass_fraction: 0.781
 heat_flux_cal_cm2_s: 69.4
 # v0.7.2 Phase A: pyrogen axial distribution. L_jet = kappa_jet * d_throat
 # is the exponential-decay length over which pyrogen mass / enthalpy /

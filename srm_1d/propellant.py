@@ -116,6 +116,15 @@ class Pyrogen:
     impetus_W: float = 0.0  # Optional DeMar impetus [psi*in^3/g]
     heat_flux_cal_cm2_s: Optional[float] = None  # DeMar heat flux [cal/(cm^2*s)]
     Cp_gas: Optional[float] = None  # Optional explicit product-gas Cp [J/(kg*K)]
+    # v0.8.x condensed-phase gas fraction: the fraction of burned pyrogen SOLID
+    # mass that becomes pressure-generating GAS. (1 - gas_mass_fraction) is
+    # condensed product (liquid/solid — e.g. B, BN, Al2O3, K2O) that carries
+    # heat but does NOT pressurize the chamber. Sourced from ProPep/CEA as
+    # gas_mass / charge_mass. BPNV @1000 psi = 0.781 (condensed B(liq)+BN(s) =
+    # 21.9 g per 100 g charge); black powder ~0.56 (Ma 2019). The plenum / bore
+    # receives only gas_mass_fraction * mdot_burn as gas; the pyrogen SOLID
+    # still depletes at the full burn rate. Default 1.0 = prior all-gas model.
+    gas_mass_fraction: float = 1.0
     # v0.7.2 Phase A: pyrogen-jet axial distribution. L_jet = kappa_jet * d_throat
     # sets the characteristic exponential-decay length over which pyrogen
     # mass / enthalpy / momentum are deposited into the bore (rather than the

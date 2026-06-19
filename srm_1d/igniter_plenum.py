@@ -245,7 +245,11 @@ def _burn_law_code(burn_law):
 
 
 def pyrogen_params(pyrogen):
-    """Return pyrogen scalars as a Numba-friendly array."""
+    """Return pyrogen scalars as a Numba-friendly array.
+
+    Index 6 (gas_mass_fraction) is the condensed-phase split: only this
+    fraction of the burned SOLID mass becomes pressure-generating gas.
+    """
     return np.array([
         pyrogen.a,
         pyrogen.n,
@@ -253,6 +257,7 @@ def pyrogen_params(pyrogen):
         pyrogen.T_flame,
         pyrogen.M,
         pyrogen.gamma,
+        pyrogen.gas_mass_fraction,
     ], dtype=np.float64)
 
 
@@ -403,7 +408,7 @@ def _plenum_rhs(
     m_pyrogen, m_gas, T_gas,
     a, n, rho_pyrogen, T_flame, M, gamma,
     m_pyrogen_initial, A_burn_initial, A_throat, V_plenum, burn_law_code,
-    dt_limit, P_main,
+    dt_limit, P_main, gas_mass_fraction,
 ):
     if m_pyrogen < 0.0:
         m_pyrogen = 0.0
@@ -421,14 +426,21 @@ def _plenum_rhs(
     if dt_limit > 0.0 and mdot_generated * dt_limit > m_pyrogen:
         mdot_generated = m_pyrogen / dt_limit
 
+    # Condensed-phase split: the SOLID depletes at the full burn rate
+    # (mdot_generated), but only gas_mass_fraction of it becomes gas that
+    # accumulates in / vents from the plenum. (1 - gas_mass_fraction) is
+    # condensed product that carries no pressure. mdot_out is the orifice
+    # vent of the (gas-only) plenum inventory and needs no extra factor.
+    mdot_gas_in = gas_mass_fraction * mdot_generated
+
     dm_pyrogen_dt = -mdot_generated
-    dm_gas_dt = mdot_generated - mdot_out
+    dm_gas_dt = mdot_gas_in - mdot_out
 
     m_eff = m_gas
     if m_eff < 1e-12:
         m_eff = 1e-12
     dT_dt = (
-        gamma * (mdot_generated * T_flame - mdot_out * T_gas)
+        gamma * (mdot_gas_in * T_flame - mdot_out * T_gas)
         - T_gas * dm_gas_dt
     ) / m_eff
 
@@ -450,6 +462,7 @@ def _step_plenum_ode(state, pyrogen_params_arr, chamber_params_arr, dt, P_main):
     T_flame = pyrogen_params_arr[3]
     M = pyrogen_params_arr[4]
     gamma = pyrogen_params_arr[5]
+    gas_mass_fraction = pyrogen_params_arr[6]
 
     m_pyrogen_initial = chamber_params_arr[0]
     A_burn_initial = chamber_params_arr[1]
@@ -478,7 +491,7 @@ def _step_plenum_ode(state, pyrogen_params_arr, chamber_params_arr, dt, P_main):
         m0, g0, T0,
         a, n, rho_pyrogen, T_flame, M, gamma,
         m_pyrogen_initial, A_burn_initial, A_throat, V_plenum,
-        burn_law_code, dt, P_main,
+        burn_law_code, dt, P_main, gas_mass_fraction,
     )
     k2_m, k2_g, k2_T = _plenum_rhs(
         m0 + 0.5 * dt * k1_m,
@@ -486,7 +499,7 @@ def _step_plenum_ode(state, pyrogen_params_arr, chamber_params_arr, dt, P_main):
         T0 + 0.5 * dt * k1_T,
         a, n, rho_pyrogen, T_flame, M, gamma,
         m_pyrogen_initial, A_burn_initial, A_throat, V_plenum,
-        burn_law_code, dt, P_main,
+        burn_law_code, dt, P_main, gas_mass_fraction,
     )
     k3_m, k3_g, k3_T = _plenum_rhs(
         m0 + 0.5 * dt * k2_m,
@@ -494,7 +507,7 @@ def _step_plenum_ode(state, pyrogen_params_arr, chamber_params_arr, dt, P_main):
         T0 + 0.5 * dt * k2_T,
         a, n, rho_pyrogen, T_flame, M, gamma,
         m_pyrogen_initial, A_burn_initial, A_throat, V_plenum,
-        burn_law_code, dt, P_main,
+        burn_law_code, dt, P_main, gas_mass_fraction,
     )
     k4_m, k4_g, k4_T = _plenum_rhs(
         m0 + dt * k3_m,
@@ -502,7 +515,7 @@ def _step_plenum_ode(state, pyrogen_params_arr, chamber_params_arr, dt, P_main):
         T0 + dt * k3_T,
         a, n, rho_pyrogen, T_flame, M, gamma,
         m_pyrogen_initial, A_burn_initial, A_throat, V_plenum,
-        burn_law_code, dt, P_main,
+        burn_law_code, dt, P_main, gas_mass_fraction,
     )
 
     new_m = m0 + (dt / 6.0) * (k1_m + 2.0 * k2_m + 2.0 * k3_m + k4_m)

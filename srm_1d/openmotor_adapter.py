@@ -455,6 +455,8 @@ def load_pyrogen(path_or_name):
             else float(data['heat_flux_cal_cm2_s'])
         ),
         kappa_jet=float(data.get('kappa_jet', 8.0)),
+        # v0.8.x condensed-phase gas fraction (ProPep/CEA gas_mass/charge_mass).
+        gas_mass_fraction=float(data.get('gas_mass_fraction', 1.0)),
         # v0.7.3 Phase B.3 / B.4: optional YAML fields with defensible
         # defaults baked into the Pyrogen dataclass.
         form=str(data.get('form', 'pellets')),
