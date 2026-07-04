@@ -2,9 +2,15 @@
 solid_thermal.py -- Goodman solid-phase conduction sub-solver
 =============================================================
 
-Standalone Phase 2 implementation for v0.7.0. This module advances the
-Goodman cubic-polynomial heat-balance integral state for an unignited
-propellant surface. It is intentionally not wired into simulation.py yet.
+Advances the Goodman cubic-polynomial heat-balance-integral state (thermal
+penetration depth ``delta`` plus an algebraic surface temperature) for an
+unignited propellant surface being heated by the hot bore gas.
+
+Wired into the time loop: ``simulation._run_time_loop`` imports and calls
+``_step_goodman_ode`` (RK4 penetration-depth step with adaptive sub-stepping)
+and ``_surface_has_ignited`` (the ``T_surf > T_ignition`` gate) for each
+unignited cell every step. See ``docs/v0_7_0/DESIGN.md`` Eq. 8 for the
+surface-temperature closure.
 """
 
 import math

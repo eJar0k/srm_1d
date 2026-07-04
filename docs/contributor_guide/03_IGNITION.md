@@ -101,11 +101,11 @@ optional, are covered in `04`: **DeMar** direct pyrogen-plume heating (the
 igniter radiates/convects onto nearby grain), and **adjacent-cell radiation**
 (a burning cell radiates to unignited neighbors).
 
-> **Historical note for readers:** `solid_thermal.py`'s module docstring says
-> it's "not wired into simulation.py yet." That's stale — the loop uses an
-> equivalent in-lined Goodman kernel in the `_goodman_ignition_*` source-
-> assembly function. The standalone module is the reference implementation.
-> (Whether to reconcile these is a fair PR-review question.)
+> **Note for readers:** the time loop calls `_step_goodman_ode` +
+> `_surface_has_ignited` **directly** from `solid_thermal.py` each step for
+> unignited cells (imported at the top of `simulation.py`), so this module is
+> the live ignition kernel — not just a reference. (Its older docstring
+> claiming it's "not wired in yet" was stale and has been corrected.)
 
 ---
 
