@@ -23,10 +23,10 @@ re-teach SRM physics or Python.
 |---|-----|----------------|--------|
 | — | **This README** | Orientation, the newcomer code map, the core-vs-opt-in feature catalog, and the reading order | ✅ |
 | 01 | [`01_SIM_CORE.md`](01_SIM_CORE.md) | **The heart of the code, CFD-demystified**: finite volume, the staggered grid, the PISO pressure–velocity solve, sources, boundaries, time-stepping, and a guided tour of the main time loop | ✅ |
-| 02 | `02_BURN_AND_GEOMETRY.md` | The Ma-2020 erosive burn-rate chain (friction → heat transfer → bisection) and how grain geometry regresses (analytic + FMM) each step | ⏳ planned |
-| 03 | `03_IGNITION.md` | The pyrogen igniter plenum + the Goodman solid-heating ignition kernel + the source-assembly step | ⏳ planned |
-| 04 | `04_ADDINS.md` | Deep-dive on each opt-in / experimental feature (Phase F/Z, radiation, topologies) — the catalog below is the index | ⏳ planned |
-| 05 | `05_IO_AND_OPENMOTOR.md` | `.ric` loading, the openMotor adapter, the plugin boundary, channels, plotting | ⏳ planned |
+| 02 | [`02_BURN_AND_GEOMETRY.md`](02_BURN_AND_GEOMETRY.md) | The Ma-2020 erosive burn-rate chain (friction → heat transfer → bisection — a heat-transfer closure, **not** a flux power law) and how grain geometry regresses (analytic + FMM) each step | ✅ |
+| 03 | [`03_IGNITION.md`](03_IGNITION.md) | The pyrogen igniter plenum + the Goodman solid-heating ignition kernel + the source-assembly step | ✅ |
+| 04 | [`04_ADDINS.md`](04_ADDINS.md) | Deep-dive on each opt-in / experimental feature (Phase F/Z, radiation, topologies, diagnostic toggles) — the catalog below is the index | ✅ |
+| 05 | [`05_IO_AND_OPENMOTOR.md`](05_IO_AND_OPENMOTOR.md) | `.ric` loading, the openMotor adapter, the plugin boundary, channels, plotting | ✅ |
 
 **Recommended reading order for a newcomer:** this README → `01_SIM_CORE`
 → then whichever of 02/03 matches what you're touching. Keep
