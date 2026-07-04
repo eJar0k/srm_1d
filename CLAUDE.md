@@ -4,7 +4,22 @@ A 1D transient finite-volume solid rocket motor internal ballistics
 simulator with the Ma et al. (2020) erosive burning model. Numba-JIT
 compiled time loop hits ~45-90k steps/s.
 
-**v0.8.0 SHIPS (branch `main`, tag `v0.8.0`)**: openMotor frontend
+**v0.8.1 SHIPS (branch `main`, tag `v0.8.1`, public)**: the post-v0.8.0
+`openmotor-frontend` work merged to `main` for public use. New since v0.8.0:
+**parametric grain taper** (bore + OD/end, srm_1d transient + openMotor QS +
+GUI) + longitudinal slice viewer / per-station axial viz; **core-loop
+performance** — `fastmath` on the hot `@njit` kernels (~+30%, result-identical)
+plus the acoustic-CFL "Lever B" design package (`docs/core_loop_opt/`,
+implementation deferred); ignition-transient fixes (ProPep-anchored igniter gas
+via `Pyrogen.gas_mass_fraction`; `forward_plenum` DeMar flux gated to the flame
+front) + opt-in `port_mach_cap` (default off); and a CFD-light **contributor
+guide** (`docs/contributor_guide/`, 6 chunks). Calibration defaults unchanged
+from the v0.8.0 tag gate (roughness 32µm / kappa 0.44 / T_ignition 756K /
+k_solid 0.271). See `docs/core_loop_opt/` + `docs/contributor_guide/` +
+DEVNOTES "API Breaking Changes Log" (v0.8.1: OD-taper `cell_D_outer` @njit
+signature change). The v0.8.0 narrative below is retained as historical.
+
+**v0.8.0 (tag `v0.8.0`)**: openMotor frontend
 integration (data-model + channels backbone + `motorlib` solver-plugin
 contract; the 1-D PISO transient solver runs in openMotor's GUI alongside
 its quasi-steady solver) + per-station axial viz + igniter-as-data. **Tag

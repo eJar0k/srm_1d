@@ -296,6 +296,29 @@ in geometry/burn rate/ignition (called every step or every N steps).
 
 ## API Breaking Changes Log
 
+### v0.8.1 (tag `v0.8.1`, public) — additions since v0.8.0
+
+Public release folding the post-v0.8.0 `openmotor-frontend` work onto `main`.
+Contents: per-station axial viz + longitudinal slice viewer; **parametric
+grain taper** (bore + OD/end, both solvers + openMotor GUI); **core-loop
+performance** (`fastmath` on the hot `@njit` kernels, ~+30%, result-identical —
+`n_steps`/`P_peak` bit-identical) + the acoustic-CFL "Lever B" design package
+(`docs/core_loop_opt/`, deferred); ignition-transient fixes (ProPep-anchored
+igniter gas generation via `Pyrogen.gas_mass_fraction`; `forward_plenum` DeMar
+flux gated to the flame front); the opt-in `port_mach_cap` velocity limiter
+(default 0.0 = off); and a CFD-light **contributor guide**
+(`docs/contributor_guide/`).
+
+API notes:
+- **BREAK — OD taper:** the transient `@njit` signatures
+  (`_run_time_loop`, `update_cell_geometry`, `compile_geometry_arrays`) now
+  carry a per-cell `cell_D_outer` array (was scalar `D_outer`). Clear
+  `srm_1d/__pycache__/` after upgrading.
+- **ADDITIVE (default-off):** `run_simulation(..., port_mach_cap=0.0)` and the
+  taper `taper['od']` schema; both no-ops unless enabled.
+- Non-breaking: `fastmath=True` on hot kernels; `__version__` corrected
+  (was stale at 0.6.0).
+
 - parametric FMM tapering (ADDITIVE / non-breaking; viz-geometry
   roadmap #3): a single FMM grain whose cross-section varies along its
   axis (e.g. a finocyl whose fins grow fwd→aft), built from a start/end

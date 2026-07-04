@@ -5,23 +5,25 @@ srm_1d — 1D SRM Internal Ballistics Simulator
 A transient 1D finite-volume solver for solid rocket motor internal
 ballistics with the Ma et al. (2020) erosive burning model.
 
-Quick start (v0.6.0+):
+Quick start:
     from srm_1d.openmotor_adapter import run_from_ric
 
     result, perf, nozzle, geo, prop = run_from_ric(
-        'srm_1d/motors/hasegawa_a.ric',
-        roughness=37.1e-6, pyrogen='bpnv', T_ignition=850.0,
+        'motors/hasegawa_a.ric', pyrogen='bpnv',
     )
 
-The ``srm_1d/motors/`` directory ships canonical motor specifications
-as ``.ric`` files (openMotor schema) with sibling ``.transport.yaml``
-files supplying combustion gas transport (mu, k, Cp).
+The ``motors/`` directory ships canonical motor specifications as
+``.ric`` files (openMotor schema); combustion gas transport (mu, k, Cp)
+is embedded per-propellant-tab in the ``.ric`` itself (the v0.7.x
+``.transport.yaml`` sidecars are retired). Calibration knobs default to
+the v0.7.5 cross-motor optimum (roughness 32 um, kappa 0.44,
+T_ignition 756 K, k_solid 0.271).
 
 To define a parametric geometry programmatically, build it directly via
 ``build_snapped_geometry`` from ``grain_geometry``.
 """
 
-__version__ = "0.6.0"
+__version__ = "0.8.1"
 
 # Main entry point
 from .simulation import run_simulation
