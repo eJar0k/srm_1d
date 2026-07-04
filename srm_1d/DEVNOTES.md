@@ -86,16 +86,22 @@ Zerox/Chunc residual is the documented ignition-transient QS-erosive
 limitation (`docs/v0_7_4/IGNITION_SPIKE_CLOSEOUT.md`), not a cal miss.
 
 ### Transport properties
-The model is sensitive to frozen vs effective gas transport:
-- Frozen (RPA): k=0.3685, Cp=2060 → underpredicts erosion, late tail-off
-- Effective (RPA, Hasegawa A): k=0.6517, Cp=2764 → better tail-off and
-  trace shape match; lets LHS settle k_solid at literature center
-- Recommendation: use effective values; frozen are physically wrong
-- **v0.7.1 ships effective as default for Hasegawa A** (Phase 5
-  close-out 2026-05-23). `srm_1d/motors/hasegawa_a.transport.yaml`
-  now contains effective; frozen preserved at
-  `hasegawa_a.frozen.transport.yaml` for diagnostic reference. Other
-  motor YAMLs are still frozen pending v0.7.2 cross-motor work.
+The model is sensitive to frozen vs effective gas transport (both from
+RPA/CEA): frozen (Hasegawa A: k=0.3685, Cp=2060) vs effective (k=0.6517,
+Cp=2764) shift the erosive chain via Re/h.
+
+- **v0.8.0: transport is embedded per-propellant-tab in the `.ric`**
+  (`transportVariant: frozen | effective`), read at load time. The
+  auto-resolved `.transport.yaml` sidecar is **RETIRED** — only an explicit
+  `transport_path` / `gas_props` override is honored now; the sidecar files
+  are kept on disk for diagnostic / explicit-override use (e.g. the
+  cross-motor LHS pins a `*.frozen.transport.yaml` explicitly).
+- **The v0.7.1 "effective as default" call was REVERSED.** The v0.7.3.2
+  6-cell / 1000-sample LHS found **frozen transport beats effective
+  universally for Hasegawa A** (radiation+frozen was rank-1; see the
+  v0.7.3.x close-out). Frozen is the validated basis behind the v0.7.5
+  canonical defaults above; each fired motor's `.ric` embeds its calibrated
+  variant.
 
 ### Roughness
 Higher roughness preferentially boosts nozzle-end erosion (high Re).

@@ -1,7 +1,29 @@
-# Architecture Map — srm_1d v0.7.0
+# Architecture Map — srm_1d v0.8.1
 
 Function-level map of every module. Use as a reference when making
 changes to verify nothing is lost or silently modified.
+
+> **v0.8.x additions** (the per-module map below is still accurate for the
+> core; these are the deltas since the v0.7.0 baseline it was written against):
+> - **New modules:** `channels.py` (Channel / AxialChannel result model),
+>   `srm1d_plugin.py` (openMotor solver-plugin registration), `station_viz.py`
+>   (per-station axial payload for the GUI / longitudinal slice viewer) — full
+>   sections below, before the dependency graph.
+> - **`solver.py`:** `piso_step` gained an opt-in `port_mach_cap` (interior
+>   aerodynamic-choking velocity limiter, default 0.0 = off).
+> - **`grain_geometry.py` / `fmm_grain.py`:** parametric axial taper (bore +
+>   OD/end) — per-cell `cell_D_outer`, per-station FMM tables
+>   (`TaperSpec` / `resolve_taper`), a `motorlib.taper` expander shared with
+>   openMotor's quasi-steady solver.
+> - **`simulation.py`:** opt-in ignition-transient features (Phase F
+>   `flame_front_enabled`, Phase Z `zn_enabled`) + the six `diagnostic_disable_*`
+>   isolation switches; per-cell N-species thermo (γ/R/Cp arrays).
+> - Calibration defaults are the v0.7.5 cross-motor optimum (roughness 32 µm /
+>   kappa 0.44 / T_ignition 756 K / k_solid 0.271).
+> - `fastmath=True` on the hot `@njit` kernels (v0.8.1, result-identical).
+>
+> A narrative, CFD-light walkthrough of all of this lives in
+> `docs/contributor_guide/`.
 
 ## solver.py (pure numerics, no project dependencies)
 
@@ -323,21 +345,74 @@ sibling YAML.
 - `fmm_table_lookup(regress, reg_arr, val_arr, n_samples)` — @njit
   O(1) linear interp on a uniform-grid FMM table (1D version).
 
+## channels.py (v0.8.0; imports numpy; lazy openMotor units)
+
+Result-channel model aligning srm_1d's results to openMotor's `LogChannel`
+shape so the plugin / unit-aware plotting can consume a channel object instead
+of the raw results dict. `build_channels` **reshapes without recomputing** —
+byte-identical to the dict, which stays the source of truth.
+
+- `class Channel` — scalar-per-step or per-grain-per-step series; mirrors
+  `LogChannel` (`name`, `unit`, `getData(unit)`, `getMax/getMin/getLast/
+  getAverage`).
+- `class AxialChannel` — srm_1d-specific: a per-cell axial field over time
+  (`time × N_cells`) + `x_cells`. openMotor has no per-cell concept (GUI
+  ignores until the axial-viz work).
+- `class SimulationChannels` — container.
+- `build_channels(results)` / `as_channels(result)` — dict → channels.
+- `_convert(...)` — lazy unit conversion via `motorlib.units` (identity when
+  units match, so the core imports without the openMotor checkout).
+
+## station_viz.py (v0.8.x; imports numpy; Qt-free)
+
+Headless backend for the per-station axial visualization (design in
+`docs/v0_8_0/STATION_VIZ_DESIGN.md`). Turns a run result into a compact axial
+payload + a default station model; the Qt half lives in the openMotor fork.
+
+- `class AxialPayload` (dataclass) + `build_axial_payload(...)` — a decimated
+  `[n_frames × n_cells]` field matrix per plottable quantity (P/G/u/Mach/T/rho),
+  plus the time base, `x_cells`, and cell→grain map.
+- `class Station` (dataclass) + `default_stations(...)` / `make_station(...)` —
+  fore/mid/aft station selection ("per-grain" = one station per grain).
+- Cell taxonomy helpers: `grain_cell_spans`, `gap_cell_indices`,
+  `cell_categories`, `grain_role`, `classify_cell`, `station_full_label`.
+
+## srm1d_plugin.py (v0.8.0; imports fmm_grain, lazily motorlib)
+
+Registers the PISO transient solver against openMotor's registry
+(`motorlib.solvers`) so the GUI can pick it alongside the quasi-steady solver
+(importing the module registers it; `SOLVER_NAME = 'srm_1d-transient'`).
+
+- Consumes an openMotor `Motor` via `Motor.getDict()`, runs `run_simulation`,
+  maps results into an openMotor `SimulationResult` (scalar per-step channels +
+  per-grain channels aggregated from per-cell axial snapshots via the
+  cell→segment map).
+- Reads the igniter from the motor's `data.igniter` block (falls back to BPNV).
+- Decimates GUI channels to `GUI_MAX_POINTS` (5000; a display artifact that
+  preserves peak-P/thrust/endpoint) — srm_1d's own full-res channels untouched.
+- `_transient_config_schema()` — run-parameter schema (keys = `run_simulation`
+  kwargs) as an openMotor PropertyCollection.
+
 ## Dependency Graph
 
 ```
 propellant.py        ← leaf (no project deps)
 burn_rate.py         ← leaf (no project deps; propellant params passed as scalars)
 solver.py            ← leaf (no project deps)
-grain_geometry.py    ← leaf (no project deps)
+grain_geometry.py    ← leaf (imports fmm_grain + motorlib.taper lazily for taper)
 nozzle.py            ← imports propellant (critical_flow_function, R_UNIVERSAL)
 igniter_plenum.py    ← imports propellant
 solid_thermal.py     ← leaf (optional numba only)
 fmm_grain.py         ← imports motorlib + mathlib (lazy, optional)
+channels.py          ← leaf (numpy; lazy motorlib.units for conversion only)
+station_viz.py       ← leaf (numpy; Qt-free result reshaping)
 simulation.py        ← imports solver, burn_rate, propellant, grain_geometry,
                        igniter_plenum, solid_thermal
 plotting.py          ← imports matplotlib only (result dicts are plain data)
 openmotor_adapter.py ← imports propellant, grain_geometry, nozzle,
                        simulation, igniter_plenum; lazily imports fmm_grain
                        for FMM grain types
+srm1d_plugin.py      ← imports fmm_grain (path bootstrap) + simulation;
+                       lazily imports motorlib (solvers, simResult) — the
+                       openMotor integration boundary
 ```

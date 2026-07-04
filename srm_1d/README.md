@@ -1,11 +1,12 @@
-# 1D SRM Internal Ballistics Simulator (srm_1d v0.7.0)
+# 1D SRM Internal Ballistics Simulator (srm_1d v0.8.1)
 
 A transient 1D finite-volume solver for solid rocket motor internal
-ballistics with the Ma et al. (2020) erosive burning model.
+ballistics with the Ma et al. (2020) erosive burning model. Also runs
+inside the openMotor GUI as a solver plugin (see `srm1d_plugin.py`).
 
 **Performance:** ~45–90k steps/s (compiled time loop with Numba JIT;
 FMM grains run faster than cylindrical due to fewer per-step ops)
-**Tests:** pytest | **Adapter:** reads openMotor .ric files
+**Tests:** pytest (~408) | **Adapter:** reads openMotor .ric files
 including all FMM grain types (Finocyl, Star, Moon, X, C, D, Custom)
 
 ## Quick start
@@ -14,19 +15,21 @@ including all FMM grain types (Finocyl, Star, Moon, X, C, D, Custom)
 from srm_1d.openmotor_adapter import run_from_ric
 
 result, perf, nozzle, geo, prop = run_from_ric(
-    'srm_1d/motors/hasegawa_a.ric',
-    roughness=37.1e-6,
+    'motors/hasegawa_a.ric',
     pyrogen='bpnv',
-    T_ignition=850.0,
-    P_cutoff=0.05e6,
 )
 ```
 
-`run_from_ric` auto-discovers a sibling `<motor>.transport.yaml`
-alongside the .ric file and uses it for combustion gas transport
-properties (mu, k, Cp). It also accepts `pyrogen='bpnv'`/`'mtv'` or
-a sibling `<motor>.pyrogen.yaml` for v0.7.0 pyrogen ignition. For
-parametric geometry construction without a .ric, use
+Calibration knobs (`roughness`, `kappa`, `T_ignition`, `k_solid`) default to
+the v0.7.5 cross-motor optimum (32 µm / 0.44 / 756 K / 0.271); pass them
+explicitly to override.
+
+`run_from_ric` reads combustion gas transport (mu, k, Cp) embedded
+**per-propellant-tab in the `.ric`** (`transportVariant: frozen | effective`);
+the v0.7.x `<motor>.transport.yaml` sidecars are retired (pass
+`transport_path=` / `gas_props=` to override). It accepts
+`pyrogen='bpnv'`/`'mtv'` — or reads the motor's own `data.igniter` block — for
+pyrogen ignition. For parametric geometry without a .ric, use
 `srm_1d.grain_geometry.build_snapped_geometry` directly.
 
 ## File Structure
@@ -44,17 +47,17 @@ srm_1d/
 ├── solid_thermal.py         # Goodman integral solid-heating ignition model
 ├── simulation.py            # Compiled time loop (_run_time_loop @njit)
 ├── plotting.py              # Pressure/thrust/snapshot/comparison plots
-├── openmotor_adapter.py     # .ric reader, transport YAML loader, CSV export
-├── motors/                  # Canonical motor + pyrogen data (v0.6.0+)
-│   ├── hasegawa_a.ric, hasegawa_a.transport.yaml
-│   ├── hasegawa_b.ric, hasegawa_b.transport.yaml
-│   ├── hasegawa_c.ric, hasegawa_c.transport.yaml
-│   ├── example_bates.ric, example_bates.transport.yaml
-│   └── pyrogens/bpnv.yaml, mtv.yaml
-├── tools/
-│   └── sensitivity.py       # Latin Hypercube sweeps with parallel execution
-├── tests/  (11 files, 133 tests)
-└── examples/ (hasegawa_motor_a.py, bates_4seg.py, hasegawa_a_lhs.py)
+├── openmotor_adapter.py     # .ric reader, transport loader, CSV export
+├── channels.py              # Channel/AxialChannel result model (openMotor-aligned)
+├── station_viz.py           # per-station axial payload (GUI slice-viewer backend)
+├── srm1d_plugin.py          # openMotor solver-plugin registration
+├── pyrogens/bpnv.yaml, mtv.yaml   # runtime pyrogen material library (package data)
+└── tools/                   # analysis tooling — see tools/README.md
+    ├── sensitivity.py       # Latin Hypercube parameter sweeps (parallel)
+    └── ignition_diagnostics.py  # ignition/startup-transient dissection
+
+repo-root siblings (dev-only, not in the wheel):
+  motors/  (<motor>.ric, transport embedded per-tab)  examples/  tests/  docs/
 ```
 
 ## Architecture
@@ -162,16 +165,19 @@ Coefficients live on the `Nozzle` object passed to `run_simulation`.
 - `save_csv()` → Time, Kn, P, Force, Mass Flow, per-grain regression/web
 - Supported grains: BATES, Conical (analytic) + all 7 FMM types.
 
-### Sensitivity Tooling (v0.7.0)
-`srm_1d.tools.sensitivity.run_lhs(motor_path, bounds, n_samples,
-fitness_fn, **sim_kwargs)` runs an N-sample Latin Hypercube sweep with
-`scipy.stats.qmc.LatinHypercube` and `concurrent.futures.ProcessPoolExecutor`.
-Pluggable fitness factories: `mse_fitness`,
-`impulse_error_fitness`, `peak_pressure_error_fitness`, and
-`segmented_pressure_fitness`. Optional `metrics_fn` columns are persisted
-to CSV. `progress_mode='brief'|'verbose'|'none'` controls terminal noise,
-and `sim_verbose=False` is the sweep default. Example:
-`srm_1d/examples/hasegawa_a_lhs.py`.
+### Analysis tooling (`srm_1d.tools`)
+Two dev/analysis modules — full docs in
+[`tools/README.md`](tools/README.md):
+- **`sensitivity.py`** — `run_lhs(motor_path, bounds, n_samples, fitness_fn,
+  **sim_kwargs)` runs an N-sample Latin Hypercube sweep
+  (`scipy.stats.qmc.LatinHypercube` + `ProcessPoolExecutor`) with pluggable
+  fitness factories (`mse_fitness`, `segmented_pressure_fitness`,
+  `impulse_error_fitness`, `peak_pressure_error_fitness`) and optional
+  `metrics_fn` CSV columns. Example: `examples/hasegawa_a_lhs.py`.
+- **`ignition_diagnostics.py`** — post-processing that dissects a run's
+  ignition/startup transient (landmarks, ignition spread, source/energy
+  time-series, and a spike-driver classification). Example:
+  `examples/chunc_ignition_2x2.py`.
 
 ## Result Dict Keys
 
