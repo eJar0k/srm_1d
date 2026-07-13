@@ -1,6 +1,13 @@
 # v0.7.4 — Ignition-Transient Spike: Research Synthesis
 
-**Status**: research complete, implementation not started (2026-05-30).
+> **NEXT SESSION START HERE → [`SPIKE_REOPEN_BRIEF.md`](SPIKE_REOPEN_BRIEF.md)**
+> (curated kickoff for the deliberate re-open). Current state of the
+> investigation is `IGNITION_SPIKE_REOPENED.md` §8–§9; the empirical probes are
+> in [`probes/`](probes/). This README is the original 2026-05-30 synthesis
+> (historical).
+
+**Status** (2026-05-30, historical): research complete; since then Phase F/Z
+shipped opt-in, the spike was closed-out then **re-opened** — see the brief.
 **Goal**: eliminate the ~2× ignition pressure-spike over-prediction on
 high-L:D motors (Chunc/machbusterNew is the clean diagnostic) without
 numerical tuning — using physically-grounded, literature-backed

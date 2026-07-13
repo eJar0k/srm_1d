@@ -1,5 +1,10 @@
 # Ignition-Spike Investigation — RE-OPENED (2026-06-16/17)
 
+> **Next session: start with [`SPIKE_REOPEN_BRIEF.md`](SPIKE_REOPEN_BRIEF.md)**
+> (curated kickoff + rules of engagement). This doc is the full record; §8 (open
+> threads) and §9 (latest state) are the live parts. Empirical probes:
+> [`probes/`](probes/).
+
 **This document updates `IGNITION_SPIKE_CLOSEOUT.md`.** The user re-opened the
 question with the explicit instruction to *suppress the closeout's prior
 assumptions* and test whether the spike is a structural solver artifact rather

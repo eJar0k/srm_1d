@@ -1,0 +1,181 @@
+# Ignition-Spike — RE-OPEN BRIEF (next-session kickoff)
+
+**Read this first.** It is the curated entry point for a fresh session
+deliberately re-opening the high-L/D ignition over-spike. It exists to make you
+efficient (don't re-derive dead ends) and accurate (don't hallucinate) — *not*
+to fence you in.
+
+---
+
+## 0. Rules of engagement (from the user, carry these)
+
+- **You are deliberately re-opening a "closed" investigation.** Every prior
+  "ruled out" below is **information, not a fence.** Re-open any of it *with
+  cause*. Question whether to re-run old studies or modify current methods.
+  Do **not** treat hard rule-outs dogmatically.
+- **Keep the physics-grounded Ma-2020 erosive model as much as *reasonably*
+  possible** — a strong preference, not an absolute. A move that introduces a
+  tuned figure (e.g. blending Ma toward Mukunda-Paul) is *allowed* but must be a
+  deliberate, user-visible tradeoff against the no-tuning shipping property —
+  never slipped in. See [[feedback_keep_ma_erosive_model]].
+- **Treat the WHOLE solver core as suspect and possibly coupled.** The ignition
+  model, sonic propagation / shock modeling, the **energy balance wired into
+  PISO**, and the Goodman gate may interact. **Assume no historical
+  code/architecture is infallible** — audit it, don't inherit it.
+- **Anti-hallucination discipline:** Read the local PDFs in
+  [`../references/`](../references/) (Ma 2020, Mukunda 1997, Beddini, Keller
+  1966, Liñán-Williams, Lengellé, Kuo/Summerfield, …) — **do not WebFetch**
+  physics you can read locally. **Verify before asserting** (grep/read the code
+  or the PDF first — this session's habit caught a wrong docstring and a
+  `KeyError` in the README). **Reproduce + measure**, don't speculate. Known DOI
+  trap: `10.2514/3.49697` is **Lengellé 1975**, not King.
+
+---
+
+## 1. The goal (quantitative)
+
+Find a **physically-justified closure** that reduces the high-L/D ignition
+pressure spike so the sim matches **empirical static-fire data across the full
+short → long L/D range** — not just one motor.
+
+The over-prediction is **progressively proportional to motor L/D** (Chunc and
+BALLSstick, both high-L/D, over-spike ~2×; Hasegawa A's peak is the *late
+progressive* peak, not the ignition transient, so it doesn't show the defect).
+There may be **other confounding factors** — treat L/D as the leading signature,
+not the sole variable.
+
+---
+
+## 2. What the spike IS (best current understanding — build on this)
+
+Chunc (`motors/machbusterNew.ric`) is the clean diagnostic: **real motor = ZERO
+ignition spike → flat ~8.8 MPa**; sim over-spikes ~2×, but plateau + taildown
+already match. Established by the 2026-06-18 re-open (REOPENED §9):
+
+- The spike is a **genuine Ma quasi-steady erosive feedback loop**
+  (G → r_erosive → P → ρ → G) responding to a **modestly-elevated** transient
+  mass flux — **sim aft-G is only 1.29× experimental**, with **no gas-dynamic
+  inflation** (sim ρ|u| = 0.87× its own quasi-steady ṁ/A; **aft Mach 0.23** at
+  the spike — the supersonic fill is *over* by then). Measured directly against
+  a 346-pt static-fire trace, independent of any model assumption.
+- Of the hump, **~2/3 is real QS erosive physics** (Mukunda-Paul universal law
+  gives η ≈ 2.08 at the spike's g) and **~1/3 is Ma's high-g over-prediction**
+  (Ma η ≈ 2.76 vs MP 2.08; they agree within ~6% at the plateau).
+- **It grid-CONVERGES to ~14 MPa** — the canonical 100-cell run *under-resolves*
+  it (11.76 / 12.64 / 13.20 MPa for 50/100/200 cells), so the "true" model spike
+  is ~1.7×, *worse* vs experiment. Finer grid → sharper contact front → tighter
+  ignition window → bigger synchronized aft-G surge (**simultaneity
+  sharpening**).
+
+---
+
+## 3. Ruled out **in isolation** (informed — reopen with cause)
+
+Do not silently redo these; *do* reconsider them under coupling / whole-core
+re-analysis. Full detail in REOPENED §7, §9.4.
+
+| Direction | Status | Note |
+|---|---|---|
+| Igniter mass / topology / IC | ruled out | + gas over-production **FIXED** (`bfc2f3f`: ProPep impetus + `gas_mass_fraction`) |
+| Ignition kernel (Goodman surface-T gate) | validated | Keller-Baer-Ryan 1966 validates surface-T + the 756 K value |
+| Ignition sequencing (flame-front, Phase F) | bottoms at floor | (a real DeMar-bypass bug was found + fixed; front now works, still floors) |
+| Burn-rate magnitude / Beddini derivable lag | ruled out | no parameter-free τ from Beddini |
+| Numerical resolution | ruled out | every-step burn+geom, cfl 0.15 identical |
+| Velocity / gas-dynamic G inflation | ruled out | **thread D, direct-measured** (§2 above); `port_mach_cap` decoupled from P_peak |
+| Transient h_c relaxation | probe-falsified | only **postpones** the spike (t_peak tracks the window) |
+| **Ma → Mukunda-Paul high-g recal** | **the one floor-breaking lever** | cuts spike ~1.33× without touching plateau — but **rejected on no-tuning product grounds.** *The user now softens this: it's back on the table as a deliberate tradeoff, not forbidden.* |
+
+**Explicitly do NOT retry as a *lone* spike fix** (they postpone or are
+decoupled): transient h_c establishment relaxation; `port_mach_cap`;
+integrated-energy/endothermic ignition criterion (Keller validates the existing
+gate; it's a ~35% fidelity item, not a spike fix). *These may still matter **in
+combination** — see thread B.*
+
+---
+
+## 4. Genuinely-open threads (NOT closed — the real leads)
+
+From REOPENED §8 (deliberately left open) + this session's whole-core framing:
+
+- **(B) Lever COUPLING is largely untested.** Everything above was eliminated
+  *in isolation* or in pairs. Build a small Cartesian sweep over {igniter
+  gas-fraction, flame_front_velocity, tau_establishment, ignition-criterion,
+  port_mach_cap} and look for **non-additive** interactions. The user's meta-
+  caution: *something is still missing; treat "eliminated" as "eliminated
+  alone."*
+- **(C) Grid-climb / simultaneity sharpening.** The spike grid-converges to
+  ~14 MPa. Likely a sharper contact front tightening the whole-grain ignition
+  window → bigger synchronized aft-G surge. Is there a **physical** simultaneity
+  limiter (finite flame-spread + finite per-cell ignition energy) that the
+  grid-sharpening is missing? (Ties to the erosive feedback at the source.)
+- **(E) Sonic propagation / shock-aware transient — the user's explicit
+  suspect.** The pressure-based PISO is **not shock-capturing**; the ignition
+  fill is a shock-tube-like blowdown; `port_mach_cap` is a crude clamp. Consider
+  a proper aerodynamic-choking source term, artificial viscosity / flux limiting
+  at contacts, or a **density-based (Riemann) sub-step** for the transient —
+  making the fill physical *without* the clamp (which may surface coupling the
+  clamp currently hides). This is also the right long-term flow-field fix. See
+  `docs/core_loop_opt/` (the acoustic-CFL "Lever B" work touches the same seam).
+- **(F, user) The energy balance wired into PISO — audit it as a system.** How
+  combustion + igniter enthalpy is injected and advected (sensible-enthalpy
+  `Cp·T`, upwind face fluxes, per-cell `T_ceiling` clip, the convective
+  wall-loss + pyrogen-radiation debits) is a plausible coupled contributor to
+  the fast snap-on and the G surge that has **not** been examined as a whole.
+  Does the fill's energy bookkeeping over-heat the near-front gas → over-drive
+  the ignition/erosive response?
+- **The Beddini turbulent-BL-development erosive factor (the Ma-preserving
+  lever).** `EROSIVE_CLOSURE_RESEARCH.md` option A: ramp the *erosive*
+  enhancement by `f_dev(t_since_flow_arrival)` over the BL-development time
+  (~L_e/u ~ ms) — the erosive lift needs a *developed* turbulent BL, which the
+  fill hasn't established. **Keeps Ma as the steady limit** (satisfies "keep Ma
+  reasonably"). The h_c probe (§9.2) scaled the *shared* Nu·k/D and only
+  postponed — but **decoupling the erosive-development factor from the
+  ignition-gate h_c was never cleanly isolated.** Legitimate reopen under the
+  coupling lens; expect *partial* per the lit dive.
+
+---
+
+## 5. Read-first order + entry points
+
+1. **This brief.**
+2. `IGNITION_SPIKE_REOPENED.md` — **§8 (open threads)** + **§9 (latest state:
+   G reconstruction, Keller validation, h_c falsification, igniter fix)**. The
+   current source of truth.
+3. `EROSIVE_CLOSURE_RESEARCH.md` — transient erosive-closure lit dive + the
+   Beddini lever.
+4. `IGNITION_SPIKE_CLOSEOUT.md` — earlier snapshot (already banners "re-opened").
+5. `README.md` (this dir) + `TASKS.md` — the original v0.7.4 synthesis.
+6. Memories: [[project_ignition_model_audit]], [[project_ignition_fidelity_candidates]],
+   [[project_chunc_erosive_spike_diagnostic]], [[feedback_keep_ma_erosive_model]],
+   [[feedback_no_unfounded_smoothing]].
+
+**Reproduce + measure:**
+- Repro: `examples/chunc_ignition_2x2.py`, `examples/ignition_spike_diagnostic.py`,
+  `examples/run_chunc.py`.
+- Diagnostics tool: `srm_1d/tools/ignition_diagnostics.py`.
+- **The investigation probes: [`probes/`](probes/)** (index in
+  `probes/README.md`) — the exact scripts that produced the findings above
+  (G reconstruction, relaminarization, Mukunda compare, mach convergence, h_c
+  decomp, igniter, cfl). Machine-absolute paths; re-run, question, modify.
+- **Validation data:** the high-res Chunc static-fire trace
+  `ThomasMach5_edited.xlsx` (346 pts; user's Downloads) is the single most
+  valuable asset — **consider committing it under `static_fire_data/`.** Matching
+  across short→long L/D needs traces for *several* motors (Hasegawa A, Zerox,
+  Chunc, BALLSstick and shorter units) — gather what exists first.
+
+**Hard constraints:** keep Ma reasonably (§0); no unfounded smoothing/dispersion
+fudges ([[feedback_no_unfounded_smoothing]]); respect roughness/kappa/k_solid
+physical bounds.
+
+---
+
+## 6. One-line kickoff (paste to start the session)
+
+> Read `docs/v0_7_4/SPIKE_REOPEN_BRIEF.md` and follow its rules of engagement.
+> We are re-opening the high-L/D ignition over-spike to find a physically-
+> justified closure that matches static-fire data across the short→long L/D
+> range, keeping Ma as much as reasonably possible, treating the whole solver
+> core (ignition, sonic/shock, PISO energy balance, Goodman) as suspect and
+> possibly coupled, and treating prior rule-outs as information rather than
+> fences. Start by reproducing the Chunc spike and confirming the §2 baseline,
+> then pick a thread from §4.
