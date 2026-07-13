@@ -157,11 +157,15 @@ From REOPENED §8 (deliberately left open) + this session's whole-core framing:
   `probes/README.md`) — the exact scripts that produced the findings above
   (G reconstruction, relaminarization, Mukunda compare, mach convergence, h_c
   decomp, igniter, cfl). Machine-absolute paths; re-run, question, modify.
-- **Validation data:** the high-res Chunc static-fire trace
-  `ThomasMach5_edited.xlsx` (346 pts; user's Downloads) is the single most
-  valuable asset — **consider committing it under `static_fire_data/`.** Matching
-  across short→long L/D needs traces for *several* motors (Hasegawa A, Zerox,
-  Chunc, BALLSstick and shorter units) — gather what exists first.
+- **Validation data — inventory in [`../../static_fire_data/README.md`](../../static_fire_data/README.md).**
+  What's committed: Hasegawa A / Zerox / Chunc digitized dicts (`plotting.py`),
+  `Zerox Data.xlsx` (raw), `pathfin54.csv`. **Gaps that matter for this goal:**
+  the hi-res Chunc trace `ThomasMach5_edited.xlsx` (346 pt; user Downloads — the
+  single most valuable asset, get it into `static_fire_data/` as CSV);
+  **BALLSStick** (no 3″ fire; 2″ subscale raw transducer data exists, needs
+  cleaning + justified subscale→3″ scaling → `static_fire_data/raw/`); and
+  **short/low-L/D coverage is thin** — add a short motor so a fix can be shown
+  not to break the near-zero-spike low-L/D case.
 
 **Hard constraints:** keep Ma reasonably (§0); no unfounded smoothing/dispersion
 fudges ([[feedback_no_unfounded_smoothing]]); respect roughness/kappa/k_solid
