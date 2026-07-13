@@ -42,7 +42,7 @@ from srm_1d import run_from_ric
 result, perf, nozzle, geo, prop = run_from_ric(
     "motors/hasegawa_a.ric", pyrogen="bpnv"
 )
-print(perf["P_peak"], perf["total_impulse"])
+print(result["summary"]["P_peak"], perf["total_impulse"])
 ```
 
 ## Layout

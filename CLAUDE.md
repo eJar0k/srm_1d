@@ -115,11 +115,13 @@ A / BALLSstick / Chunc — PISO's local-Re tracking already
 captures upstream-mass-flux contributions, so the Kashiwagi/Han
 augmentation double-counts. See `docs/v0_7_2/`.
 
-**v0.7.1.1 baseline** (carried forward): N-species bore-gas refactor
-(SPINBALL-style "infinite-gases mixture") + EFFECTIVE RPA transport
-default for ALL 4 fired motors (Hasegawa A, Zerox, Chunc, BALLSstick).
-`hasegawa_motor_a.py` retains v0.7.0 knobs (roughness=37.1µm,
-kappa=0.45, T_ign=850, k_solid=0.3 default).
+**v0.7.1.1 (historical)**: the N-species bore-gas refactor (SPINBALL-style
+"infinite-gases mixture", per-cell γ/R/Cp) — still the current architecture.
+NOTE its two now-SUPERSEDED claims: the effective-RPA-default and the old
+`hasegawa_motor_a.py` knobs (37.1µm/850) are gone — transport is now embedded
+per-propellant-tab (frozen won the v0.7.3.2 re-LHS) and the canonical defaults
+are the v0.7.5 optimum (roughness 32µm / kappa 0.44 / T_ignition 756K /
+k_solid 0.271).
 
 This file is loaded on every session — keep it tight. Pointers to
 deeper docs at the bottom.
@@ -172,10 +174,10 @@ repo root (siblings, dev-only — NOT in the package/wheel):
 
 ## Dev workflow
 
-- **Versioning is git tags**, not folder names. Latest tag: `v0.7.0`
-  (2026-05-21), still on branch `v0.7.0-phase4` (no merge to main yet).
-  Bump on hard API breaks; document each break in DEVNOTES "API
-  Breaking Changes Log."
+- **Versioning is git tags**, not folder names. Latest tag: `v0.8.1`
+  (2026-06-19, on `main`, public). Active dev on branch `openmotor-frontend`
+  (== main at release). Bump on hard API breaks; document each break in
+  DEVNOTES "API Breaking Changes Log."
 - **Hard API breaks are fine** — refactor cleanly, no backward-compat
   shims. (See `feedback_api_breaks` memory.)
 - **Defer to openMotor's architecture** when adding data structures
@@ -184,9 +186,9 @@ repo root (siblings, dev-only — NOT in the package/wheel):
   erosion_coeff, etc.); adapter converts at the boundary. (See
   `feedback_openmotor_alignment` memory.)
 - **Named motors live as data**, not Python factories: add a
-  `<motor>.ric` + sibling `<motor>.transport.yaml` to `motors/`,
-  load via `run_from_ric`. Parametric geometry uses
-  `build_snapped_geometry` directly.
+  `<motor>.ric` to `motors/` (gas transport is embedded per-propellant-tab
+  in the .ric — the `.transport.yaml` sidecars are retired), load via
+  `run_from_ric`. Parametric geometry uses `build_snapped_geometry` directly.
 - **Repo: github.com/eJar0k/srm_1d** (private).
 - **Pytest before commit**; clear `__pycache__/` and `.nbi`/`.nbc`
   after edits to @njit functions (Numba cache persistence is the #1
@@ -283,103 +285,60 @@ repo root (siblings, dev-only — NOT in the package/wheel):
 
 ## Where to look for more
 
-- `srm_1d/README.md` -- public API, motor designation, validated parameters
-- `srm_1d/ARCHITECTURE.md` -- function-level map of every module
-- `srm_1d/DEVNOTES.md` -- full gotchas, calibration state, complete
-  API breaking-change log per minor version, performance profile
-- `docs/v0_7_0/` -- v0.7.0 hot-gas plenum design package:
-  `DESIGN.md` (implemented architecture), `TASKS.md` (phase status),
-  `references/` (extracted papers + Goodman integral derivation +
-  Sutton/DeMar summaries).
-- `docs/v0_7_1/` -- v0.7.1 N-species design package:
-  `DESIGN.md` (mixture architecture, Phase plan, ambient species
-  decision), `TASKS.md` (Phases 1+2+3+3.5+4+5 complete, tagged).
-- `docs/v0_7_2/` -- v0.7.2 ignition-model rework design
-  package: `README.md` (problem statement + decision criteria),
-  `candidates/01..04_*.md` (4 original candidate design docs: Z-N
-  dynamic burn rate, spatial ignition-front coupling, pyrogen axial
-  distribution, submerged pyrogen modes), `references/01..04_*.md`
-  (extended literature digests), `TASKS.md` (Phase A complete +
-  Phase B negative findings + Phase C close-out — tagged
-  `v0.7.2-phaseA`). Candidate 3 (pyrogen distribution) shipped as
-  Phase A. Candidate 2 (spatial coupling via h_c augmentation)
-  attempted twice (v1 cumulative-G, v2 flame-front gating) and
-  shipped DISABLED by default after both amplified rather than
-  smoothed the spike.
-- `docs/v0_7_3/` -- v0.7.3 uncontained-pyrogen topology
-  package: `README.md` (problem statement + Phase A architecture +
-  Phase B candidate space), `TASKS.md` (Phase A.1/A.1.1/A.2/A.3
-  complete — tagged `v0.7.3-phaseA`). Validation findings: ISP
-  Super Loki head_basket (P_peak 0.12 MPa vs ~8.8 MPa experimental)
-  and Hasegawa A aft_basket (P_peak 0.10 MPa) both stall at
-  atmospheric P, exposing the ignition-initiation gap. Cross-
-  version architectural anchor is `docs/v0_7_2/candidates_post_phaseA.md`.
-- `docs/post_v0_7_0/references/` -- SPINBALL research that
-  motivated v0.7.1: Cavallini 2009 + DiGiacinto 2008 extractions plus
-  the `spinball_walkthrough.md` decision document (recommends Z-N
-  dynamic burn rate as the spike-taildown candidate; N-species is the
-  prerequisite infrastructure being delivered first).
-- `gemini summary.md` (repo root) -- historical record of the v0.6.0
-  development cycle that originated build_snapped_geometry, the new
-  end-face kernel, and the exponential-decay igniter
-- `generic agent instructions.md` -- short current handoff for future
-  coding agents. Older external agent-memory references are historical;
-  this repo's committed Markdown is the source of truth.
+**Start here (current):**
+- `docs/contributor_guide/` -- CFD-light onboarding walkthrough of the sim
+  core + newcomer code map + opt-in add-ins catalog (README + 01_SIM_CORE
+  through 05_IO_AND_OPENMOTOR). Best first read for a new contributor.
+- `srm_1d/README.md` -- public API, motor designation, validated parameters.
+- `srm_1d/ARCHITECTURE.md` -- function-level map of every module.
+- `srm_1d/DEVNOTES.md` -- gotchas, calibration state, API breaking-change
+  log per minor version, performance profile.
+- `srm_1d/tools/README.md` -- the LHS-sweep + ignition-diagnostics tooling.
+- `docs/core_loop_opt/` -- core-loop profiling + the deferred acoustic-CFL
+  "Lever B" design (IMEX) + the all-speed PISO literature review (with DOIs).
+
+**Design packages by version (historical — read the one matching the area
+you're changing):**
+- `docs/v0_8_0/` -- openMotor frontend integration + per-station axial-viz
+  design (DESIGN/TASKS/CLOSEOUT + STATION_VIZ_DESIGN + UPSTREAM_TAPER_PR_SCOPE).
+- `docs/v0_7_4/` -- ignition-spike investigation + **CLOSE-OUT**: the high-L/D
+  ignition over-spike is a documented, accepted Ma quasi-steady-erosive
+  limitation — **do not re-open** (see IGNITION_SPIKE_CLOSEOUT / _REOPENED and
+  the `project_ignition_model_audit` memory).
+- `docs/v0_7_0..v0_7_3/` + `docs/post_v0_7_0/` -- pyrogen plenum + Goodman
+  ignition (v0.7.0), N-species mixture (v0.7.1), ignition-model candidates +
+  Phase A/B findings (v0.7.2), uncontained topologies (v0.7.3), SPINBALL
+  research. Each has DESIGN/TASKS/references.
 
 ## Open roadmap (priority order)
 
-1. **v0.7.3 Phase B — uncontained-pyrogen ignition initiation** --
-   v0.7.3-phaseA shipped the uncontained-pyrogen topology
-   architecture (`head_basket` + `aft_basket`) but Phase A.3
-   validation surfaced a structural gap: pellets at atmospheric
-   bore P burn slowly enough that the bore never pressurizes
-   without an external thermal kick. forward_plenum hides this
-   via the choked-orifice startup transient; uncontained has no
-   equivalent. The natural Phase B is to add an ignition-
-   initiation pathway. Recommended options pending user
-   decision (smallest → largest scope):
-   - **Initial thermal pulse** (~150 LOC) — kick `T_surf` and/or
-     local bore T at t=0 in cartridge cells. Models the
-     e-match heat dump.
-   - **Per-pellet surface heat flux** (~200 LOC) — re-enable
-     DeMar-style surface flux PER CARTRIDGE CELL (not cell 0
-     only). Most direct mapping from forward_plenum.
-   - **Coupled e-match dataclass** (~400 LOC) — `Igniter` with
-     explicit `t_kick`, `Q_kick`, `tau_kick`. Opens door to
-     candidate 6 (plenum-as-option refactor).
-
-   Once Phase B lands, re-run **both** validation examples to test
-   (a) ISP Super Loki head_basket fit vs ~8.8 MPa experimental,
-   and (b) Hasegawa A aft_basket diagnostic — does the
-   simultaneous-ignition artifact persist under reversed mass-
-   injection topology?
-
-   Broader v0.7.3+ candidate space still on the table (independent
-   of Phase B):
-   - **Z-N dynamic burn rate** — burn-rate-ramp lag, stacks
-     cleanly with any topology.
-   - **Per-cell coupling alternatives** — reverse-polarity Phase B
-     damping, solid-phase axial conduction.
-   - **Pardue 1992 Al2O3 condensation** — secondary spike-taildown
-     candidate.
-   - **Plenum-as-option refactor** (candidate 6) — best done AFTER
-     ignition-initiation work lands so the abstraction is informed
-     by real requirements.
-
-   Cross-version anchor: `docs/v0_7_2/candidates_post_phaseA.md`.
-   v0.7.3 Phase B narrative: `docs/v0_7_3/TASKS.md`.
-2. **Cross-motor effective-transport recalibration** -- v0.7.1 only
-   flipped Hasegawa A to effective; Zerox/BALLSstick/machbusterNew/
-   ChaseRed/L3035/ivanO25k YAMLs are still frozen. After v0.7.2's
-   structural ignition fix lands, re-run cross-motor LHS using
-   effective + the new kernel.
-3. **ε = 0.05 single-cell ignition spike** (radiation-collapse residual)
-   -- the only remaining outlier in the 27-variant radiation matrix
-   trips on the last-grain-cell ignition transition. Would require
-   source sub-stepping (split-operator within one PISO step).
-4. **RodTube grain support** -- small extension (PerforatedGrain in
-   addition to FmmGrain in `from_openmotor`).
-5. **Al2O3 two-phase thermal lag** -- Pardue 1992 form, the secondary
-   spike-taildown candidate from the SPINBALL walkthrough. Higher
-   implementation cost than Z-N (full re-cal needed). v0.7.3+ if Z-N
-   alone doesn't close the residual.
+1. **Code review → proper upstream PRs (near-term north star).** Chunk up and
+   review ALL the code over several sessions so areilley (upstream openMotor
+   maintainer) + the user can build proper upstream PRs. The CFD-light
+   contributor guide (`docs/contributor_guide/`) is the first deliverable
+   (DONE). This **pauses solver-core churn** (the core-loop items below) until
+   the review cadence is set. See `project_code_review_for_prs` memory.
+2. **Upstream openMotor taper PRs.** The generic tapering is prepped as three
+   fork branches (`taper/core`, `taper/gui`, `taper/mainwindow-layout`) off
+   `upstream/staging`, gated (oM unit + offscreen GUI smoke) — **local-only,
+   HELD** pending the areilley discussion + a `/code-review ultra` pass on each
+   (user-triggered; the agent can't launch it). Scope:
+   `docs/v0_8_0/UPSTREAM_TAPER_PR_SCOPE.md`.
+3. **Core-loop performance (deferred).** `fastmath` shipped (+~30%,
+   result-identical). The big structural win — **Lever B: escape the acoustic
+   CFL via IMEX** (~2×, parameter-free) — is DEFERRED: research-grade surgery on
+   the co-reviewed core; the plan is the user reads the literature
+   (Klein 1995 / Degond–Tang 2011) then builds an isolated git-worktree
+   prototype BEFORE touching the real solver. `A2` burn-rate bisection
+   warm-start also deferred. Full record: `docs/core_loop_opt/`.
+4. **Ignition over-spike: CLOSED — do not re-open.** The high-L/D ignition
+   pressure over-prediction is the faithful Ma quasi-steady-erosive response in
+   a regime Ma never benchmarked — a documented, accepted limitation with no
+   non-tuned closure (`docs/v0_7_4/`, `project_ignition_model_audit` memory).
+   **Marked for later:** extend the ProPep igniter-gas fix (`bfc2f3f`) to
+   MTV/thermite via CEA.
+5. **Smaller open items.** RodTube grain support (small `PerforatedGrain`
+   extension alongside `FmmGrain` in `from_openmotor`); the OD-tapered
+   end-cell slice-render sliver at burnout; the un-instrumented per-station
+   FMM-resolve setup phase (no progress bar); BALLSStick CAD QS-vs-transient
+   validation.
