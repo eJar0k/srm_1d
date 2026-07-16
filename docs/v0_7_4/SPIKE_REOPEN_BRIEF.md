@@ -157,15 +157,23 @@ From REOPENED §8 (deliberately left open) + this session's whole-core framing:
   `probes/README.md`) — the exact scripts that produced the findings above
   (G reconstruction, relaminarization, Mukunda compare, mach convergence, h_c
   decomp, igniter, cfl). Machine-absolute paths; re-run, question, modify.
-- **Validation data — inventory in [`../../static_fire_data/README.md`](../../static_fire_data/README.md).**
-  What's committed: Hasegawa A / Zerox / Chunc digitized dicts (`plotting.py`),
-  `Zerox Data.xlsx` (raw), `pathfin54.csv`. **Gaps that matter for this goal:**
-  the hi-res Chunc trace `ThomasMach5_edited.xlsx` (346 pt; user Downloads — the
-  single most valuable asset, get it into `static_fire_data/` as CSV);
-  **BALLSStick** (no 3″ fire; 2″ subscale raw transducer data exists, needs
-  cleaning + justified subscale→3″ scaling → `static_fire_data/raw/`); and
-  **short/low-L/D coverage is thin** — add a short motor so a fix can be shown
-  not to break the near-zero-spike low-L/D case.
+- **Validation data — inventory + per-file load recipes in
+  [`../../static_fire_data/README.md`](../../static_fire_data/README.md)**
+  (the files do NOT share a column layout — `zerox_data.csv` has **reversed**
+  columns; read the recipes or you will silently swap time/pressure).
+  - ✅ **The hi-res Chunc trace is now committed**:
+    `static_fire_data/thomas_chunc_firing.csv` — **346 pts**, plateau ≈ 8.77 MPa,
+    **spike ratio 1.015 → the real motor has essentially NO ignition spike.**
+    This is the trace behind the §9.1 G-reconstruction and the primary target.
+  - ⚠️ **BALLSStick**: no 3″ firing exists. The 2″ subscale raw DAQ is in
+    `static_fire_data/raw/` but is **NOT usable as-is** — pressure channel reads
+    60.7 psi at ambient (~+46 psi off), load-cell impulse is 0.85× expected, time
+    isn't zeroed, and a justified 2″→3″ scaling is still needed. See
+    `raw/ballsstick_subscale_raw.notes.md`.
+  - ❌ **Low/short-L/D coverage is still absent** (no clean data yet). This is the
+    remaining coverage gap — a fix must be shown **not to break** the
+    near-zero-spike low-L/D case, so treat conclusions drawn only from high-L/D
+    motors as provisional.
 
 **Hard constraints:** keep Ma reasonably (§0); no unfounded smoothing/dispersion
 fudges ([[feedback_no_unfounded_smoothing]]); respect roughness/kappa/k_solid
