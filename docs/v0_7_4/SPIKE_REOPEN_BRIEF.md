@@ -166,10 +166,13 @@ From REOPENED §8 (deliberately left open) + this session's whole-core framing:
     **spike ratio 1.015 → the real motor has essentially NO ignition spike.**
     This is the trace behind the §9.1 G-reconstruction and the primary target.
   - ⚠️ **BALLSStick**: no 3″ firing exists. The 2″ subscale raw DAQ is in
-    `static_fire_data/raw/` but is **NOT usable as-is** — pressure channel reads
-    60.7 psi at ambient (~+46 psi off), load-cell impulse is 0.85× expected, time
-    isn't zeroed, and a justified 2″→3″ scaling is still needed. See
-    `raw/ballsstick_subscale_raw.notes.md`.
+    `static_fire_data/raw/` but is **NOT usable as-is**: the record holds only
+    ~0.21 s of pre-ignition data and **PSI is already ramping monotonically from
+    the first sample while the logged volts stay flat** — so there is no
+    quiescent baseline and the PSI column is *not* a linear map of the volts
+    (provenance unknown). **Do not apply a constant offset.** Load-cell impulse
+    is also 0.85× expected and time isn't zeroed; a justified 2″→3″ scaling is
+    still needed. See `raw/ballsstick_subscale_raw.notes.md`.
   - ❌ **Low/short-L/D coverage is still absent** (no clean data yet). This is the
     remaining coverage gap — a fix must be shown **not to break** the
     near-zero-spike low-L/D case, so treat conclusions drawn only from high-L/D
