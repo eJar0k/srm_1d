@@ -67,6 +67,33 @@ already match. Established by the 2026-06-18 re-open (REOPENED §9):
   ignition window → bigger synchronized aft-G surge (**simultaneity
   sharpening**).
 
+### 2.1 The empirical target is per-motor, NOT "no spike" (measured 2026-06-19)
+
+**Do not aim to eliminate the spike.** Real motors disagree with each other:
+
+| Real motor | measured startup over-pressure | source |
+|---|---|---|
+| **Chunc** (high L/D, **fore-tapering conical**) | **1.015× — essentially NO spike** | `static_fire_data/thomas_chunc_firing.csv` (346 pt) |
+| **BALLSStick 2″ subscale** (high L/D) | **~1.35–1.50× — a REAL spike** (peak 1330 psi @ +0.070 s → trough 885 @ +0.300 s → mid-burn 985 @ +1.03 s) | `static_fire_data/raw/ballsstick_subscale_raw.csv` |
+
+**Implications for this investigation:**
+- **"Real high-L/D motors don't spike" is FALSE.** One does, one doesn't — so
+  **L/D alone does not explain the defect.** Chunc's port is *fore-tapering
+  conical* (mass flux **lower** toward the aft — see
+  [[project_chunc_erosive_spike_diagnostic]]), a plausible geometric reason it
+  wouldn't spike. **Port geometry / G-distribution is a live confounder** —
+  exactly the "other confounding factors" the user flagged. Test the hypothesis
+  that the sim's error tracks **aft-G concentration**, not raw L/D.
+- The right success criterion is **reproducing each motor's own startup ratio**
+  (Chunc ≈1.0, BALLSStick ≈1.35–1.5), not driving all spikes to zero. A "fix"
+  that flattens Chunc but also flattens BALLSStick is **wrong**.
+- **Usability caveat:** the BALLSStick number is a **ratio**, which is why it
+  survives that file's broken calibration — a constant offset moves 1.50→1.53
+  (Δ0.02) and a pure gain error cancels exactly. Its **absolute** pressure is
+  NOT trustworthy, and it is the **2″ subscale**, not the 3″ motor. Also, whether
+  its startup peak is igniter-driven or erosive **cannot be settled from the
+  pressure trace alone** — treat the magnitude as a constraint, not a mechanism.
+
 ---
 
 ## 3. Ruled out **in isolation** (informed — reopen with cause)

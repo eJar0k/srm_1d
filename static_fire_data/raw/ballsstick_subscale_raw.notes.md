@@ -1,7 +1,40 @@
 # ballsstick_subscale_raw.csv — provenance & cleaning notes
 
-**Status: RAW. Not usable for validation as-is. Do not load directly.**
-**Do NOT apply a naive constant pressure offset — see §Pressure channel.**
+**Status: RAW.** Absolute pressure is **NOT** trustworthy (see §Pressure
+channel) — **do NOT apply a naive constant offset.**
+**BUT the trace SHAPE / ratio IS usable — see §What IS usable, below. It is a
+load-bearing empirical data point for the ignition-spike investigation.**
+
+## ⭐ What IS usable: the shape / spike ratio (measured 2026-06-19)
+
+A **ratio** is largely immune to this file's calibration problem: a pure **gain**
+error cancels exactly, and a constant **offset** barely moves it at firing
+pressures (subtracting 40 psi shifts 1.50 → 1.53, Δ0.02). So even though the
+absolute scale is untrustworthy, the startup **over-pressure ratio** is solid to
+a few percent — and that is exactly the quantity the spike investigation needs.
+
+Ignition-relative (ignition ≈ raw t = 1388.37 s):
+
+| feature | value |
+|---|---|
+| peak | **1330 psi @ +0.070 s** |
+| post-peak trough | **885 psi @ +0.300 s** |
+| mid-burn plateau | **985 psi @ +1.03 s** |
+| **spike / trough** | **1.50×** |
+| **spike / mid-burn** | **1.35×** |
+
+**The real 2″ BALLSStick DOES exhibit a startup over-pressure of ~1.35–1.5×** —
+in direct contrast to real **Chunc (1.015× → no spike)**. So *"real high-L/D
+motors don't spike"* is **false**, L/D alone doesn't explain the sim's defect,
+and the success criterion is **per-motor** ratio matching, not spike elimination.
+See `docs/v0_7_4/SPIKE_REOPEN_BRIEF.md` §2.1.
+
+**Caveats:** it's the **2″ subscale**, not the 3″ motor; the absolute pressure is
+unusable; and whether the startup peak is **igniter-driven or erosive cannot be
+determined from the pressure trace alone** — treat the magnitude as a constraint
+to reproduce, not a mechanism. Qualitative shape comparison is worthwhile
+(user, 2026-06-19: "a qualitative trace *shape* fit is still valuable" — worth
+running this motor in testing and eyeballing the shape).
 
 ## Provenance
 Raw DAQ export from a **2″ subscale** firing of the BALLSStick design.
