@@ -35,6 +35,8 @@ Unit conversions from openMotor internal units:
 """
 
 import os
+import math
+import dataclasses
 import warnings
 import numpy as np
 
@@ -441,34 +443,48 @@ def load_pyrogen(path_or_name):
             f"{sorted(missing)}"
         )
 
+    return _pyrogen_from_mapping(data)
+
+
+def _pyrogen_from_mapping(d):
+    """
+    Build a :class:`Pyrogen` from a mapping (a pyrogen YAML or an embedded
+    ``data.igniter.pyrogen`` block). The single place that owns the
+    absent-key defaults, shared by :func:`load_pyrogen` and
+    :func:`_block_to_pyrogen` so the two cannot drift apart again.
+
+    Required keys: name, a, n, rho, T_flame, M, gamma (KeyError if absent;
+    ``load_pyrogen`` pre-checks them to give a friendlier message).
+    """
     return Pyrogen(
-        name=str(data['name']),
-        a=float(data['a']),
-        n=float(data['n']),
-        rho=float(data['rho']),
-        T_flame=float(data['T_flame']),
-        M=float(data['M']),
-        gamma=float(data['gamma']),
-        impetus_W=float(data.get('impetus_W', 0.0)),
+        name=str(d['name']),
+        a=float(d['a']),
+        n=float(d['n']),
+        rho=float(d['rho']),
+        T_flame=float(d['T_flame']),
+        M=float(d['M']),
+        gamma=float(d['gamma']),
+        impetus_W=float(d.get('impetus_W', 0.0)),
         heat_flux_cal_cm2_s=(
-            None if data.get('heat_flux_cal_cm2_s') is None
-            else float(data['heat_flux_cal_cm2_s'])
+            None if d.get('heat_flux_cal_cm2_s') is None
+            else float(d['heat_flux_cal_cm2_s'])
         ),
-        kappa_jet=float(data.get('kappa_jet', 8.0)),
+        Cp_gas=(None if d.get('Cp_gas') is None else float(d['Cp_gas'])),
+        kappa_jet=float(d.get('kappa_jet', 8.0)),
         # v0.8.x condensed-phase gas fraction (ProPep/CEA gas_mass/charge_mass).
-        gas_mass_fraction=float(data.get('gas_mass_fraction', 1.0)),
-        # v0.7.3 Phase B.3 / B.4: optional YAML fields with defensible
+        gas_mass_fraction=float(d.get('gas_mass_fraction', 1.0)),
+        # v0.7.3 Phase B.3 / B.4: optional fields with defensible
         # defaults baked into the Pyrogen dataclass.
-        form=str(data.get('form', 'pellets')),
-        heat_delivery_mode=str(data.get('heat_delivery_mode', 'demar')),
-        pellet_emissivity=float(data.get('pellet_emissivity', 0.7)),
+        form=str(d.get('form', 'pellets')),
+        heat_delivery_mode=str(d.get('heat_delivery_mode', 'demar')),
+        pellet_emissivity=float(d.get('pellet_emissivity', 0.7)),
         radiation_absorption_length_m=float(
-            data.get('radiation_absorption_length_m', 1.0)
+            d.get('radiation_absorption_length_m', 1.0)
         ),
         # v0.7.4 Phase C.1: explicit particle dimensions (replaces
         # form-archetype A_burn multipliers).
-        particle_diameter_m=float(data.get('particle_diameter_m', 5.0e-3)),
-        particle_LD_ratio=float(data.get('particle_LD_ratio', 3.0)),
+        particle_diameter_m=float(d.get('particle_diameter_m', 5.0e-3)),
+        particle_LD_ratio=float(d.get('particle_LD_ratio', 3.0)),
     )
 
 
@@ -588,41 +604,83 @@ _IGNITER_SIZING_DEFAULTS = {
 
 
 def _pyrogen_to_block(pyrogen):
-    """Serialize a Pyrogen dataclass to the ``igniter.pyrogen`` dict."""
-    return {
-        'name': pyrogen.name, 'a': pyrogen.a, 'n': pyrogen.n,
-        'rho': pyrogen.rho, 'T_flame': pyrogen.T_flame, 'M': pyrogen.M,
-        'gamma': pyrogen.gamma, 'impetus_W': pyrogen.impetus_W,
-        'heat_flux_cal_cm2_s': pyrogen.heat_flux_cal_cm2_s,
-        'Cp_gas': pyrogen.Cp_gas, 'kappa_jet': pyrogen.kappa_jet,
-        'form': pyrogen.form,
-        'particle_diameter_m': pyrogen.particle_diameter_m,
-        'particle_LD_ratio': pyrogen.particle_LD_ratio,
-        'heat_delivery_mode': pyrogen.heat_delivery_mode,
-        'pellet_emissivity': pyrogen.pellet_emissivity,
-        'radiation_absorption_length_m': pyrogen.radiation_absorption_length_m,
-    }
+    """Serialize a Pyrogen dataclass to the ``igniter.pyrogen`` dict.
+
+    Emits EVERY ``init`` field of :class:`Pyrogen` (derived from
+    ``dataclasses.fields`` so a future field cannot be silently dropped —
+    ``gas_mass_fraction`` was, after ``bfc2f3f``, leaving every embedded
+    block with the pre-fix all-gas igniter). Key names are the field names.
+    """
+    return {f.name: getattr(pyrogen, f.name)
+            for f in dataclasses.fields(pyrogen) if f.init}
 
 
 def _block_to_pyrogen(pdict):
     """Build a Pyrogen dataclass from an ``igniter.pyrogen`` dict."""
-    return Pyrogen(
-        name=str(pdict['name']), a=float(pdict['a']), n=float(pdict['n']),
-        rho=float(pdict['rho']), T_flame=float(pdict['T_flame']),
-        M=float(pdict['M']), gamma=float(pdict['gamma']),
-        impetus_W=float(pdict.get('impetus_W', 0.0)),
-        heat_flux_cal_cm2_s=(None if pdict.get('heat_flux_cal_cm2_s') is None
-                             else float(pdict['heat_flux_cal_cm2_s'])),
-        Cp_gas=(None if pdict.get('Cp_gas') is None else float(pdict['Cp_gas'])),
-        kappa_jet=float(pdict.get('kappa_jet', 8.0)),
-        form=str(pdict.get('form', 'pellets')),
-        particle_diameter_m=float(pdict.get('particle_diameter_m', 5.0e-3)),
-        particle_LD_ratio=float(pdict.get('particle_LD_ratio', 3.0)),
-        heat_delivery_mode=str(pdict.get('heat_delivery_mode', 'demar')),
-        pellet_emissivity=float(pdict.get('pellet_emissivity', 0.7)),
-        radiation_absorption_length_m=float(
-            pdict.get('radiation_absorption_length_m', 1.0)),
-    )
+    return _pyrogen_from_mapping(pdict)
+
+
+class StaleIgniterMaterialWarning(UserWarning):
+    """A motor's embedded igniter material differs from the library entry of
+    the same name (e.g. a ``.ric`` saved before a library correction such as
+    the ``bfc2f3f`` ProPep BPNV gas fix). The embedded values are used."""
+
+
+def _library_pyrogen_files():
+    """``[(filename, Pyrogen)]`` for every YAML in ``srm_1d/pyrogens/``."""
+    folder = os.path.join(os.path.dirname(__file__), 'pyrogens')
+    out = []
+    for fname in sorted(os.listdir(folder)):
+        if fname.lower().endswith('.yaml'):
+            out.append((fname, load_pyrogen(os.path.join(folder, fname))))
+    return out
+
+
+def _pyrogen_field_differences(embedded, library):
+    """``[(field, embedded_value, library_value)]`` for every Pyrogen init
+    field other than ``name`` where the two differ. Floats compare with
+    rel tol 1e-9; None vs a value is a difference; strings compare exactly."""
+    diffs = []
+    for f in dataclasses.fields(Pyrogen):
+        if not f.init or f.name == 'name':
+            continue
+        e, lib = getattr(embedded, f.name), getattr(library, f.name)
+        if e is None or lib is None:
+            same = e is None and lib is None
+        elif isinstance(e, float) or isinstance(lib, float):
+            same = math.isclose(float(e), float(lib), rel_tol=1e-9, abs_tol=0.0)
+        else:
+            same = (e == lib)
+        if not same:
+            diffs.append((f.name, e, lib))
+    return diffs
+
+
+def _warn_if_stale_igniter_material(pyro):
+    """Warn (never modify) when ``pyro`` differs from EVERY library entry
+    sharing its name (case-insensitive). No library match -> no warning."""
+    matches = [(fname, lib) for fname, lib in _library_pyrogen_files()
+               if lib.name.lower() == pyro.name.lower()]
+    if not matches:
+        return
+    per_file = []
+    for fname, lib in matches:
+        diffs = _pyrogen_field_differences(pyro, lib)
+        if not diffs:
+            return                     # matches at least one entry exactly
+        per_file.append((fname, diffs))
+    detail = ' | '.join(
+        "library file srm_1d/pyrogens/{}: {}".format(
+            fname,
+            '; '.join(f"{k}: embedded {e!r} vs library {lib!r}"
+                      for k, e, lib in diffs))
+        for fname, diffs in per_file)
+    warnings.warn(
+        f"The motor's embedded igniter material '{pyro.name}' differs from "
+        f"the library entry of the same name ({detail}). The embedded values "
+        "are used. Re-select the igniter material or re-seed the motor's "
+        "igniter block to pick up library corrections.",
+        StaleIgniterMaterialWarning, stacklevel=3)
 
 
 def default_igniter_block(pyrogen_name='bpnv'):
@@ -638,11 +696,16 @@ def load_igniter(motor):
     """Return ``(Pyrogen, sizing_kwargs)`` from a motor dict's ``igniter``
     block, or None if the motor has no igniter block. ``sizing_kwargs`` maps
     directly onto :func:`build_pyrogen_chamber` (``-1.0`` mass/throat/volume/
-    burn_area sentinels become None = auto)."""
+    burn_area sentinels become None = auto).
+
+    The embedded material is authoritative and is never modified. If it
+    differs from the library entry of the same name, a single
+    :class:`StaleIgniterMaterialWarning` lists the differing fields."""
     ig = motor.get('igniter')
     if ig is None:
         return None
     pyro = _block_to_pyrogen(ig['pyrogen'])
+    _warn_if_stale_igniter_material(pyro)
 
     def _auto(value):
         return None if (value is None or value == -1.0) else value

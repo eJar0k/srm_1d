@@ -302,6 +302,29 @@ in geometry/burn rate/ignition (called every step or every N steps).
 
 ## API Breaking Changes Log
 
+### Solver-verification T1 (unreleased) — complete igniter block + stale-material warning
+
+`docs/solver_verification/` T1. The `data.igniter.pyrogen` block was missing
+`gas_mass_fraction` (added to `Pyrogen` by `bfc2f3f`), so every embedded block
+reloaded with all-gas igniter products (and the pre-fix BPNV M/γ/T) — the
+motor file, not the library, was authoritative on the `.ric` / GUI path.
+- **BREAK (block contents):** `_pyrogen_to_block` / `default_igniter_block`
+  now emit EVERY `Pyrogen` init field, derived from `dataclasses.fields`
+  (key names = field names), so a future field cannot be dropped again.
+  `_block_to_pyrogen` and `load_pyrogen` share one defaults owner,
+  `_pyrogen_from_mapping`; library YAMLs load to identical `Pyrogen`s as
+  before. Side effect: `load_pyrogen` now honors a `Cp_gas` key (it was
+  silently ignored; no library YAML sets it).
+- **ADDITIVE:** `openmotor_adapter.StaleIgniterMaterialWarning(UserWarning)`.
+  `load_igniter` emits one when the embedded material differs, on any field
+  other than `name`, from EVERY library entry of the same (case-insensitive)
+  name; it lists `field: embedded X vs library Y`. The embedded values are
+  still used — it never rewrites them. No library match -> no warning.
+- Existing `.ric` files are NOT migrated (all 21 committed ones still embed
+  the pre-`bfc2f3f` BPNV). openMotor's own `Pyrogen` schema
+  (`motorlib/igniter.py`) has no `gas_mass_fraction`, so GUI saves still cannot
+  carry it — see `docs/solver_verification/worklog/T1.md` step 7.
+
 ### v0.8.1 (tag `v0.8.1`, public) — additions since v0.8.0
 
 Public release folding the post-v0.8.0 `openmotor-frontend` work onto `main`.

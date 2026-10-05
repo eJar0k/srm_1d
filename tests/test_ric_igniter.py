@@ -9,12 +9,16 @@ igniter from the motor file when no pyrogen kwarg is given.
 
 import os
 import glob
+import dataclasses
+import warnings
 
 import pytest
+import yaml
 
 from srm_1d.openmotor_adapter import (
     default_igniter_block, load_igniter, _seed_motor_igniter,
     _pyrogen_to_block, _block_to_pyrogen, load_ric, build_pyrogen_chamber,
+    StaleIgniterMaterialWarning,
 )
 from srm_1d.propellant import Pyrogen
 
@@ -96,3 +100,116 @@ def test_build_chamber_from_motor_file_igniter():
     chamber = build_pyrogen_chamber(pyro, geo, nozzle, **sizing)
     assert chamber.m_pyrogen_initial > 0
     assert chamber.injection_topology == 'forward_plenum'
+
+
+# ---------------------------------------------------------------------------
+# sv/T1 -- lossless igniter block round-trip + stale-material warning
+# ---------------------------------------------------------------------------
+
+_INIT_FIELDS = [f for f in dataclasses.fields(Pyrogen) if f.init]
+
+
+def _every_field_nondefault():
+    """A Pyrogen with EVERY init field set to a value != its default.
+
+    Generated from ``dataclasses.fields`` so a field added to ``Pyrogen``
+    later is covered automatically (and fails the round-trip test if the
+    adapter drops it, as ``gas_mass_fraction`` once was)."""
+    overrides = {'form': 'powder', 'heat_delivery_mode': 'radiation'}
+    kwargs = {}
+    for i, f in enumerate(_INIT_FIELDS):
+        if f.name == 'name':
+            val = 'ROUNDTRIP'
+        elif f.name in overrides:
+            val = overrides[f.name]
+        elif f.default is dataclasses.MISSING:
+            val = 1.0 + 0.37 * (i + 1)            # required float field
+        elif f.default is None:
+            val = 1234.5 + i                       # Optional[float]
+        elif isinstance(f.default, str):
+            val = f.default + '_alt'
+        elif isinstance(f.default, float):
+            val = f.default * 1.37 + 0.0123 * (i + 1)
+        else:
+            raise AssertionError(
+                f"test helper cannot synthesize a value for Pyrogen.{f.name} "
+                f"(default {f.default!r}); extend _every_field_nondefault")
+        kwargs[f.name] = val
+    p = Pyrogen(**kwargs)
+    for f in _INIT_FIELDS:                         # really non-default
+        if f.default is not dataclasses.MISSING:
+            assert getattr(p, f.name) != f.default, f.name
+    return p
+
+
+def test_pyrogen_block_round_trip_every_field():
+    p = _every_field_nondefault()
+    block = _pyrogen_to_block(p)
+    # direct round-trip
+    assert dataclasses.asdict(_block_to_pyrogen(block)) == dataclasses.asdict(p)
+    # and through the YAML text a .ric is actually saved as
+    reloaded = yaml.safe_load(yaml.safe_dump(block))
+    q = _block_to_pyrogen(reloaded)
+    for f in _INIT_FIELDS:
+        assert getattr(q, f.name) == getattr(p, f.name), f.name
+    assert q.gas_mass_fraction == p.gas_mass_fraction != 1.0
+
+
+def test_pyrogen_block_keys_equal_init_fields():
+    names = {f.name for f in _INIT_FIELDS}
+    assert set(_pyrogen_to_block(_every_field_nondefault())) == names
+    block = default_igniter_block('bpnv')['pyrogen']
+    assert set(block) == names
+    assert block['gas_mass_fraction'] == pytest.approx(0.781)
+
+
+def _stale_motor(**pyrogen_edits):
+    block = default_igniter_block('bpnv')
+    block['pyrogen'].update(pyrogen_edits)
+    return {'igniter': block}
+
+
+def test_current_library_block_emits_no_stale_warning():
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', StaleIgniterMaterialWarning)
+        pyro, _ = load_igniter({'igniter': default_igniter_block('bpnv')})
+    assert pyro.gas_mass_fraction == pytest.approx(0.781)
+
+
+def test_prefix_bfc2f3f_block_emits_one_stale_warning_and_keeps_values():
+    motor = _stale_motor(M=0.03)
+    del motor['igniter']['pyrogen']['gas_mass_fraction']   # key absent -> 1.0
+    with warnings.catch_warnings(record=True) as rec:
+        warnings.simplefilter('always')
+        pyro, _ = load_igniter(motor)
+    stale = [w for w in rec if issubclass(w.category, StaleIgniterMaterialWarning)]
+    assert len(stale) == 1
+    msg = str(stale[0].message)
+    assert 'BPNV' in msg and 'bpnv.yaml' in msg
+    assert 'M: embedded 0.03 vs library 0.0482' in msg
+    assert 'gas_mass_fraction: embedded 1.0 vs library 0.781' in msg
+    assert msg.endswith(
+        "The embedded values are used. Re-select the igniter material or "
+        "re-seed the motor's igniter block to pick up library corrections.")
+    # warn only -- the embedded values are what is used
+    assert pyro.M == 0.03 and pyro.gas_mass_fraction == 1.0
+
+
+def test_stale_warning_match_rules():
+    # name is matched case-insensitively and itself is not a compared field
+    with pytest.warns(StaleIgniterMaterialWarning, match='kappa_jet'):
+        load_igniter(_stale_motor(name='bpnv', kappa_jet=3.0))
+    # float tolerance: 1e-12 relative is "equal"
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', StaleIgniterMaterialWarning)
+        load_igniter(_stale_motor(M=0.0482 * (1.0 + 1e-12)))
+    # None vs a value is a difference (library Cp_gas is absent -> None)
+    with pytest.warns(StaleIgniterMaterialWarning, match='Cp_gas'):
+        load_igniter(_stale_motor(Cp_gas=2000.0))
+    # a string field
+    with pytest.warns(StaleIgniterMaterialWarning, match='heat_delivery_mode'):
+        load_igniter(_stale_motor(heat_delivery_mode='radiation'))
+    # no library entry of that name -> no warning
+    with warnings.catch_warnings():
+        warnings.simplefilter('error', StaleIgniterMaterialWarning)
+        load_igniter(_stale_motor(name='MY_CUSTOM_IGNITER', M=0.03))
