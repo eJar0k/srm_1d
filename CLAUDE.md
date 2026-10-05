@@ -301,10 +301,11 @@ repo root (siblings, dev-only — NOT in the package/wheel):
 you're changing):**
 - `docs/v0_8_0/` -- openMotor frontend integration + per-station axial-viz
   design (DESIGN/TASKS/CLOSEOUT + STATION_VIZ_DESIGN + UPSTREAM_TAPER_PR_SCOPE).
-- `docs/v0_7_4/` -- ignition-spike investigation + **CLOSE-OUT**: the high-L/D
-  ignition over-spike is a documented, accepted Ma quasi-steady-erosive
-  limitation — **do not re-open** (see IGNITION_SPIKE_CLOSEOUT / _REOPENED and
-  the `project_ignition_model_audit` memory).
+- `docs/v0_7_4/` -- ignition-spike investigation. **OPEN — the foremost
+  development target** (the old CLOSEOUT is superseded). Read
+  `SPIKE_REOPEN_BRIEF.md` first, then `IGNITION_SPIKE_REOPENED.md` §10–11
+  (current source of truth); probes in `probes/`. Erosive-model registry
+  (the model-swap feature): `docs/erosive_model_registry/`.
 - `docs/v0_7_0..v0_7_3/` + `docs/post_v0_7_0/` -- pyrogen plenum + Goodman
   ignition (v0.7.0), N-species mixture (v0.7.1), ignition-model candidates +
   Phase A/B findings (v0.7.2), uncontained topologies (v0.7.3), SPINBALL
@@ -312,32 +313,32 @@ you're changing):**
 
 ## Open roadmap (priority order)
 
-1. **Code review → proper upstream PRs (near-term north star).** Chunk up and
-   review ALL the code over several sessions so areilley (upstream openMotor
-   maintainer) + the user can build proper upstream PRs. The CFD-light
-   contributor guide (`docs/contributor_guide/`) is the first deliverable
-   (DONE). This **pauses solver-core churn** (the core-loop items below) until
-   the review cadence is set. See `project_code_review_for_prs` memory.
-2. **Upstream openMotor taper PRs.** The generic tapering is prepped as three
-   fork branches (`taper/core`, `taper/gui`, `taper/mainwindow-layout`) off
-   `upstream/staging`, gated (oM unit + offscreen GUI smoke) — **local-only,
-   HELD** pending the areilley discussion + a `/code-review ultra` pass on each
-   (user-triggered; the agent can't launch it). Scope:
+1. **Ignition over-spike — OPEN, the foremost development target.** The
+   cross-motor differential test (REOPENED §10) showed the startup
+   over-prediction is a near-uniform factor equal to each motor's Ma-vs-
+   Mukunda-Paul excess at its spike g. Shipped opt-in (default OFF, `ma2020`
+   stays the default): `erosive_mp_cap` and the erosive-model registry
+   (`erosive_model ∈ {ma2020, mukunda_paul, saint_robert}`); registry T3 (GUI)
+   + T4 (docs) not started. Enabling MP is the user's call — HELD. The Chunc
+   a/n-vs-closure degeneracy is unbroken (Zerox proved unfit; Chunc a/n
+   provenance unobtainable); next discriminator = Hasegawa B/C traces
+   (digitization pending). Start at `docs/v0_7_4/SPIKE_REOPEN_BRIEF.md`.
+2. **Core-loop performance (held).** `fastmath` shipped (+~30%,
+   result-identical). Lever B (IMEX acoustic-CFL escape) and `A2` bisection
+   warm-start are no longer the only candidates — the user has other new
+   levers. Full record of the old analysis: `docs/core_loop_opt/`.
+3. **Upstream openMotor taper PRs (HELD).** Three fork branches
+   (`taper/core`, `taper/gui`, `taper/mainwindow-layout`) off
+   `upstream/staging`, gated — local-only, pending the areilley discussion +
+   a `/code-review ultra` pass (user-triggered). Scope:
    `docs/v0_8_0/UPSTREAM_TAPER_PR_SCOPE.md`.
-3. **Core-loop performance (deferred).** `fastmath` shipped (+~30%,
-   result-identical). The big structural win — **Lever B: escape the acoustic
-   CFL via IMEX** (~2×, parameter-free) — is DEFERRED: research-grade surgery on
-   the co-reviewed core; the plan is the user reads the literature
-   (Klein 1995 / Degond–Tang 2011) then builds an isolated git-worktree
-   prototype BEFORE touching the real solver. `A2` burn-rate bisection
-   warm-start also deferred. Full record: `docs/core_loop_opt/`.
-4. **Ignition over-spike: CLOSED — do not re-open.** The high-L/D ignition
-   pressure over-prediction is the faithful Ma quasi-steady-erosive response in
-   a regime Ma never benchmarked — a documented, accepted limitation with no
-   non-tuned closure (`docs/v0_7_4/`, `project_ignition_model_audit` memory).
-   **Marked for later:** extend the ProPep igniter-gas fix (`bfc2f3f`) to
-   MTV/thermite via CEA.
-5. **Smaller open items.** RodTube grain support (small `PerforatedGrain`
+4. **Code review → upstream PRs: SHELVED for a while (2026-10-05).** The
+   contributor guide (`docs/contributor_guide/`) is done; the review no longer
+   pauses solver-core work.
+5. **Igniter CEA extension (held).** Extend the ProPep igniter-gas fix
+   (`bfc2f3f`) to MTV/thermite via CEA.
+6. **Low-L/D static-fire data** — still the coverage gap; data will come.
+7. **Smaller open items.** RodTube grain support (small `PerforatedGrain`
    extension alongside `FmmGrain` in `from_openmotor`); the OD-tapered
    end-cell slice-render sliver at burnout; the un-instrumented per-station
    FMM-resolve setup phase (no progress bar); BALLSStick CAD QS-vs-transient
