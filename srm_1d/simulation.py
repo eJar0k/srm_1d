@@ -38,7 +38,10 @@ from .solver import (
     compute_dt_source_cap,
     _nozzle_boundary_flow,
 )
-from .burn_rate import compute_burn_rates, haaland_friction, gnielinski_nusselt
+from .burn_rate import (
+    compute_burn_rates, haaland_friction, gnielinski_nusselt,
+    resolve_erosive_model,
+)
 from .igniter_plenum import (
     _step_plenum_ode,
     chamber_params,
@@ -1415,6 +1418,9 @@ def _run_time_loop(
     r_dyn,                        # [N] persistent relaxed burn rate
     r_qs_persist,                 # [N] held quasi-steady total target
     r_ero_qs_persist,             # [N] held quasi-steady erosive target
+    # --- spike-reopen probe: Mukunda-Paul high-g erosive ceiling ---
+    erosive_mp_cap,               # float — 0.0 off; else eta cap at value×MP Eq. 12
+    erosive_model_code,           # int — registry code, 0=ma2020, 1=mukunda_paul, 2=saint_robert
     # --- v0.8.0 Phase 6: live progress / cooperative cancel ---
     progress_state,               # [2] float64: [0]=progress 0..1 (written),
                                   #              [1]=cancel flag (read; >0.5 aborts)
@@ -1664,7 +1670,7 @@ def _run_time_loop(
                 T_flame, T_surface,
                 rho_propellant, Cps, T_initial,
                 tab_min_p, tab_max_p, tab_a, tab_n, n_tabs,
-                kappa, N,
+                kappa, mu_gas, erosive_mp_cap, erosive_model_code, N,
             )
             for i in range(N):
                 if diagnostic_disable_erosive:
@@ -2210,6 +2216,28 @@ def run_simulation(
     # roughness 32um, kappa 0.44 (was 50um / 0.45). All physical.
     roughness=32e-6,
     kappa=0.44,
+    # Spike-reopen probe (docs/v0_7_4/SPIKE_REOPEN_BRIEF.md): opt-in ceiling
+    # on the Ma erosive enhancement at `erosive_mp_cap × eta_MP`, the
+    # Mukunda-Paul (1997) universal law (published constants, no free
+    # parameters). 0.0 = off (default). 1.0 = the law itself; 1.1 = MP's
+    # published ±10% accuracy band, binding only where Ma exceeds what the
+    # MP data cloud can support. Ma and MP agree within ~6% at plateau g;
+    # Ma exceeds MP ~25-35% at ignition-transient high g — the measured
+    # high-L/D over-spike factor. Default OFF: enabling it is a deliberate
+    # model-fidelity tradeoff (second closure bounding Ma), a user-visible
+    # decision, not a shipped default.
+    erosive_mp_cap=0.0,
+    # Erosive-closure registry (docs/erosive_model_registry/DESIGN.md):
+    # selects the erosive-burning closure. 'ma2020' (default, no-tuning
+    # shipping model) — the Ma et al. (2020) heat-transfer bisection
+    # above, optionally bounded by erosive_mp_cap. 'mukunda_paul' — the
+    # Mukunda-Paul (1997) Eq. 12 universal law, closed form; roughness/
+    # kappa stop influencing the burn rate under this model (they keep
+    # their unrelated ignition-gate h_c role in simulation.py's Goodman
+    # heating, unchanged). 'saint_robert' — erosive burning off (r_total
+    # = r0). Model choice is solver config, not propellant data. Never
+    # "recommended" — an explicit user tradeoff, not a shipped default.
+    erosive_model='ma2020',
     # --- Solver ---
     # v0.7.3.2 (2026-05-27): cfl_target tightened 0.5 → 0.3 and
     # source_cfl_factor tightened 0.10 → 0.05 to absorb Phase B.0
@@ -2279,6 +2307,24 @@ def run_simulation(
         Propellant surface roughness [m]. Default: 50 μm.
     kappa : float
         Gnielinski temperature-ratio exponent [-]. Default: 0.45.
+    erosive_mp_cap : float
+        Opt-in (default 0.0 = off): ceiling the Ma erosive enhancement
+        eta = r_total/r0 at `erosive_mp_cap × eta_MP`, the Mukunda-Paul
+        (1997) Eq. 12 universal law (published constants; no free
+        parameters). 1.0 = the law itself; 1.1 = MP's published ±10%
+        accuracy band. Spike-reopen probe — cuts the high-L/D
+        ignition-transient over-spike where Ma exceeds MP at high g.
+    erosive_model : str
+        Erosive-closure registry key. Default ``'ma2020'`` (the Ma et
+        al. (2020) heat-transfer bisection above — no-tuning shipping
+        default). ``'mukunda_paul'`` selects the closed-form
+        Mukunda-Paul (1997) Eq. 12 universal law instead (roughness/
+        kappa then stop influencing the burn rate — they keep their
+        ignition-gate role elsewhere). ``'saint_robert'`` disables
+        erosive burning entirely (r_total = r0). ``erosive_mp_cap`` is a
+        ``ma2020``-only option; setting it nonzero with any other
+        ``erosive_model`` raises ``ValueError``. See
+        docs/erosive_model_registry/DESIGN.md.
     cfl_target : float
         Target CFL number for time stepping. Default: 0.5.
     dt_max : float
@@ -2341,6 +2387,18 @@ def run_simulation(
         raise ValueError("initial_gas_temperature must be positive")
     if not 0.0 <= igniter_axial_momentum_fraction <= 1.0:
         raise ValueError("igniter_axial_momentum_fraction must be between 0 and 1")
+    # Erosive-closure registry resolution + validation (before any
+    # sim setup, per docs/erosive_model_registry/DESIGN.md §3): unknown
+    # name -> ValueError listing registered names; erosive_mp_cap is a
+    # ma2020-only option, so a nonzero cap under another model fails
+    # loudly rather than being silently ignored.
+    _ero_code = resolve_erosive_model(erosive_model)
+    if erosive_mp_cap > 0.0 and erosive_model != 'ma2020':
+        raise ValueError(
+            f"erosive_mp_cap={erosive_mp_cap} is a ma2020-only option; "
+            f"got erosive_model={erosive_model!r}. Set erosive_mp_cap=0.0 "
+            "or erosive_model='ma2020'."
+        )
     pyrogen_heat_flux = pyrogen_chamber.pyrogen.heat_flux_cal_cm2_s
     if diagnostic_disable_pyrogen_surface_heating:
         pyrogen_surface_heat_flux_w_m2 = 0.0
@@ -2802,6 +2860,9 @@ def run_simulation(
         flame_front_enabled, flame_front_velocity, ignitable,
         # v0.7.4 Phase Z: Z-N dynamic burn-rate relaxation
         zn_enabled, kappa_zn, r_dyn, r_qs_persist, r_ero_qs_persist,
+        # spike-reopen probe: Mukunda-Paul high-g erosive ceiling
+        float(erosive_mp_cap),
+        int(_ero_code),
         # v0.8.0 Phase 6: live progress / cooperative cancel
         progress_state,
     )
@@ -2977,6 +3038,10 @@ def run_simulation(
         'pyrogen_peak_P': float(pyrogen_peak_P),
         'initial_gas_temperature': float(T_initial_gas),
         'ambient_temperature': float(T_ambient),
+        # Erosive-closure registry provenance (docs/erosive_model_registry/
+        # DESIGN.md §4) — traces, probes, and CSV exports are otherwise
+        # unlabeled as to which erosive closure produced them.
+        'erosive_model': erosive_model,
         'diagnostic_disable_erosive': bool(diagnostic_disable_erosive),
         'diagnostic_disable_endfaces': bool(diagnostic_disable_endfaces),
         'diagnostic_disable_momentum': bool(diagnostic_disable_momentum),

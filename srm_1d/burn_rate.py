@@ -61,6 +61,7 @@ REFERENCES:
 """
 
 import numpy as np
+from dataclasses import dataclass
 
 try:
     from numba import njit
@@ -73,6 +74,121 @@ except ImportError:
         def wrapper(func):
             return func
         return wrapper
+
+
+# ================================================================
+# Erosive model registry (Python level — NOT @njit)
+# ================================================================
+#
+# Mirrors the v0.8.0 solver-plugin registry pattern one level down
+# (srm1d_plugin.py's SolverPlugin registry): a swappable erosive-burning
+# closure selected by name at the Python boundary, resolved to a small
+# int `code` before crossing into @njit code (Numba cannot dispatch on
+# Python objects — precedent: igniter_plenum._topology_code,
+# simulation.py's heat_delivery_mode_code). See
+# docs/erosive_model_registry/DESIGN.md.
+
+@dataclass(frozen=True)
+class ErosiveModel:
+    """Registry descriptor for a selectable erosive-burning closure.
+
+    Attributes
+    ----------
+    name : str
+        Registry key (used as the `run_simulation(erosive_model=...)`
+        string value).
+    code : int
+        Small int that crosses the @njit boundary (burn_rate_cell's
+        `erosive_model_code` argument).
+    label : str
+        Human-readable label (for GUI enums).
+    description : str
+        One-liner + citation.
+    params : tuple of str
+        `run_simulation` kwargs this model consumes (documentation only
+        — not enforced here).
+    """
+    name: str
+    code: int
+    label: str
+    description: str
+    params: tuple
+
+
+EROSIVE_MODELS = {
+    'ma2020': ErosiveModel(
+        'ma2020', 0, 'Ma 2020 (heat-transfer)',
+        'Ma et al. (2020) heat-transfer erosive closure (bisection on the '
+        'transpiration-corrected Gnielinski/Haaland energy balance); the '
+        'default, no-tuning shipping model. Optional erosive_mp_cap bounds '
+        'it against Mukunda-Paul.',
+        ('roughness', 'kappa', 'erosive_mp_cap'),
+    ),
+    'mukunda_paul': ErosiveModel(
+        'mukunda_paul', 1, 'Mukunda-Paul 1997 (universal law)',
+        'Mukunda & Paul (1997) Eq. 12 universal erosive-burning law — '
+        'closed form, no iteration, no roughness/kappa dependence. '
+        'docs/references/mukunda1997.pdf.',
+        (),
+    ),
+    'saint_robert': ErosiveModel(
+        'saint_robert', 2, 'Saint-Robert only (erosive off)',
+        'Pure Saint-Robert normal burn rate (r_total = r0, r_erosive = 0) '
+        '— no flow dependence at all. First-class "erosive off" mode; '
+        'also the plateau-decomposition tool for the spike/plateau '
+        'decoupling investigation (docs/v0_7_4/IGNITION_SPIKE_REOPENED.md '
+        '§10.5/§11.4).',
+        (),
+    ),
+}
+
+
+def resolve_erosive_model(name):
+    """Resolve a registered erosive-model name to its int `code`.
+
+    Parameters
+    ----------
+    name : str
+        Registry key, e.g. ``'ma2020'``.
+
+    Returns
+    -------
+    code : int
+
+    Raises
+    ------
+    ValueError
+        If `name` is not a registered model. Lists the registered names.
+    """
+    try:
+        return EROSIVE_MODELS[name].code
+    except KeyError:
+        registered = ', '.join(sorted(EROSIVE_MODELS))
+        raise ValueError(
+            f"unknown erosive_model: {name!r}. Registered models: {registered}"
+        ) from None
+
+
+def register_erosive_model(model):
+    """Register a new `ErosiveModel` (extension hook for future closures).
+
+    Rejects a duplicate `name` or `code` (both must be unique across the
+    registry) so a typo can't silently shadow or collide with an existing
+    model.
+
+    Parameters
+    ----------
+    model : ErosiveModel
+    """
+    if model.name in EROSIVE_MODELS:
+        raise ValueError(f"erosive_model name already registered: {model.name!r}")
+    existing_codes = {m.code for m in EROSIVE_MODELS.values()}
+    if model.code in existing_codes:
+        raise ValueError(
+            f"erosive_model code already registered: {model.code!r} "
+            f"(name {model.name!r})"
+        )
+    EROSIVE_MODELS[model.name] = model
 
 
 # ================================================================
@@ -340,12 +456,37 @@ def saint_robert_from_tabs(P, tab_min_p, tab_max_p, tab_a, tab_n, n_tabs):
 
 
 @njit(cache=True, fastmath=True)
+def mukunda_paul_eta(G, r0, D, mu_gas, rho_p):
+    """
+    Mukunda-Paul (1997) universal erosive-burning law, Eq. 12:
+
+        eta = 1 + 0.023 * (g^0.8 - 35^0.8) * H(g - 35)
+        g   = g0 * (Re0/1000)^-0.125
+        g0  = G / (rho_p * r0)          Re0 = rho_p * r0 * D / mu
+
+    where eta = r_total / r0 (actual over non-erosive rate). Published
+    constants (K1 = 0.023, g_th = 35, m = -0.125) — no free parameters.
+    NOTE: the paper's Re0 uses the INITIAL port diameter d0; this per-cell
+    form uses the local current hydraulic diameter (weak sensitivity,
+    Re0^-0.125). Reference: docs/references/mukunda1997.pdf.
+    """
+    if r0 <= 0.0 or D <= 0.0 or mu_gas <= 0.0:
+        return 1.0
+    g0 = G / (rho_p * r0)
+    Re0 = rho_p * r0 * D / mu_gas
+    g = g0 * (Re0 / 1000.0) ** (-0.125)
+    if g <= 35.0:
+        return 1.0
+    return 1.0 + 0.023 * (g ** 0.8 - 35.0 ** 0.8)
+
+
+@njit(cache=True, fastmath=True)
 def burn_rate_cell(
     P, Re_local, D_hyd, x_from_head, roughness,
     Pr, k_thermal, Cp_gas, T_flame, T_surface,
     rho_p, Cps, T_initial,
     tab_min_p, tab_max_p, tab_a, tab_n, n_tabs,
-    kappa,
+    kappa, mu_gas, erosive_mp_cap, erosive_model_code,
 ):
     """
     Compute total burn rate at a single cell using bisection.
@@ -410,6 +551,30 @@ def burn_rate_cell(
         Number of tabs.
     kappa : float
         Gnielinski temperature-ratio exponent [-].
+    mu_gas : float
+        Gas dynamic viscosity [Pa·s]. Used only to recover the local mass
+        flux G = Re·mu/D for the Mukunda-Paul cap.
+    erosive_mp_cap : float
+        Opt-in (0.0 = off, the default everywhere): ceiling the total
+        enhancement eta = r_total/r0 at `erosive_mp_cap × eta_MP`, the
+        Mukunda-Paul (1997) universal law scaled by this factor.
+        1.0 caps at the law itself; 1.1 caps at MP's published ±10%
+        accuracy band (their Fig. 11) so the cap binds only where Ma
+        exceeds what the MP data cloud can support. Ma and MP agree
+        within ~6% at plateau g; Ma exceeds MP by ~25-35% at the
+        ignition-transient high-g condition (g ≳ 150), which is the
+        documented high-L/D ignition over-spike driver. Investigation
+        probe — see docs/v0_7_4/SPIKE_REOPEN_BRIEF.md.
+    erosive_model_code : int
+        Erosive-closure registry code (see EROSIVE_MODELS /
+        resolve_erosive_model in this module): 0 = ma2020 (this
+        function's existing bisection path, unchanged), 1 = mukunda_paul
+        (closed-form Mukunda-Paul 1997 Eq. 12, no iteration, no
+        roughness/kappa dependence), 2 = saint_robert (pure r0, no flow
+        dependence at all — the ignition-gate h_c path elsewhere in the
+        sim is untouched by this choice; roughness/kappa keep their gate
+        role regardless of erosive_model_code). See
+        docs/erosive_model_registry/DESIGN.md.
 
     Returns
     -------
@@ -420,10 +585,14 @@ def burn_rate_cell(
 
     References
     ----------
-    Ma et al. (2020), Eqs. 2-7.
+    Ma et al. (2020), Eqs. 2-7. Mukunda & Paul (1997) Eq. 12 for the cap.
     """
     # Normal burn rate (Saint-Robert's law) with tab lookup
     r0 = saint_robert_from_tabs(P, tab_min_p, tab_max_p, tab_a, tab_n, n_tabs)
+
+    if erosive_model_code == 2:
+        # saint_robert: pure Saint-Robert, no flow dependence at all.
+        return r0, 0.0
 
     if Re_local < 100.0:
         return r0, 0.0
@@ -452,6 +621,14 @@ def burn_rate_cell(
     if T_diff_prop < 1.0:
         return r0, 0.0
     ebf = T_diff_gas / (rho_p * Cps * T_diff_prop)
+
+    if erosive_model_code == 1:
+        # mukunda_paul: closed-form Mukunda-Paul (1997) Eq. 12 universal
+        # law. No bisection. code 0 (below) is the existing Ma path,
+        # unchanged.
+        G = Re_local * mu_gas / D_hyd
+        eta_mp_value = mukunda_paul_eta(G, r0, D_hyd, mu_gas, rho_p)
+        return r0 * eta_mp_value, r0 * eta_mp_value - r0
 
     # Precompute α = ρ_p · C_p_gas / h0 (appears in β = α·r)
     alpha = rho_p * Cp_gas / h0
@@ -501,6 +678,14 @@ def burn_rate_cell(
             break
 
     r_total = 0.5 * (r_lo + r_hi)
+
+    if erosive_mp_cap > 0.0 and r_total > r0 > 0.0:
+        G = Re_local * mu_gas / D_hyd
+        eta_cap = erosive_mp_cap * mukunda_paul_eta(G, r0, D_hyd, mu_gas, rho_p)
+        r_cap = r0 * eta_cap if eta_cap > 1.0 else r0
+        if r_total > r_cap:
+            r_total = r_cap
+
     r_erosive = r_total - r0
     return r_total, max(r_erosive, 0.0)
 
@@ -515,7 +700,7 @@ def compute_burn_rates(
     Pr, k_thermal, Cp_gas, T_flame, T_surface,
     rho_p, Cps, T_initial,
     tab_min_p, tab_max_p, tab_a, tab_n, n_tabs,
-    kappa, N,
+    kappa, mu_gas, erosive_mp_cap, erosive_model_code, N,
 ):
     """
     Compute burn rates for all cells in the domain.
@@ -559,6 +744,14 @@ def compute_burn_rates(
         Number of tabs.
     kappa : float
         Gnielinski temperature-ratio exponent [-].
+    mu_gas : float
+        Gas dynamic viscosity [Pa·s] (for the Mukunda-Paul cap).
+    erosive_mp_cap : float
+        Opt-in Mukunda-Paul high-g ceiling on the erosive enhancement
+        (0.0 = off). See burn_rate_cell.
+    erosive_model_code : int
+        Erosive-closure registry code. See burn_rate_cell /
+        resolve_erosive_model.
     N : int
         Number of cells.
 
@@ -578,6 +771,6 @@ def compute_burn_rates(
                 Pr, k_thermal, Cp_gas, T_flame, T_surface,
                 rho_p, Cps, T_initial,
                 tab_min_p, tab_max_p, tab_a, tab_n, n_tabs,
-                kappa,
+                kappa, mu_gas, erosive_mp_cap, erosive_model_code,
             )
     return r_total, r_erosive
