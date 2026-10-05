@@ -327,8 +327,10 @@ A. **Ledger completeness.** List every term added to `thermal_source` in
 B. **Between-step storage jumps (energy J and mass kg per step).** Decompose
    the gap between step n's stored Σm·Cp·T (and Σm) and step n+1's
    pre-PISO value into: (i) EOS reconciliation (`rho_new` from P/(R·T_new)
-   vs the `rho_new_1` mass the ledger used), (ii) pressure-floor clamp (from
-   T3's counters), (iii) mixture refresh (Cp_mix change from
+   vs the `rho_new_1` mass the ledger used), (ii) pressure-floor clamp (T3
+   records the per-step MASS `pressure_floor_mass` but only a run-total
+   energy — add a per-step `pressure_floor_energy` history [J] from the PISO's
+   `floor_energy_added`, same pattern), (iii) mixture refresh (Cp_mix change from
    `_advect_species` + `_refresh_mixture_arrays` at fixed T), (iv) geometry
    refresh (`A_port` change in `update_cell_geometry`), (v) remainder.
    Implement as pure bookkeeping (evaluate Σ before/after each operation;
@@ -385,7 +387,9 @@ flags and append each row to a JSONL so the sweep can be resumed.
 
 Metrics: peak, t_peak, motor plateau/trough/mid and ratios exactly as
 defined in `docs/v0_7_4/probes/mp_cap_crossmotor.py`; global min of the
-`min_pressure` history + its time; max of `max_mach` for t < t_peak (fill
+`min_pressure` history + its time AND `summary['pressure_floor_min_raw_P']`
+(the `min_pressure` history pins at exactly 1000 Pa once the floor clamps,
+hiding the true undershoot — T3); max of `max_mach` for t < t_peak (fill
 Mach); T3 floor counters; T5 max refresh gaps; n_steps; wall s; steps/s.
 Stationarity of each plateau window: linear-fit slope (%/s of the window
 mean) and std/mean.
@@ -404,7 +408,9 @@ A. Chunc canonical at `target_propellant_cells` ∈ {50, 100, 200, 400, 800,
    1600}, `t_max=1.0` (1600 may take tens of minutes — run it in the
    background, resumable via JSONL like T7). Metrics: actual cell count,
    peak, t_peak, plateau, fill Mach (max `max_mach` for t < t_peak), global
-   min P, floor activations, n_steps, wall s. Observed order from the three
+   min P AND `summary['pressure_floor_min_raw_P']` (raw undershoot — the
+   history pins at 1000 Pa once clamping; T3 saw −734 Pa at 806 cells),
+   floor activations, n_steps, wall s. Observed order from the three
    finest grids `p = ln((f3−f2)/(f2−f1))/ln 2` and Richardson
    `f∞ = f1 + (f1−f2)/(2^p − 1)` (f1 finest), per metric. Compare with
    Codex (12.4478 MPa / Mach 0.4343) and REOPENED §6 (peak climbing
@@ -415,6 +421,12 @@ B. Fill-Mach attribution: Chunc `t_max=0.05` at cells ∈ {50, 100, 200} ×
    (`pyrogen='mtv'`)}: fill Mach + peak. Compare with Codex (MTV
    0.448/0.498/0.479; current BPNV 1.987/2.200/2.311; legacy
    3.271/4.821/11.722) and §6 (3.36/4.81/12.04).
+   Lead from T1 (worklog/T1.md step 6b): Chunc with the embedded legacy
+   igniter (`pyrogen=None`) peaks at 12.654 MPa @ 11.55 ms at 100 cells vs
+   11.473 with library BPNV — §6 reports 12.64/12.65 MPa at 100 cells. Check
+   the §6 probe scripts in `docs/v0_7_4/probes/` (e.g.
+   `chunc_mach_convergence.py`) for whether they passed a `pyrogen` kwarg,
+   and state whether §6's runs used the legacy embedded igniter.
 C. Draft §12 "Solver verification (Codex-review replication)": the
    grid-convergence result, the fill-Mach attribution, and an explicit list
    of which §6 claims stand and which are corrected. Numbers only — no
