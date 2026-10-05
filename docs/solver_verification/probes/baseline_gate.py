@@ -6,9 +6,16 @@ committed .ric files, canonical knobs, library BPNV igniter) and compares
 them to the values recorded in ``docs/erosive_model_registry/WORKLOG.md``
 (T2, 2026-08-08) at FULL float precision plus exact step counts.
 
-A task whose spec says "default behaviour unchanged" passes B0 only if every
-compared value is identical (``--rtol 0``, the default). Any difference means
-the change perturbed the default trajectory -- report it, do not loosen the
+A task whose spec says "default behaviour unchanged" passes B0 only if the
+step counts match EXACTLY and every float matches within ``--rtol`` (default
+1e-12). Why not bitwise: with ``fastmath=True`` the Numba machine code depends
+on the compile state (which functions were compiled in-process vs loaded from
+the on-disk cache), so identical source differs at the last-digit level
+between a warm cache and a clean recompile -- measured 1.5e-16..1.3e-15
+relative on all three motors with identical step counts (solver-verification
+T2 review, 2026-10-05). 1e-12 is ~1000x that noise and far below any real
+perturbation, which also shifts the step count. Anything beyond it means the
+change perturbed the default trajectory -- report it, do not loosen the
 tolerance to make it pass.
 
 This script puts ITS OWN checkout first on ``sys.path`` so that, run from a
@@ -53,7 +60,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--only', default='chunc,balls,haseg',
                     help='comma-separated subset of chunc,balls,haseg')
-    ap.add_argument('--rtol', type=float, default=0.0)
+    ap.add_argument('--rtol', type=float, default=1e-12,
+                    help='float tolerance; n_steps is always compared exactly')
     args = ap.parse_args()
 
     print(f"[provenance] srm_1d imported from {Path(srm_1d.__file__).parent}")
@@ -75,7 +83,9 @@ def main():
             ok &= same
             print(f"  {key:8s} got {got!r:>24}  ref {ref!r:>24}  "
                   f"rel {rel:.3e}  {'OK' if same else 'MISMATCH'}")
-    print("\nB0 RESULT:", "PASS (identical)" if ok else "FAIL")
+    print("\nB0 RESULT:",
+          f"PASS (n_steps exact, floats within rtol {args.rtol:g})" if ok
+          else "FAIL")
     sys.exit(0 if ok else 1)
 
 

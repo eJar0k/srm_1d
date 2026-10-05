@@ -277,6 +277,13 @@ class TestMaBisectionBracket(_HasegawaPropellant1Fixture):
             r0, h0, ebf, alpha = self._ma_terms(P, Re, D)
             assert self._F(r0 + ebf * h0, r0, h0, ebf, alpha) >= 0.0
 
+    def test_zero_normal_rate_gets_no_erosive_increment(self):
+        """r0 == 0 (P <= 0) at a flowing Re must still return (0, 0): the
+        widening is skipped, so no pure-erosive root without combustion."""
+        r_total, r_erosive = self._call(0.0, 1e5, D=0.04)
+        assert r_total == 0.0
+        assert r_erosive == 0.0
+
 
 # ---- Erosive model registry (docs/erosive_model_registry) ----
 

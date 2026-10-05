@@ -671,7 +671,9 @@ def burn_rate_cell(
     else:
         h_hi = h0 * beta_hi / (np.exp(beta_hi) - 1.0)
     F_hi = r_hi - r0 - ebf * h_hi
-    if F_hi < 0.0:
+    # r0 == 0 (P <= 0): no normal combustion, so no erosive increment either;
+    # skip the widening and keep the degenerate [0, 0] bracket -> (0, 0).
+    if F_hi < 0.0 and r0 > 0.0:
         r_hi = r0 + ebf * h0
 
     # Bisection: up to 60 iterations; the (r_hi - r_lo) < 1e-8 break below is

@@ -18,6 +18,15 @@ Delete `srm_1d/__pycache__/` after any change to `@njit` functions.
 Numba's `.nbi`/`.nbc` cache files persist even when `.pyc` files are
 removed. Stale compiled code is the #1 cause of "the fix didn't work."
 
+### Results are reproducible to ~1e-15, not bitwise (fastmath)
+With `fastmath=True` the compiled code depends on the Numba compile state
+(warm on-disk cache vs a clean recompile), so IDENTICAL source can differ in
+the last digit: measured 1.5e-16..1.3e-15 relative on Chunc / BALLSstick /
+Hasegawa A, with identical step counts (2026-10-05). When comparing runs
+("did my change perturb the default?"), require exact step counts and
+compare floats with rtol ~1e-12, never `==`. Gate:
+`docs/solver_verification/probes/baseline_gate.py`.
+
 ### End-face injection uses a partition-of-unity hat function (v0.6.0+)
 `update_cell_geometry` distributes each end-face's mass over the two
 adjacent cells with weights `w = 1 − |x_face − x_center|/dx`, summing

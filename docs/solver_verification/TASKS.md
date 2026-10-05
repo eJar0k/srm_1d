@@ -44,8 +44,11 @@ is given in your launch prompt; `cd` there first and stay there.
 - **Gate B0** (when a task requires it): from the worktree root,
   `"<python>" docs/solver_verification/probes/baseline_gate.py`
   (≈2–4 min warm; it fixes its own import path and prints provenance). It
-  must print `B0 RESULT: PASS (identical)`. A FAIL is a finding: report the
-  full output, do not loosen tolerances or "adjust" the baseline.
+  must print `B0 RESULT: PASS`: step counts EXACT and floats within the
+  default rtol 1e-12. (Last-digit differences ≤ ~1e-15 with identical step
+  counts are Numba fastmath compile-state noise — see the script docstring —
+  not a trajectory change.) A FAIL is a finding: report the full output, do
+  not loosen tolerances or "adjust" the baseline.
 - **Commits:** commit your work to your worktree branch (one or a few
   focused commits, conventional style e.g. `fix(burn_rate): ...`), each
   message ending with the line
