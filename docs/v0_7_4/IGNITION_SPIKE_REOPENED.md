@@ -492,6 +492,276 @@ ignition criterion *as a spike fix* (Keller validates the existing surface-T gat
 
 ---
 
+## 10. Session 2026-07-16 — cross-motor differential test; the Mukunda-Paul ceiling measured (erosive_mp_cap)
+
+Kickoff per `SPIKE_REOPEN_BRIEF.md` (rule-outs = information; Ma→MP back on the
+table as a deliberate tradeoff). Thread worked: the §2.1 per-motor success
+criterion — reproduce **each motor's own startup ratio** (Chunc ≈1.03,
+BALLSstick ≈1.35–1.50), not "no spike".
+
+### 10.1 Baseline re-confirmed (committed .ric, canonical knobs, bpnv Sutton)
+Chunc: P_peak 11.47 MPa @ 16.5 ms, plateau(0.4–0.9 s) 8.22, **ratio 1.395**
+(recorded post-igniter-fix 1.36 — same state, window-definition slack); aft
+Mach at spike 0.225; peak-erosive G 3398 kg/m²s @ x=825 mm. Experimental
+(346-pt): plateau 8.66, **ratio 1.027**. ⚠️ The working tree's
+`machbusterNew.ric` was found re-saved with `transportVariant: effective`
+(spike-inflating +30–55%); the committed frozen version is the baseline.
+
+### 10.2 NEW: the cross-motor differential test (the decisive measurement)
+First-ever quantitative sim-vs-real startup-ratio comparison on BOTH high-L/D
+motors (BALLSstick 3″ sim vs 2″-subscale ratio targets, ratio-only per
+`static_fire_data/README.md`):
+
+| | sim (Ma) | real | sim over-factor | **Ma/MP at its spike g** |
+|---|---|---|---|---|
+| Chunc ratio | 1.395 | 1.027 | **1.36×** | 1.33 (g≈181) |
+| BALLSstick pk/trough | 1.929 | ~1.50 | **1.29×** | 1.26 (g≈197) |
+| BALLSstick pk/mid-burn | 1.714 | ~1.35 | **1.27×** | — |
+
+The sim gets the **motor-to-motor ordering right** (fore-tapered Chunc lowest;
+BALLSstick genuinely spikes — the §2.1 aft-G-concentration ordering), and
+over-predicts both by a near-uniform factor that **numerically equals each
+motor's own Ma-vs-Mukunda-Paul excess at its spike g** — while Ma/MP is only
+1.03–1.05 at trough/mid-burn. The geometry differentiation is already correct;
+the error is Ma's high-g response, cross-motor-consistently.
+
+### 10.3 Implemented: `erosive_mp_cap` (opt-in, default 0.0 = OFF)
+`run_simulation(..., erosive_mp_cap=s)` ceilings the total enhancement
+η = r_total/r0 at `s × η_MP` (MP 1997 Eq. 12, constants verified against
+`docs/references/mukunda1997.pdf`; per-cell local D_hyd in Re₀ — weak
+^−0.125 sensitivity vs the paper's initial d₀). `s=1.0` = the law itself;
+`s=1.1` = **MP's own published ±10% accuracy band** (their Fig. 11) — binds
+only where Ma exceeds what the MP data cloud can support. **No fitted figure
+of ours in either variant.** The ignition-gate h_c is untouched — this
+isolates erosive-response *magnitude* from ignition *timing* (the decoupling
+§9.2's shared-Nu probe could not achieve). Seam: `burn_rate.py`
+(`mukunda_paul_eta` + cap in `burn_rate_cell`), threaded through
+`compute_burn_rates` / `_run_time_loop` / `run_simulation` (mu_gas + cap);
+2 new gate tests in `tests/test_burn_rate.py`.
+
+### 10.4 Results (canonical knobs, committed .ric, bpnv Sutton)
+
+| metric | Ma (off) | cap=1.0 | cap=1.1 | real |
+|---|---|---|---|---|
+| Chunc startup ratio | 1.395 | **1.074** | 1.135 | 1.027 |
+| Chunc absolute peak [MPa] | 11.47 (+29%) | 7.84 (−12%) | **9.36 (+5%)** | 8.89 |
+| Chunc plateau vs exp | 0.95× | **0.84× ✗** | 0.95× | 8.66 MPa |
+| BALLSstick pk/trough | 1.929 | **1.518** | 1.698 | ~1.50 |
+| BALLSstick pk/mid | 1.714 | **1.368** | 1.516 | ~1.35 |
+| Hasegawa A global peak | 6.14 | 6.03 (−1.8%) | 6.16 (+0.3%) | ~6.5 |
+
+- **cap=1.0 is the mechanism proof**: every startup *ratio* lands on its own
+  motor's real value (1.07/1.52/1.37 vs 1.03/1.50/1.35) — the spike is
+  *precisely* Ma's excess over the universal law, motor by motor. Cost:
+  MP's Heaviside zeroes Ma's sub-g_th lift and shaves its ~5% plateau edge
+  (exponent-amplified to −11% on the Chunc plateau, 0.95×→0.84×). This cost
+  is **structural** — where the cap binds, η is roughness/kappa-independent,
+  so no re-LHS can recover it. Experiment favors Ma at plateau g.
+- **cap=1.1 is a strict improvement over baseline on every measured metric**:
+  plateau untouched on all three motors (8.24 vs 8.22; Hasegawa 6.16 vs
+  6.14), Chunc absolute peak 1.05× exp (vs +29%), full-trace visual match
+  (plot in session artifacts); ratios only half-corrected (1.135 vs 1.027;
+  1.70 vs 1.50).
+- Probe + numbers: `probes/mp_cap_crossmotor.py`. 408 pytest green + 2 new
+  gates (2 pre-existing failures from the untracked GUI-export
+  `BALLSstick VANILLA.ric`, unrelated).
+
+### 10.5 Disposition — user decision pending
+Default stays **OFF** (Ma pure = the no-tuning shipping property). Enabling is
+now a measured, user-visible tradeoff:
+- **1.1** = "bound Ma by MP's published accuracy band": strictly better
+  full-trace fidelity, keeps the whole v0.7.5 calibration, residual ~1.14
+  startup ratio on a no-spike motor.
+- **1.0** = "trust MP wherever it's below Ma": exact startup ratios across
+  the L/D range, −11% plateau on Chunc (structural).
+Open follow-ups: Zerox (mid-L/D) under the cap; low/short-L/D coverage still
+absent (a cap=1.x choice must be re-checked there when data lands); extend the
+same measurement to the tapered working-tree BALLSstick.ric geometry.
+
+---
+
+## 11. Session 2026-08-08 — literature fold-in: Ma 2022 star-motor A/B, Sivan 2019 (IMI), Luke 1996 (RSRM/SRMU)
+
+Three papers read and folded in (`docs/references/`: `energies-15-01564.pdf`,
+`sivan2019.pdf`, `luke1996.pdf`; the latter two extracted by subagent with
+page-cited reports — Sivan's math was transcribed from rendered page images
+because its embedded font breaks text extraction). All three bear directly on
+the §10 decision and on threads C/E.
+
+### 11.1 Ma et al. 2022 (Energies 15:1564) — Ma's own group runs the Ma-vs-MP A/B
+Their 2020 code extended to a 6-point star motor (201.5 mm × 37.5 mm OD,
+83/12/5 AP/HTPB/Al), **both the Ma model and the Mukunda-Paul model run on the
+same code** — direct precedent for our erosive-model registry
+(`docs/erosive_model_registry/`).
+- **Moderate-g only**: peak erosive ratio η = 1.64 (aft end, 0.029 s) — the
+  regime where we *measured* Ma/MP = 1.03–1.06. Both models match their
+  experimental ignition peak (11.85 MPa): Ma 11.71 (−1.2%), MP 11.98 (+1.1%);
+  in the first-stage decay Ma runs ~4% high, MP ~1%. **Consistent with the §10
+  picture: the closures mutually validate at moderate g; nothing in this paper
+  probes the g ≈ 180–200 divergence regime where our spike lives.**
+- **Ignition**: critical-temperature criterion with the Peretz-1973 [their 8]
+  surface-T ODE `dTs/dt = 4αh²(T−Ts)³ / [3λ²(Ts−Ti)(2T−Ts−Ti)]`, RK4 per cell
+  per step. Re-derived: this is the semi-infinite-solid heat-balance integral
+  with a **cubic profile**, δ eliminated — the *same* formulation family as our
+  Goodman solver (`solid_thermal.py`: δ-state ODE + algebraic Ts, **already
+  RK4 with adaptive sub-stepping**). No integrator upgrade to take; ours also
+  handles non-convective heat paths (DeMar/radiation) theirs lacks. The
+  state-variable difference (δ- vs Ts-memory) only matters under fast-varying
+  h and is 2nd-order vs the §9.2 h_c-magnitude finding.
+- **Numerics**: implicit SIMPLE + **MUSCL (TVD)** convection, 0.5 mm cells,
+  dt = 1e-6 s (acoustic CFL ≈ 2 — implicit sidesteps the acoustic limit =
+  the Lever B seam). Their [28] = **Moukalled/Mangani/Darwish, "The FVM in
+  CFD" (Springer 2016)** — the standard pressure-based-FVM textbook (also
+  covers PISO/Rhie-Chow); worth acquiring for any convection-scheme work.
+  Assessment for us (our convection is 1st-order upwind, `solver.py`): MUSCL
+  is an *accuracy* upgrade (sharper contact front at fixed grid → faster
+  approach to the grid-converged spike, i.e. likely a *higher* raw spike per
+  §6/§2 simultaneity-sharpening) and is NOT shock-capturing — it does not fix
+  the §6 contact-velocity artifact (thread E still needs choking/flux-limit
+  physics). Defer to a worktree prototype bundled with Lever B (same
+  face-flux seam), after the code-review freeze lifts.
+
+### 11.2 Sivan/Solomon/Peles 2019 (IMI Systems) — independent industrial MP adoption
+Lessons-learned survey: ~3 decades of IMI motors + a dedicated subscale
+erosive-burning test motor (EBTM), internal Mach 0.2–0.4 (**the same flow
+regime as our spike — Chunc aft Mach 0.23**).
+- **Lenoir-Robillard found "not sufficiently universal"**: per-motor empirical
+  refits (up to ~2× on the α factor), and it "tends to predict erosive burning
+  augmentation when none should exist" (no threshold). **They adopted
+  Mukunda-Paul with literature constants UNADJUSTED** → "Both initial pressure
+  and tail-off are accurately predicted, for both flow velocities, without the
+  need to adjust empirical constants," across the EBTM and old/modern fleet
+  motors; headline claim: *"Today, we can predict erosive burning pressure
+  overshoot with high certainty (about 5%), even before the first static
+  test."* Their caveat mirrors the ±10% band reality: "in some cases slightly
+  alteration of parameter K₁ or g_th was required."
+  **This is the strongest independent, high-cross-flow endorsement of the MP
+  option for exactly our use case (startup erosive overshoot) — from an
+  industrial team that faced our problem and made the swap we are weighing.**
+- **Ignition**: exact semi-infinite Duhamel integral for Ts (Neumann-series
+  iteration) on CFD flux history, Dittus-Boelter h, criterion Ts > 815 K.
+  Third member of the same surface-T-threshold family (ours 756 K
+  Keller-validated; Ma-2022 cubic-ODE; Luke 1996 below) — our ignition stack
+  is squarely mainstream.
+- **"Syringe effect" (aft igniters)**: hot gas cannot penetrate the cold air
+  column toward the head (pressure transmits; temperature only diffuses) →
+  head-end ignition delayed, flame must spread against the flow, worse at
+  sub-zero temps. **Physically corroborates the v0.7.3 aft_basket stall** —
+  our aft-topology failure mode is at least partly real physics, not purely a
+  modeling gap. Cross-ref `docs/v0_7_3/`.
+- **Extinction lore**: no clean |dP/dt| threshold (their data has 10⁴ bar/s
+  survivals and <10³ bar/s extinctions); the controlling factor is the
+  *fraction of burning area already ignited* at the transient. Relevant to any
+  future burst-diaphragm / rapid-depressurization modeling.
+- Bonus catalog: Kreidler (Eq. 6) and Saderholm (Eq. 7) erosive models with
+  exact forms — future registry candidates, though they carry many empirical
+  constants ("easy to manipulate... mostly empirical").
+
+### 11.3 Luke/Eagar/Dwyer 1996 (AIAA 96-3273) — startup severity is grain-geometry-set
+1-D unsteady implicit multi-species FV (air + igniter + propellant gas —
+precedent for our N-species architecture; their conclusion: species mattered
+for trace fidelity, not peak) + 2-D fin-slot heating model, applied to RSRM vs
+Titan SRMU.
+- **The central result**: RSRM's measured startup dP/dt (8,778 psi/s) is 2×
+  its single-volume 0-D "theoretical limit" (4,412); a 2-control-volume
+  re-derivation resolves it — the driver is **head-end surface-area
+  concentration with NO flow-area relief** (fin-to-bore projected flow-area
+  1:1 for RSRM vs 2.7:1 for SRMU, at equal ~41% fin surface fraction).
+  Igniter over-drive, wave reflections, in-depth heating, friction, and
+  **erosive burning were each explicitly ruled out** as the driver (their
+  L-R erosive model "had no effect on the maximum calculated pressure rise
+  rates" — needed only for the trace out to 0.5 s).
+  **Implications for §10**: (a) independent support that *per-motor startup
+  severity is set by the geometry/mass-addition-vs-relief distribution* — the
+  sim's job is to carry that distribution, the closure's job is the response
+  (our differential test showed the sim already gets the former right);
+  (b) regime caution — in big-bore motors the startup peak can be entirely
+  fill/geometry-driven with erosive irrelevant; L/D alone is never the
+  variable (reinforces §2.1's rejection of raw L/D).
+- **Methodological echo**: their model over-predicted peak dP/dt on BOTH
+  motors "by the same percentage (about 20%)" and they proceeded to
+  sensitivity work on the uniform-bias model — the same shape as our
+  uniform-factor finding, resolved differently (they accepted it; we traced
+  ours to the closure's high-g excess).
+- **Ignition**: cubic-profile semi-infinite-solid Ts ODE (Ozisik), RK4 —
+  same family again — but T_ignition was their per-motor free calibration
+  parameter (RSRM 1500 °R, SRMU 2000 °R ≈ 833/1111 K). Our single
+  Keller-validated 756 K across all motors is *stricter* discipline than this
+  1996 industry practice. Their ×5 post-ignition friction fudge (to mimic
+  Culick-profile losses) is exactly the class of tuned factor the no-tuning
+  dogma exists to avoid.
+- **Numerics**: centered 2nd-order FV + gradient-dependent artificial
+  dissipation at steep gradients (their contact-front treatment — thread E
+  relevant), implicit block-tridiagonal (again: no acoustic CFL — Lever B),
+  igniter as in-domain source, supersonic zero-gradient exit.
+
+### 11.4 Net effect on the §10 decision
+The evidence stack for the MP option is now: (1) our §10 cross-motor
+measurement (cap=1.0 reproduces every motor's own startup ratio); (2) Ma's own
+group publishing MP as a co-equal validated model on their code (moderate-g
+agreement — the cap binds nowhere there); (3) IMI's independent industrial
+adoption of MP with unadjusted constants for startup-overshoot prediction at
+our Mach regime, quoting ~5% overshoot accuracy. Against it: full-MP costs the
+Chunc plateau (0.84×, §10.4) — which is why the 1.1-band variant (plateau
+untouched, Ma kept inside MP's own scatter) remains the strictly-better-than-
+baseline candidate. The **erosive-model registry**
+(`docs/erosive_model_registry/DESIGN.md` + `TASKS.md`) is the implementation
+vehicle: `ma2020` default (no-tuning shipping property intact), `mukunda_paul`
+selectable, `erosive_mp_cap` as the ma2020 option. **User decision still
+pending; nothing default-changes.**
+
+### 11.5 Registry shipped (T1+T2) — the Saint-Robert decomposition and the a/n degeneracy
+
+The registry is implemented and cross-motor-validated (all gates green;
+record + full 15-row table: `docs/erosive_model_registry/WORKLOG.md`).
+`erosive_model ∈ {ma2020, mukunda_paul, saint_robert}` on
+`run_simulation`/`run_from_ric`. Two findings from the `saint_robert`
+(erosive-off) rows:
+
+1. **The pure-Saint-Robert Chunc trace has NO startup spike at all** (its
+   argmax is the final sample of a still-rising trace) — first-class
+   confirmation that the *entire* startup over-pressure enters through the
+   erosive channel; there is no non-erosive fill-overshoot floor.
+2. **The plateau decomposition leaves a degeneracy Chunc alone cannot
+   break.** In burn-rate space the experimental plateau demands an average
+   erosive lift η̄ ≈ 1.25 over the Saint-Robert floor (5.9966 MPa); Ma
+   supplies ≈1.21, MP central ≈1.13, and MP's own +10% band edge is ≈1.24 —
+   i.e. the requirement sits essentially AT MP's band edge, where Ma
+   happens to sit. Two consistent worlds: (a) a/n correct → Ma right at the
+   plateau; (b) Chunc's characterized a/n ~10% low → MP central right and
+   the plateau corrected through the *propellant-data* channel (which would
+   fully decouple spike from plateau). **Discriminator: run the model axis
+   on Zerox** (different propellant, mid-L/D, has data; plateau is
+   igniter-insensitive) — a recurring MP deficit is closure-systematic
+   (favors Ma-at-plateau); a Chunc-only deficit is a/n debt (favors
+   full MP + per-propellant a/n refinement). Hasegawa A's SR row (peak
+   grossly late, 4.04 s vs ~2.4 s) shows the erosive closure supplies
+   genuinely needed physics but cannot separate Ma from MP at its g.
+
+**Zerox discriminator run (2026-08-08, later) — Zerox is UNFIT; the
+degeneracy stands.** Model-axis run on `motors/zerox.ric` (probe:
+`probes/zerox_model_axis.py`; record: erosive_model_registry WORKLOG; plots:
+`artifacts/erosive_model_axis/`). Both fitness criteria failed: ma2020's
+mid-burn reference is 5.156 MPa vs experimental 3.355 (+53.7%), burn
+duration 4.84 s vs ~6.5 (−25.5%). Decisively: **pure Saint-Robert ALONE
+already overshoots the experimental reference by +24.8%** and the sim burns
+out early with a too-fast ignition ramp — three coherent symptoms of a/n
+characterized too high and/or geometry error, exactly the pre-registered
+suspicion. With the SR baseline above experiment there is no MP-deficit
+question to ask — Zerox cannot arbitrate the closure. (Weak surviving
+signal, not over-read: the closures' plateau lift is similar-magnitude on
+both propellants — MP/SR +21.7% Chunc vs +17.7% Zerox — consistent with
+g-dependence.) Candidate next discriminators, in rough cost order:
+(1) **audit Chunc's own "84 Unsuppressed - CHARACTERIZED" a/n provenance**
+(user-side records check — the cheapest possible test of the ±10% a/n-debt
+hypothesis); (2) digitize Hasegawa B/C experimental traces from the local
+Ma-2020 PDF (lab-characterized propellant → a/n trustworthy → clean break of
+the degeneracy IF their g reaches the divergence regime); (3) BALLSstick 2″
+subscale (ratio-only, needs a subscale .ric built); (4) source Aeroblast
+static-fire data (a `.ric` exists, no trace in static_fire_data/).
+
+---
+
 Diagnostic scripts used live under `c:/tmp/` (chunc_spike_probe, chunc_fill_probe,
 chunc_gate_audit, chunc_mach_audit, chunc_cell_history, run_gate_clamp_experiment,
 run_flamespread_experiment, run_flamespread_combo, chunc_mukunda_compare,

@@ -110,7 +110,7 @@ re-analysis. Full detail in REOPENED §7, §9.4.
 | Numerical resolution | ruled out | every-step burn+geom, cfl 0.15 identical |
 | Velocity / gas-dynamic G inflation | ruled out | **thread D, direct-measured** (§2 above); `port_mach_cap` decoupled from P_peak |
 | Transient h_c relaxation | probe-falsified | only **postpones** the spike (t_peak tracks the window) |
-| **Ma → Mukunda-Paul high-g recal** | **the one floor-breaking lever** | cuts spike ~1.33× without touching plateau — but **rejected on no-tuning product grounds.** *The user now softens this: it's back on the table as a deliberate tradeoff, not forbidden.* |
+| **Ma → Mukunda-Paul high-g recal** | **the one floor-breaking lever** | cuts spike ~1.33× without touching plateau — but **rejected on no-tuning product grounds.** *The user now softens this: it's back on the table as a deliberate tradeoff, not forbidden.* **→ 2026-07-16: MEASURED — implemented as opt-in `erosive_mp_cap` (0=off default / 1.0=MP law / 1.1=MP's ±10% band) and validated cross-motor; see REOPENED §10 (cap=1.0 reproduces every motor's own startup ratio; cap=1.1 is strictly-better full-trace). User decision on enabling still pending.* |
 
 **Explicitly do NOT retry as a *lone* spike fix** (they postpone or are
 decoupled): transient h_c establishment relaxation; `port_mach_cap`;
@@ -165,9 +165,13 @@ From REOPENED §8 (deliberately left open) + this session's whole-core framing:
 ## 5. Read-first order + entry points
 
 1. **This brief.**
-2. `IGNITION_SPIKE_REOPENED.md` — **§8 (open threads)** + **§9 (latest state:
-   G reconstruction, Keller validation, h_c falsification, igniter fix)**. The
-   current source of truth.
+2. `IGNITION_SPIKE_REOPENED.md` — **§10 (cross-motor differential test + the
+   measured `erosive_mp_cap` tradeoff)** + **§11 (lit fold-in: Ma 2022
+   star-motor A/B, Sivan 2019 IMI's independent MP adoption, Luke 1996
+   geometry root-cause)**, then **§8 (open threads)** + **§9 (G
+   reconstruction, Keller validation, h_c falsification, igniter fix)**. The
+   current source of truth. Implementation plan for the model-swap feature:
+   `docs/erosive_model_registry/`.
 3. `EROSIVE_CLOSURE_RESEARCH.md` — transient erosive-closure lit dive + the
    Beddini lever.
 4. `IGNITION_SPIKE_CLOSEOUT.md` — earlier snapshot (already banners "re-opened").

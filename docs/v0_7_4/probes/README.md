@@ -61,6 +61,16 @@ spike). Relevant to the user's "sonic propagation / shock modeling" suspect.
   captures the reopen ethos: "treat the spike as a candidate STRUCTURAL
   artifact, not assumed-faithful Ma physics."**
 
+## Cross-motor differential + Mukunda-Paul ceiling (2026-07-16, REOPENED §10)
+Finding: the sim's startup over-prediction is a **near-uniform factor
+(1.27-1.36x) equal to each motor's own Ma-vs-MP excess at its spike g**;
+capping eta at the MP universal law (opt-in `erosive_mp_cap`) reproduces
+every motor's own real startup ratio (cap=1.0) or gives a strictly-better
+full-trace at zero plateau cost (cap=1.1 = MP's ±10% band).
+- `mp_cap_crossmotor.py` — the whole measurement: per-motor sim-vs-real
+  startup ratios at cap ∈ {0, 1.0, 1.1} on Chunc / BALLSstick / Hasegawa A.
+  ⚠️ expects the COMMITTED motors/*.ric (see its docstring).
+
 ## Igniter gas generation (ProPep fix)
 Finding: correcting bpnv gas generation (ProPep impetus + condensed-phase gas
 fraction) cut the Chunc spike 1.50→1.36× (Hasegawa unchanged); shipped as
