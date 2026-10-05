@@ -9,7 +9,9 @@ names given.
 
 ## Worktree protocol (every task)
 
-You run in an isolated **git worktree** branched from `openmotor-frontend`.
+You run in an isolated **git worktree** (at `C:/tmp/sv/t<n>`, branch
+`sv/t<n>`) created from local `openmotor-frontend` HEAD. Your worktree path
+is given in your launch prompt; `cd` there first and stay there.
 
 - Work ONLY inside your worktree. Never touch the main checkout
   (`C:/Users/ejarocki/Documents/Rocketry/Code Stuff/Erosive Burning Solver/srm_1d`),
@@ -26,8 +28,10 @@ You run in an isolated **git worktree** branched from `openmotor-frontend`.
   - **Preflight (record the output in your worklog):**
     `PYTHONPATH="$PWD" "<python>" -c "import srm_1d; print(srm_1d.__file__)"`
     must print a path INSIDE your worktree. If not, STOP.
-- **openMotor:** if `motorlib` / FMM imports fail, set
-  `SRM1D_OPENMOTOR_PATH="C:/Users/ejarocki/Documents/Rocketry/Code Stuff/Erosive Burning Solver/openMotor/openMotor"`.
+- **openMotor (mandatory):** a worktree outside the repo tree cannot
+  auto-discover the openMotor checkout, so export
+  `SRM1D_OPENMOTOR_PATH="C:/Users/ejarocki/Documents/Rocketry/Code Stuff/Erosive Burning Solver/openMotor/openMotor"`
+  in EVERY shell command that runs Python (pytest, scripts, gates).
 - **Numba cache:** after editing ANY `@njit` function, delete your
   worktree's `srm_1d/__pycache__/` before running anything (stale compiled
   code is the #1 "my fix didn't work" trap). The first run after a clear
