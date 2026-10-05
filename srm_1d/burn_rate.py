@@ -513,9 +513,10 @@ def burn_rate_cell(
         positive erosive deficit) and F(∞) > 0, guaranteeing a unique
         root in [r₀, ∞).
 
-        30 iterations of bisection give precision of (r_hi - r_lo)/2³⁰
-        ≈ 1e-9 relative to the initial bracket width, which is more
-        than sufficient.
+        The bracket is [r₀, 20·r₀], widened to the guaranteed
+        [r₀, r₀ + ebf·h₀] when F(20·r₀) < 0 (root above 20·r₀). The
+        bisection stops at (r_hi - r_lo) < 1e-8 m/s (capped at 60
+        iterations), which is more than sufficient.
 
     Parameters
     ----------
@@ -656,8 +657,29 @@ def burn_rate_cell(
     if F_lo >= 0.0:
         return r0, 0.0
 
-    # Bisection: 30 iterations gives precision of r_range / 2^30 ≈ 1e-9
-    for _ in range(30):
+    # Verify the upper bracket too: F(r_hi) must be >= 0. In small-port /
+    # high-Re states the root lies above 20*r0 and the fixed 20*r0 bracket
+    # silently returned ~20*r0. Because beta/(exp(beta)-1) <= 1 for beta >= 0,
+    # h(r) <= h0 for every r, so F(r0 + ebf*h0) = ebf*(h0 - h(r)) >= 0: that
+    # value is a guaranteed bracket (analytic -- no expansion loop needed).
+    # Same h(beta) branches as the loop below.
+    beta_hi = alpha * r_hi
+    if beta_hi < 1e-6:
+        h_hi = h0 * (1.0 - beta_hi / 2.0)
+    elif beta_hi > 500.0:
+        h_hi = 0.0
+    else:
+        h_hi = h0 * beta_hi / (np.exp(beta_hi) - 1.0)
+    F_hi = r_hi - r0 - ebf * h_hi
+    if F_hi < 0.0:
+        r_hi = r0 + ebf * h0
+
+    # Bisection: up to 60 iterations; the (r_hi - r_lo) < 1e-8 break below is
+    # unchanged. Defaults stay bit-identical to the old 30-iteration cap: a
+    # valid bracket no wider than 19*r0 reaches 1e-8 in < 30 halvings for any
+    # r0 < 0.5 m/s, so the break fires exactly where it did before. The larger
+    # cap only matters for the widened r0 + ebf*h0 bracket above.
+    for _ in range(60):
         r_mid = 0.5 * (r_lo + r_hi)
         beta_mid = alpha * r_mid
         if beta_mid < 1e-6:

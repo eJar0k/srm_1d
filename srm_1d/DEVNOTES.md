@@ -325,6 +325,26 @@ motor file, not the library, was authoritative on the `.ric` / GUI path.
   (`motorlib/igniter.py`) has no `gas_mass_fraction`, so GUI saves still cannot
   carry it — see `docs/solver_verification/worklog/T1.md` step 7.
 
+### Solver verification T2 — Ma bisection guaranteed bracket (`burn_rate_cell`, code 0)
+
+**Behaviour fix, no signature change.** The Ma (`erosive_model_code == 0`)
+bisection used a fixed upper bracket `r_hi = 20·r0` and never checked
+`F(r_hi)`; where the root lay above `20·r0` (small port / high Re) it silently
+returned ≈ `20·r0`. It now evaluates `F(20·r0)` after the `F_lo >= 0` early
+return and, if negative, widens to `r_hi = r0 + ebf·h0` — a guaranteed bracket
+because the transpiration factor `β/(e^β−1) ≤ 1` gives `h(r) ≤ h0`, hence
+`F(r0 + ebf·h0) ≥ 0`. The iteration cap is 60 (was 30); the
+`(r_hi − r_lo) < 1e-8` break is unchanged. States with a valid `[r0, 20·r0]`
+bracket are **bit-identical** (a ≤19·r0-wide bracket reaches 1e-8 in < 30
+halvings for any `r0 < 0.5 m/s`). Only states that were previously clamped
+change. Codes 1/2 and the `erosive_mp_cap` block are untouched. Clear
+`srm_1d/__pycache__/` after upgrading (`@njit`). Edge: the widening is
+skipped when `r0 == 0` (`P <= 0` with `Re >= 100`), so that case still
+returns `(0, 0)` — erosive burning with no normal combustion is not
+meaningful (unreachable in the simulation anyway: pressure floor 1e3 Pa).
+Tests: `tests/test_burn_rate.py::TestMaBisectionBracket`. Record:
+`docs/solver_verification/worklog/T2.md`.
+
 ### v0.8.1 (tag `v0.8.1`, public) — additions since v0.8.0
 
 Public release folding the post-v0.8.0 `openmotor-frontend` work onto `main`.

@@ -4,6 +4,7 @@ import pytest
 from srm_1d.burn_rate import (
     haaland_friction, gnielinski_nusselt, transpiration_correction,
     burn_rate_cell, compute_burn_rates, mukunda_paul_eta,
+    saint_robert_from_tabs,
     ErosiveModel, EROSIVE_MODELS, resolve_erosive_model, register_erosive_model,
 )
 
@@ -186,6 +187,95 @@ class TestBurnRateCell(_HasegawaPropellant1Fixture):
             assert r_cap < r_unc
             assert r_cap == pytest.approx(r0 * eta_mp)
             assert r_cap <= r_cap11 <= r_unc
+
+
+# ---- Ma bisection: guaranteed upper bracket (solver-verification T2) ----
+
+class TestMaBisectionBracket(_HasegawaPropellant1Fixture):
+    """The code-0 (Ma 2020) bisection used a fixed 20*r0 upper bracket and
+    silently returned ~20*r0 whenever the true root lay above it (small
+    port / high Re). burn_rate_cell now checks F(20*r0) and, if negative,
+    widens the bracket to the analytic r0 + ebf*h0 (transpiration factor
+    beta/(exp(beta)-1) <= 1  =>  h(r) <= h0  =>  F(r0 + ebf*h0) >= 0).
+
+    The residual is evaluated here with the SAME module-level correlation
+    helpers burn_rate_cell calls (saint_robert_from_tabs -> haaland_friction
+    -> gnielinski_nusselt), in the same order -- burn_rate.py code-0 path,
+    "Normal burn rate" ... "Precompute alpha" -- plus the three lines of
+    inline algebra it uses for h0 / ebf / alpha (copied below).
+    """
+
+    ROUGHNESS = 20e-6   # the value _call hard-codes
+    X_FROM_HEAD = 0.5   # _call's default x
+    D_HYD_MM = (2, 4, 8, 16, 32)
+    P_MPA = (2, 7, 15)
+
+    def _ma_terms(self, P, Re, D):
+        """(r0, h0, ebf, alpha) exactly as burn_rate_cell builds them."""
+        r0 = saint_robert_from_tabs(
+            P, self.TAB_MIN_P, self.TAB_MAX_P, self.TAB_A, self.TAB_N,
+            self.N_TABS)
+        f = haaland_friction(Re, self.ROUGHNESS, D)
+        Nu = gnielinski_nusselt(Re, self.PR, D, self.X_FROM_HEAD, f,
+                                self.T_FLAME, self.T_SURFACE, self.KAPPA)
+        h0 = Nu * self.K_THERMAL / D
+        ebf = (self.T_FLAME - self.T_SURFACE) / (
+            self.RHO_P * self.CPS * (self.T_SURFACE - self.T_INITIAL))
+        alpha = self.RHO_P * self.CP_GAS / h0
+        return r0, h0, ebf, alpha
+
+    @staticmethod
+    def _F(r, r0, h0, ebf, alpha):
+        """Ma residual F(r) = r - r0 - ebf*h(r), with burn_rate_cell's
+        h(beta) branches (< 1e-6 Taylor / > 500 zero / exp)."""
+        beta = alpha * r
+        if beta < 1e-6:
+            h = h0 * (1.0 - beta / 2.0)
+        elif beta > 500.0:
+            h = 0.0
+        else:
+            h = h0 * beta / (np.exp(beta) - 1.0)
+        return r - r0 - ebf * h
+
+    def _envelope(self):
+        """Yield (D_hyd_mm, Re, P_MPa, D, P) over the 150-state envelope."""
+        for D_mm in self.D_HYD_MM:
+            for Re in np.logspace(4.0, 7.0, 10):
+                for P_MPa in self.P_MPA:
+                    yield D_mm, Re, P_MPa, D_mm * 1e-3, P_MPa * 1e6
+
+    def test_envelope_finite_above_r0_and_residual_closed(self):
+        """150 states (D_hyd 2-32 mm x Re 1e4-1e7 x P 2/7/15 MPa): finite,
+        r_total >= r0, and the Ma residual |F(r_total)| <= 1e-7 m/s."""
+        n = 0
+        bad = []
+        for D_mm, Re, P_MPa, D, P in self._envelope():
+            n += 1
+            r_total, r_erosive = self._call(P, Re, D=D)
+            r0, h0, ebf, alpha = self._ma_terms(P, Re, D)
+            F = self._F(r_total, r0, h0, ebf, alpha)
+            ok = (np.isfinite(r_total) and np.isfinite(r_erosive)
+                  and r_total >= r0 and r_erosive >= 0.0 and abs(F) <= 1e-7)
+            if not ok:
+                bad.append((D_mm, Re, P_MPa, r_total / r0, F))
+        assert n == 150
+        assert not bad, f"{len(bad)} envelope states failed: {bad[:5]}"
+
+    def test_clamp_regression_root_above_20_r0(self):
+        """At least one envelope state has its root above 20*r0 -- the old
+        fixed bracket would have silently clamped it to ~20*r0."""
+        above = [(D_mm, Re, P_MPa)
+                 for D_mm, Re, P_MPa, D, P in self._envelope()
+                 if self._call(P, Re, D=D)[0]
+                 > 20.0 * self._ma_terms(P, Re, D)[0] * (1.0 + 1e-6)]
+        assert len(above) >= 1
+
+    def test_widened_bracket_is_a_guaranteed_bracket(self):
+        """The analytic reason for the fix: F(r0 + ebf*h0) >= 0 in every
+        envelope state (h(r) <= h0 because beta/(exp(beta)-1) <= 1)."""
+        for D_mm, Re, P_MPa, D, P in self._envelope():
+            r0, h0, ebf, alpha = self._ma_terms(P, Re, D)
+            assert self._F(r0 + ebf * h0, r0, h0, ebf, alpha) >= 0.0
 
 
 # ---- Erosive model registry (docs/erosive_model_registry) ----
