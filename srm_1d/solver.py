@@ -163,6 +163,13 @@ NOZZLE_STATE_BALANCED = 0
 NOZZLE_STATE_SUBSONIC_OUT = 1
 NOZZLE_STATE_CHOKED_OUT = 2
 
+# Pressure-floor accounting (solver-verification T3): value of
+# ``floor_min_raw_P`` returned by ``_piso_step_with_energy_diagnostics`` when
+# NO cell was clamped this step -- a neutral element for a running min, kept
+# finite because the kernels are compiled with fastmath (which assumes no
+# infs). Callers must gate on ``n_floor_cells > 0`` before using the value.
+FLOOR_MIN_RAW_P_NONE = 1.0e300
+
 
 @njit(cache=True, fastmath=True)
 def _critical_pressure_ratio(gamma):
@@ -354,6 +361,25 @@ def _piso_step_with_energy_diagnostics(
         Updated pressure.
     T_new : ndarray (N,)
         Updated temperature.
+    gas_energy_before, gas_energy_after, gas_sensible_dE_dt,
+    convective_scalar_flux_power, nozzle_scalar_flux_power,
+    thermal_source_power, clipping_correction_power, energy_residual :
+        float. Sensible-enthalpy (Cp*T) energy-balance diagnostics.
+    n_floor_cells : int
+        Number of cells whose raw post-correction pressure was below the
+        1 kPa pressure floor this step (solver-verification T3).
+    floor_mass_added : float
+        Gas mass [kg] the floor clamp adds relative to the EOS at the
+        unclamped pressure: sum of (P_floor - P_raw)/(R*T_new)*A_port*dx
+        over clamped cells.
+    floor_energy_added : float
+        ``floor_mass_added`` weighted per cell by Cp*T_new [J] (sensible).
+    floor_min_raw_P : float
+        Minimum raw (pre-clamp) pressure over clamped cells [Pa];
+        ``FLOOR_MIN_RAW_P_NONE`` (1e300, finite sentinel) when none.
+
+    The four ``floor_*`` values are ACCOUNTING ONLY -- the floor value and
+    the clamp are unchanged.
     """
     # v0.7.1 Phase 3: nozzle boundary uses cell-N-1 mixture thermo
     gamma_bnd = gamma_arr[N - 1]
@@ -685,6 +711,28 @@ def _piso_step_with_energy_diagnostics(
     # STEP 4: UPDATE DENSITY
     # -------------------------------------------------------
     pressure_floor = 1.0e3
+    # Solver-verification T3: ACCOUNTING ONLY. Tally what the clamp below
+    # adds, relative to the EOS at the UNclamped pressure (mass the clamp
+    # injects = (P_floor - P_raw)/(R*T) per unit volume), before it runs.
+    # Read-only on P_new/T_new: the clamp itself is unchanged.
+    # "No clamp" min raw P is a large FINITE sentinel, not +inf: this
+    # function is compiled with fastmath (nnan/ninf), under which an inf
+    # operand in a comparison is undefined.
+    n_floor_cells = 0
+    floor_mass_added = 0.0
+    floor_energy_added = 0.0
+    floor_min_raw_P = FLOOR_MIN_RAW_P_NONE
+    for i in range(N):
+        if P_new[i] < pressure_floor:
+            n_floor_cells += 1
+            m_floor_i = (
+                (pressure_floor - P_new[i]) / (R_arr[i] * T_new[i])
+                * A_port[i] * dx
+            )
+            floor_mass_added += m_floor_i
+            floor_energy_added += m_floor_i * Cp_arr[i] * T_new[i]
+            if P_new[i] < floor_min_raw_P:
+                floor_min_raw_P = P_new[i]
     for i in range(N):
         P_new[i] = max(P_new[i], pressure_floor)
     rho_new = np.zeros(N)
@@ -703,7 +751,9 @@ def _piso_step_with_energy_diagnostics(
             gas_energy_before, gas_energy_after, gas_sensible_dE_dt,
             convective_scalar_flux_power, nozzle_scalar_flux_power,
             thermal_source_power, clipping_correction_power,
-            energy_residual)
+            energy_residual,
+            n_floor_cells, floor_mass_added, floor_energy_added,
+            floor_min_raw_P)
 
 
 @njit(cache=True, fastmath=True)
@@ -723,6 +773,10 @@ def piso_step(
     ``port_mach_cap`` (default 0.0 = disabled) bounds interior port face
     velocities to that Mach number; see the limiter block in
     ``_piso_step_with_energy_diagnostics``.
+
+    Solver-verification T3: the diagnostics function's return tuple grew
+    four trailing pressure-floor counters; this wrapper still returns only
+    ``(rho, u, P, T)`` (it slices ``out[0:4]``), so its contract is unchanged.
     """
     out = _piso_step_with_energy_diagnostics(
         rho, u, P, T, A_port, D_hyd,

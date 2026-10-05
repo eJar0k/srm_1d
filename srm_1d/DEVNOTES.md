@@ -354,6 +354,40 @@ meaningful (unreachable in the simulation anyway: pressure floor 1e3 Pa).
 Tests: `tests/test_burn_rate.py::TestMaBisectionBracket`. Record:
 `docs/solver_verification/worklog/T2.md`.
 
+### Post-v0.8.1 — solver-verification T3 (pressure-floor accounting)
+
+Accounting only; the 1 kPa floor value and clamp behaviour are unchanged
+(gate B0: Chunc / BALLSstick / Hasegawa A bit-identical at full precision +
+exact step counts — see `docs/solver_verification/worklog/T3.md`).
+
+- **BREAK — PISO return tuple grew.**
+  `solver._piso_step_with_energy_diagnostics` now returns 16 values; the
+  original 12 are unchanged and four are APPENDED:
+  `(n_floor_cells, floor_mass_added, floor_energy_added, floor_min_raw_P)` —
+  cells clamped this step, mass [kg] the clamp added vs the EOS at the
+  unclamped pressure (`Σ (P_floor − P_raw)/(R·T)·A_port·dx`), the Cp·T-weighted
+  energy [J], and the min raw pre-clamp P over clamped cells. When no cell is
+  clamped `floor_min_raw_P == solver.FLOOR_MIN_RAW_P_NONE` (1e300, a FINITE
+  sentinel — the kernels are `fastmath`, which assumes no infs); gate on
+  `n_floor_cells > 0`. Index-based unpackers (e.g. `out[10]`, `out[11]`) are
+  unaffected; fixed-length tuple unpackers must add the four names.
+  `solver.piso_step` still returns `(rho, u, P, T)` (it slices `out[0:4]`).
+- **BREAK — `_run_time_loop`** takes two new history arrays
+  (`pressure_floor_cells_hist`, `pressure_floor_mass_hist`, after
+  `max_mach_hist`) and returns two extra trailing scalars
+  (`floor_energy_total`, `floor_min_raw_P_global`). Clear
+  `srm_1d/__pycache__/` after upgrading.
+- **ADDITIVE — results:** per-step `result['pressure_floor_cells']` (count)
+  and `result['pressure_floor_mass']` (kg) (also in
+  `tools.ignition_diagnostics.step_diagnostics_timeseries`); summary keys
+  `pressure_floor_activations` (Σ cell-steps), `pressure_floor_steps`,
+  `pressure_floor_mass_added_kg`, `pressure_floor_energy_added_J`,
+  `pressure_floor_first_time_s` (−1.0 if never; step-start time convention of
+  the `time` history), `pressure_floor_min_raw_P` (NaN if never).
+- Note: because the clamp runs before the state is carried, the recorded
+  `min_pressure` history can never read below 1 kPa; a `min_pressure` series
+  pinned at exactly 1000 Pa is the floor, not a physical minimum.
+
 ### v0.8.1 (tag `v0.8.1`, public) — additions since v0.8.0
 
 Public release folding the post-v0.8.0 `openmotor-frontend` work onto `main`.

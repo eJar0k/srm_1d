@@ -33,6 +33,7 @@ except ImportError:
         return wrapper
 
 from .solver import (
+    FLOOR_MIN_RAW_P_NONE,
     _piso_step_with_energy_diagnostics,
     compute_dt_cfl,
     compute_dt_source_cap,
@@ -1383,6 +1384,7 @@ def _run_time_loop(
     min_gas_temperature_hist, max_gas_temperature_hist,
     min_surface_temperature_hist, max_surface_temperature_hist,
     min_pressure_hist, max_pressure_hist, max_mach_hist,
+    pressure_floor_cells_hist, pressure_floor_mass_hist,
     max_hist,
     # --- Output: snapshots (pre-allocated) ---
     snap_data, snap_times, max_snaps,
@@ -1445,6 +1447,14 @@ def _run_time_loop(
     termination_code : int
         0 = t_max reached, 1 = complete burnout, 2 = pressure cutoff,
         3 = history array full, 4 = numerical collapse aborted.
+    (... then pyrogen_mass_burned, pyrogen_duration, pyrogen_peak_P, and,
+    appended by solver-verification T3 -- pressure-floor accounting:)
+    floor_energy_total : float
+        Run total of the sensible energy [J] the 1 kPa pressure-floor clamp
+        added (sum over steps of the PISO ``floor_energy_added``).
+    floor_min_raw_P_global : float
+        Minimum raw pre-clamp pressure [Pa] over all clamped cells and
+        steps; ``FLOOR_MIN_RAW_P_NONE`` (finite sentinel) if never clamped.
     """
     PI = 3.141592653589793
 
@@ -1471,6 +1481,11 @@ def _run_time_loop(
     n_ignited = 0
     total_mass_produced = 0.0
     total_mass_nozzle = 0.0
+    # Pressure-floor accounting (solver-verification T3): run totals of the
+    # sensible energy the 1 kPa clamp adds and the minimum raw pre-clamp
+    # pressure. Finite sentinel (fastmath: no infs); gated on n_floor_cells.
+    floor_energy_total = 0.0
+    floor_min_raw_P_global = FLOOR_MIN_RAW_P_NONE
     first_bt_time = -1.0
     last_snapshot_t = -snapshot_interval
     termination_code = 0
@@ -1995,7 +2010,9 @@ def _run_time_loop(
          gas_energy_before, gas_energy_after, gas_sensible_dE_dt,
          convective_scalar_flux_power, nozzle_enthalpy_power,
          thermal_power_before_piso, clipping_correction_power,
-         energy_residual) = _piso_step_with_energy_diagnostics(
+         energy_residual,
+         n_floor_cells, floor_mass_added, floor_energy_added,
+         floor_min_raw_P) = _piso_step_with_energy_diagnostics(
             rho, u, P, T, A_port, D_hyd,
             mass_source, thermal_source, momentum_source, f_darcy,
             dx, dt, gamma_mix_arr, R_mix_arr, Cp_mix_arr, T_ceiling_arr,
@@ -2139,6 +2156,12 @@ def _run_time_loop(
         min_pressure_hist[hist_idx] = min_pressure
         max_pressure_hist[hist_idx] = max_pressure
         max_mach_hist[hist_idx] = max_mach_abs
+        pressure_floor_cells_hist[hist_idx] = n_floor_cells
+        pressure_floor_mass_hist[hist_idx] = floor_mass_added
+        if n_floor_cells > 0:
+            floor_energy_total += floor_energy_added
+            if floor_min_raw_P < floor_min_raw_P_global:
+                floor_min_raw_P_global = floor_min_raw_P
         hist_idx += 1
 
         # Snapshot
@@ -2196,7 +2219,8 @@ def _run_time_loop(
             total_mass_produced, total_mass_nozzle,
             first_bt_time, D_throat, termination_code,
             pyrogen_initial_mass - plenum_state[0],
-            pyrogen_duration, pyrogen_peak_P)
+            pyrogen_duration, pyrogen_peak_P,
+            floor_energy_total, floor_min_raw_P_global)
 
 
 # ================================================================
@@ -2719,6 +2743,10 @@ def run_simulation(
     min_pressure_hist = np.empty(max_hist)
     max_pressure_hist = np.empty(max_hist)
     max_mach_hist = np.empty(max_hist)
+    # Pressure-floor accounting (solver-verification T3): per-step count of
+    # cells clamped to the 1 kPa floor and the gas mass [kg] the clamp added.
+    pressure_floor_cells_hist = np.empty(max_hist)
+    pressure_floor_mass_hist = np.empty(max_hist)
 
     # Pre-allocate snapshot storage
     max_snaps = int(t_max / snapshot_interval) + 10
@@ -2762,7 +2790,8 @@ def run_simulation(
      first_burnthrough_time, D_throat_final,
      termination_code,
      pyrogen_mass_burned, pyrogen_duration,
-     pyrogen_peak_P) = _run_time_loop(
+     pyrogen_peak_P,
+     floor_energy_total, floor_min_raw_P_global) = _run_time_loop(
         # Cell arrays
         rho, u, P, T,
         D_port, x_centers, A_port, C_burn, D_hyd,
@@ -2837,6 +2866,7 @@ def run_simulation(
         min_gas_temperature_hist, max_gas_temperature_hist,
         min_surface_temperature_hist, max_surface_temperature_hist,
         min_pressure_hist, max_pressure_hist, max_mach_hist,
+        pressure_floor_cells_hist, pressure_floor_mass_hist,
         max_hist,
         # Output: snapshots
         snap_data, snap_times, max_snaps,
@@ -2913,6 +2943,21 @@ def run_simulation(
     min_pressure_arr = min_pressure_hist[:n_steps].copy()
     max_pressure_arr = max_pressure_hist[:n_steps].copy()
     max_mach_arr = max_mach_hist[:n_steps].copy()
+    pressure_floor_cells_arr = pressure_floor_cells_hist[:n_steps].copy()
+    pressure_floor_mass_arr = pressure_floor_mass_hist[:n_steps].copy()
+
+    # Pressure-floor accounting summary (solver-verification T3). Times are
+    # the per-step ``time`` history convention (step START time).
+    floor_clamped_steps = pressure_floor_cells_arr > 0.0
+    floor_n_steps = int(np.count_nonzero(floor_clamped_steps))
+    floor_activations = int(round(float(np.sum(pressure_floor_cells_arr))))
+    floor_mass_total = float(np.sum(pressure_floor_mass_arr))
+    if floor_n_steps > 0:
+        floor_first_time = float(time_arr[int(np.argmax(floor_clamped_steps))])
+        floor_min_raw_P = float(floor_min_raw_P_global)
+    else:
+        floor_first_time = -1.0
+        floor_min_raw_P = float("nan")
 
     # Convert snapshot 3D array back to list of dicts for compatibility
     snapshots = []
@@ -3061,6 +3106,16 @@ def run_simulation(
             'thermal_source_power - clipping_correction_power; '
             'convective power is positive into the gas'
         ),
+        # Pressure-floor accounting (solver-verification T3). The PISO step
+        # clamps P to 1 kPa and rebuilds rho = P/(R*T); the mass/energy that
+        # clamp injects is otherwise outside every ledger. Cell-steps =
+        # activations; mass is vs the EOS at the unclamped pressure.
+        'pressure_floor_activations': floor_activations,
+        'pressure_floor_steps': floor_n_steps,
+        'pressure_floor_mass_added_kg': floor_mass_total,
+        'pressure_floor_energy_added_J': float(floor_energy_total),
+        'pressure_floor_first_time_s': floor_first_time,
+        'pressure_floor_min_raw_P': floor_min_raw_P,
     }
 
     # Per-grain summary from snapshots
@@ -3142,6 +3197,8 @@ def run_simulation(
         'min_pressure': min_pressure_arr,
         'max_pressure': max_pressure_arr,
         'max_mach': max_mach_arr,
+        'pressure_floor_cells': pressure_floor_cells_arr,
+        'pressure_floor_mass': pressure_floor_mass_arr,
         'ignition_time_by_cell': ignition_time.copy(),
         # v0.8.x station-viz data contract: per-cell axial geometry so the
         # GUI station model + axial-payload builder work from `result`

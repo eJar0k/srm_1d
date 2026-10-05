@@ -453,6 +453,8 @@ def step_diagnostics_timeseries(result: dict) -> dict[str, np.ndarray]:
         "min_pressure",
         "max_pressure",
         "max_mach",
+        "pressure_floor_cells",
+        "pressure_floor_mass",
     )
     out = {"times_s": times}
     for key in keys:
