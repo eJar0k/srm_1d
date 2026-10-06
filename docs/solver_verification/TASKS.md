@@ -438,3 +438,73 @@ C. Draft §12 "Solver verification (Codex-review replication)": the
    grid-convergence result, the fill-Mach attribution, and an explicit list
    of which §6 claims stand and which are corrected. Numbers only — no
    recommendations, no default changes.
+
+---
+
+## WAVE 4 — fixes approved from the T6 energy audit (user, 2026-10-05)
+
+One agent, T9 then T10 (both edit `simulation.py`), in one worktree whose base
+INCLUDES T6 (its audit channels are T10's conservation gate). Read
+`worklog/T6.md` first.
+
+### T9 — debit the left-neighbour radiation sink
+
+T6 found that with `radiation_emissivity > 0` the left-neighbour radiation
+sink is recorded in its power history but never subtracted from the gas
+(`thermal_source`) — an energy leak (Chunc, emissivity 0.05: 292 W
+source-ledger mismatch vs a 570 W recorded sink). It is pinned by a strict
+`xfail` in `tests/test_energy_audit.py`.
+
+1. Find the sink (T6 worklog names it) and debit it from `thermal_source`
+   exactly as the existing radiation sink is debited — mirror that code; no
+   new physics.
+2. Turn the strict `xfail` into a normal passing test.
+3. Gates: B0 PASS (canonical emissivity is 0 — must be unchanged); Chunc
+   `radiation_emissivity=0.05`, `t_max=0.05`: max |source-ledger mismatch|
+   ≤ 1e-6 × max `thermal_source_power` (was 292 W) — report before/after
+   P_peak at that emissivity; full suite = baseline + 0 new failures.
+4. DEVNOTES API/behaviour log entry. Commit separately from T10.
+
+### T10 — subtract the gas that fills newly opened port volume (physically standard mass source)
+
+T6 found the geometry refresh adds gas from nothing: the solver advances
+continuity at fixed `A_port` and then grows `A_port` at fixed ρ, so each
+refresh adds ρ_gas·ΔA·dx (Chunc +6.4 g / BALLSstick +9.0 g over the burn,
+always positive) plus its sensible enthalpy. The standard fixed-area
+formulation is a net source of **(ρ_p − ρ_g)·r·P_b**: the burned propellant
+first fills the volume it vacates. User decision: adopt it, accepting that
+every result shifts slightly and the B0 baseline is re-recorded.
+
+1. In `_run_time_loop`, wherever the regression mass source is assembled
+   (sidewall `r·C_burn`-type term AND the end-face source — both open new
+   volume), subtract the local gas that fills the opened volume, using the
+   SAME effective regression rate × area as the source (keep the burnout
+   ramp `f_active` consistent — DEVNOTES gotcha "Mass conservation"):
+   - mass: `−ρ_g · (r · burning area per unit length)`;
+   - energy (`thermal_source`): `−ρ_g · Cp_mix · T_gas · (same)` — the
+     sensible enthalpy of that gas (local cell mixture Cp and T);
+   - species: per species `−ρ_g · Y_k · (same)` (the gas filling the volume is
+     the LOCAL mixture, not propellant gas).
+   Use the cell state at the start of the step. Momentum: leave unchanged
+   and say so in the worklog (not measured by T6).
+2. Gates (behaviour CHANGES — report, don't hide):
+   a. Conservation: with T6's audit, over Chunc `t_max=1.0` and BALLSstick
+      `t_max=2.0`, report Σ geometry storage jump vs Σ new debit (mass and
+      energy) — they should now cancel to round-off — and
+      `summary['mass_balance_error']` before vs after.
+   b. B0 before/after table for all three motors (peak, t_peak, plateau or
+      trough/mid, n_steps). Then RE-RECORD the `BASELINE` constants in
+      `docs/solver_verification/probes/baseline_gate.py` from this commit,
+      with a dated comment naming T10, and confirm B0 PASSes against them.
+   c. Validation vs experiment before/after: Chunc peak / plateau / ratio
+      (exp plateau 8.66 MPa, ratio 1.027), BALLSstick pk/trough and pk/mid
+      (~1.50 / ~1.35), Hasegawa A global peak (~6.5 MPa). Expected order of
+      magnitude: ~ρ_g/ρ_p ≈ 0.5% less mass source → roughly −1% on plateau
+      pressure. If ANY metric moves more than 3%, STOP and report before
+      re-recording anything.
+   d. Full suite: list every test whose pinned simulation numbers moved
+      (old → new). Update a pinned value only where a test pins a sim
+      output, never loosen a tolerance, and flag each in the worklog.
+3. DEVNOTES: behaviour-change log entry + the Calibration State note
+   (canonical validation values updated). Do NOT edit CLAUDE.md or any
+   memory — the reviewer does.

@@ -292,6 +292,9 @@ artifact was a red herring for the spike, though a genuine artifact worth boundi
 
 ## 8. OPEN THREADS — investigation deliberately left OPEN (next session)
 
+*(Thread F — the energy–pressure coupling lag — added 2026-10-05 from the
+solver-verification energy audit; see the end of this list.)*
+
 This investigation is **not closed.** The residual hump survived every lever tested
 *in isolation*, and Mukunda-Paul makes a chunk of it look physical — but the
 ms-scale ignition snap-on remains physically suspicious, lever coupling is largely
@@ -347,6 +350,33 @@ artificial viscosity / flux limiting at contacts, or a density-based (Riemann)
 sub-step for the transient — making the fill velocity physical *without* the clamp,
 which might also surface coupling the clamp currently hides. Lower priority than A–D
 for the spike, but the right long-term fix for the flow field.
+
+**(F) Energy–pressure coupling lag — the EOS reconciliation (opened 2026-10-05,
+user decision).** Measured by solver-verification T6
+(`docs/solver_verification/worklog/T6.md`): the PISO pressure correction closes
+mass on `rho_new_1 = P/(R·T_old)` (isothermal compressibility with a LAGGED
+temperature), then the energy update changes T and the carried state is
+re-derived as `rho = P/(R·T_new)` — mass and energy appear/disappear between
+steps outside every ledger. On Chunc this EOS carry is Σ|·| 17 kJ / 3.3 g over
+1 s and dominates the per-step storage jump; in the **fill (t < 5.6 ms) the
+between-step jumps carry ~30% of the source energy** (1.0% at the spike, 0.5% on
+the plateau). The fill is exactly where T swings 293 → ~3000 K per cell, so the
+lag is largest where the supersonic contact front (§6, fill Mach 3–5 at 100
+cells in the 2026-10-05 GUI triage) and the ignition snap-on (thread A) live.
+**Same root cause** as the acoustic-CFL limit diagnosed in
+`docs/core_loop_opt/` (the energy/T lag + `1/(RT)` compressibility in the pressure
+operator, `solver.py`), and compounded in the fill by the sensible-enthalpy (Cp·T)
+energy equation omitting kinetic energy (T6: up to 80% of local enthalpy at bore
+Mach ~2.9 in the fill; ~1–2% at spike/plateau). **Hypothesis:** the fill-phase
+flow field — and through it the transient G / snap-on timing feeding the erosive
+hump — is distorted by this lag. **TESTS (cheapest first):** (1) probe — iterate
+T inside the PISO corrector (or recompute `rho_new_1` with the updated T and re-solve
+the pressure correction) until the EOS jump vanishes, and see whether fill Mach,
+snap-on timing and P_peak move; (2) energy-coupled (isentropic-compressibility)
+pressure equation; (3) total-energy formulation; (4) the Lever B IMEX / density-
+based route, which removes the lag structurally. Diagnostics already in place:
+`storage_jump_eos_J` / `mass_jump_eos_kg` histories and
+`tools.ignition_diagnostics.sensible_enthalpy_audit()`.
 
 **Meta-caution (user, 2026-06-17):** treat every "eliminated" lever as eliminated
 IN ISOLATION only. Something is still missing; the per-cell ms snap-on is the most

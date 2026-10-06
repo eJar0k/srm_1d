@@ -101,6 +101,11 @@ measurement-only and needs T3+T5 (counters, split cadence).
 
 ## 5. Decisions reserved for the user (tasks measure, never decide)
 
+**Decided 2026-10-05:** fix the left-neighbour radiation sink (T9); adopt the
+physically standard (ρ_p − ρ_g) regression mass source and re-record B0
+(T10); log the energy–pressure lag as spike thread F
+(`docs/v0_7_4/IGNITION_SPIKE_REOPENED.md` §8).
+
 - How stale `.ric` igniter blocks get refreshed (GUI re-select vs a
   programmatic re-seed) — T1 adds the warning + impact numbers only.
 - Whether to change the default refresh cadence — only if T7 shows a
