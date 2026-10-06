@@ -7,13 +7,16 @@ them to the recorded values (see the BASELINE comment: re-recorded by T10) at FU
 
 A task whose spec says "default behaviour unchanged" passes B0 only if the
 step counts match EXACTLY and every float matches within ``--rtol`` (default
-1e-12). Why not bitwise: with ``fastmath=True`` the Numba machine code depends
+1e-9). Why not bitwise: with ``fastmath=True`` the Numba machine code depends
 on the compile state (which functions were compiled in-process vs loaded from
-the on-disk cache), so identical source differs at the last-digit level
-between a warm cache and a clean recompile -- measured 1.5e-16..1.3e-15
-relative on all three motors with identical step counts (solver-verification
-T2 review, 2026-10-05). 1e-12 is ~1000x that noise and far below any real
-perturbation, which also shifts the step count. Anything beyond it means the
+the on-disk cache), so IDENTICAL source gives slightly different floats
+between a warm cache and a clean recompile, deterministically per state and
+with identical step counts. Measured: 1.5e-16..1.3e-15 relative before T10
+(T2 review, 2026-10-05); after T10's extra source terms the difference
+accumulates over the run to up to 1.6e-10 (Chunc plateau) / 7e-12 (Hasegawa
+peak) (2026-10-06, reproduced on two independent fresh compiles). 1e-9 is
+~6x that and still ~1e6x below the smallest real perturbation seen (T10:
+-0.5%), which also shifts the step count. Anything beyond it means the
 change perturbed the default trajectory -- report it, do not loosen the
 tolerance to make it pass.
 
@@ -97,7 +100,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--only', default='chunc,balls,haseg',
                     help='comma-separated subset of chunc,balls,haseg')
-    ap.add_argument('--rtol', type=float, default=1e-12,
+    ap.add_argument('--rtol', type=float, default=1e-9,
                     help='float tolerance; n_steps is always compared exactly')
     args = ap.parse_args()
 

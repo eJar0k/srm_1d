@@ -45,7 +45,7 @@ is given in your launch prompt; `cd` there first and stay there.
   `"<python>" docs/solver_verification/probes/baseline_gate.py`
   (≈2–4 min warm; it fixes its own import path and prints provenance). It
   must print `B0 RESULT: PASS`: step counts EXACT and floats within the
-  default rtol 1e-12. (Last-digit differences ≤ ~1e-15 with identical step
+  default rtol 1e-9. (Differences ≤ ~2e-10 with identical step
   counts are Numba fastmath compile-state noise — see the script docstring —
   not a trajectory change.) A FAIL is a finding: report the full output, do
   not loosen tolerances or "adjust" the baseline.
@@ -566,7 +566,7 @@ optional `pressure_floor_pa` kwarg (default 1e3, bit-identical). P2: per-cell
 T-floor / T-ceiling / pressure-floor activation counts, durations, first/last
 times, |energy| for the T limits, per-cell max floor deficit, optional
 port-Mach-cap face counts; summary view `numerical_limits` + a
-`tools/ignition_diagnostics` helper. Gates: B0 bit-identical (rtol 1e-12,
+`tools/ignition_diagnostics` helper. Gates: B0 (rtol 1e-9,
 exact steps); byte-identical trajectory A/B at 106/406/806 cells
 (`worklog/T3_scripts/trajectory_ab.py`); steps/s cost < 10%; full suite.
 
