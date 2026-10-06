@@ -307,13 +307,17 @@ def test_motor_round_trips_solver_configs(om):
     assert om_motor.Motor(d).solverConfigs == {}
 
 
-def test_motor_without_igniter_keeps_defaults(om):
-    """A motor dict lacking the igniter block loads with default igniter."""
+def test_motor_without_igniter_has_no_block_and_sim_falls_back(om):
+    """A motor dict lacking the igniter block loads WITHOUT one (plugin-provided
+    igniter: the block is a raw dict, ``None`` = absent; the old behaviour of
+    inventing a default block is retired). ``simulate_motor`` then falls back
+    to the library BPNV default."""
     solvers, om_motor = om
     motor = _canonical_motor(om_motor)
     d = motor.getDict()
     d.pop('igniter', None)
     motor2 = om_motor.Motor(d)
-    # Default igniter is present and self-describing (BPNV / forward_plenum).
-    block = motor2.getDict()['igniter']
-    assert block['injection_topology'] == 'forward_plenum'
+    assert motor2.igniterData is None
+    assert 'igniter' not in motor2.getDict()
+    from srm_1d.openmotor_adapter import load_igniter
+    assert load_igniter(motor2.getDict()) is None   # -> BPNV default in simulate_motor
