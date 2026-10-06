@@ -311,6 +311,37 @@ in geometry/burn rate/ignition (called every step or every N steps).
 
 ## API Breaking Changes Log
 
+### Plugin-provided igniter, I1 (unreleased) — srm_1d owns the igniter model
+
+`docs/igniter_provider/` (DESIGN D1-D7, TASKS I1). The openMotor fork hardcoded
+a stale 16-field `Pyrogen` schema and the pre-`bfc2f3f` BPNV; srm_1d now serves
+the igniter model to any openMotor frontend through five optional hooks on
+`Srm1dTransientSolver` (the fork consumes them in I2):
+- **ADDITIVE (plugin hooks, `srm1d_plugin.py`):** `get_igniter_material_schema()`
+  / `get_igniter_chamber_schema()` (fresh `PropertyCollection`s built from
+  `_PYROGEN_FIELD_META` / `_IGNITER_CHAMBER_META`; every `Pyrogen` init field is
+  either in the meta or in `_PYROGEN_GUI_PASSTHROUGH` — `Cp_gas` today — pinned
+  by `tests/test_igniter_provider.py`), `get_igniter_materials()`
+  (`library_materials()`), `get_default_igniter()`
+  (`default_igniter_block('bpnv')`), `upgrade_igniter_block(block)`.
+  Enum choices: topology = `igniter_plenum._VALID_TOPOLOGIES`; `burn_law` and
+  `heat_delivery_mode` are pinned by test to `_burn_law_code` /
+  `_heat_delivery_code`; `form` (unvalidated, informational) = the fork's list.
+- **ADDITIVE (adapter):** `SUPERSEDED_PYROGENS` (material name -> exact legacy
+  dicts; today the pre-`bfc2f3f` BPNV), `upgrade_igniter_block(block)` ->
+  `(new_block, changed)` (pure, idempotent; replaces the material with the
+  CURRENT library entry only on an exact match — floats rel tol 1e-9, extra keys
+  must be absent/`None`; chamber sizing never touched),
+  `library_materials()`, `IgniterMaterialUpgradedWarning`.
+  **When a library material is corrected, append the OUTGOING dict to
+  `SUPERSEDED_PYROGENS` (never edit/remove a listed snapshot).**
+- **BEHAVIOUR CHANGE (`load_igniter`):** an embedded material that is an exact
+  superseded snapshot is now replaced by the current library entry (one
+  `IgniterMaterialUpgradedWarning`; the input dict is not modified) instead of
+  merely triggering `StaleIgniterMaterialWarning`. Any other embedded material
+  is still authoritative (T1 behaviour). So `run_from_ric(<stale .ric>,
+  pyrogen=None)` and the GUI path now run the corrected BPNV.
+
 ### Solver-verification T1 (unreleased) — complete igniter block + stale-material warning
 
 `docs/solver_verification/` T1. The `data.igniter.pyrogen` block was missing

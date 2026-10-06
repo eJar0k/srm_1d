@@ -29,6 +29,7 @@ import time as _time
 import numpy as np
 
 from .fmm_grain import _setup_openmotor_path
+from .igniter_plenum import _VALID_TOPOLOGIES
 
 SOLVER_NAME = 'srm_1d-transient'
 
@@ -82,6 +83,132 @@ def _transient_config_schema():
         'roughness': 50.0, 'kappa': 0.45, 'T_ignition': 850.0,
     })
     return schema
+
+
+# ----------------------------------------------------------------
+# Plugin-provided igniter (docs/igniter_provider/DESIGN.md, D1/D2)
+# ----------------------------------------------------------------
+# srm_1d owns the igniter model: the material fields (``Pyrogen``), the chamber
+# sizing (``_IGNITER_SIZING_DEFAULTS``), the built-in material library and the
+# GUI metadata below. The openMotor fork hardcodes none of it; it asks the
+# registered solver through the optional ``get_igniter_*`` hooks.
+
+# Allowed enum values. ``injection_topology`` / ``burn_law`` /
+# ``heat_delivery_mode`` are VALIDATED by srm_1d itself, so they are sourced
+# from (or pinned by tests/test_igniter_provider.py to) srm_1d's validators:
+# ``igniter_plenum._VALID_TOPOLOGIES``, ``igniter_plenum._burn_law_code`` and
+# ``simulation._heat_delivery_code``. ``form`` is informational only (not
+# validated anywhere in srm_1d), so its list is the fork's former one.
+_PYROGEN_FORMS = ('pellets', 'powder', 'chunks')
+_HEAT_DELIVERY_MODES = ('demar', 'radiation', 'none')
+_BURN_LAWS = ('0d', 'end_burning')
+
+# Per ``Pyrogen`` init field -> GUI metadata. Kinds are implied by the keys:
+# ``choices`` -> EnumProperty, ``min``/``max`` -> FloatProperty, else a
+# StringProperty. Labels / units / ranges are ported verbatim from the fork's
+# former ``motorlib/igniter.py`` ``Pyrogen`` class; ``gas_mass_fraction`` is new.
+# Order = ``Pyrogen`` dataclass order (minus the passthrough fields).
+_PYROGEN_FIELD_META = {
+    'name': {'label': 'Name'},
+    'a': {'label': 'Burn rate Coefficient', 'unit': 'm/(s*Pa^n)',
+          'min': 1e-9, 'max': 2},
+    'n': {'label': 'Burn rate Exponent', 'unit': '', 'min': -0.99, 'max': 0.99},
+    'rho': {'label': 'Density', 'unit': 'kg/m^3', 'min': 1, 'max': 10000},
+    'T_flame': {'label': 'Flame Temperature', 'unit': 'K',
+                'min': 1, 'max': 10000},
+    'M': {'label': 'Molar Mass', 'unit': 'kg/mol', 'min': 1e-6, 'max': 1},
+    'gamma': {'label': 'Specific Heat Ratio', 'unit': '',
+              'min': 1 + 1e-6, 'max': 10},
+    'impetus_W': {'label': 'Impetus', 'unit': 'psi*in^3/g',
+                  'min': 0, 'max': 1e6},
+    'heat_flux_cal_cm2_s': {'label': 'Heat Flux', 'unit': 'cal/(cm^2*s)',
+                            'min': 0, 'max': 1e5},
+    'gas_mass_fraction': {'label': 'Gas Mass Fraction', 'unit': '',
+                          'min': 0, 'max': 1},
+    'kappa_jet': {'label': 'Jet Decay Coefficient', 'unit': '',
+                  'min': 0, 'max': 100},
+    'form': {'label': 'Form', 'choices': _PYROGEN_FORMS},
+    'particle_diameter_m': {'label': 'Particle Diameter', 'unit': 'm',
+                            'min': 0, 'max': 1},
+    'particle_LD_ratio': {'label': 'Particle L/D', 'unit': '',
+                          'min': 0, 'max': 1000},
+    'heat_delivery_mode': {'label': 'Heat Delivery',
+                           'choices': _HEAT_DELIVERY_MODES},
+    'pellet_emissivity': {'label': 'Pellet Emissivity', 'unit': '',
+                          'min': 0, 'max': 1},
+    'radiation_absorption_length_m': {
+        'label': 'Radiation Absorption Length', 'unit': 'm',
+        'min': 0, 'max': 1000},
+}
+
+# ``Pyrogen`` fields the GUI schema deliberately does NOT carry. They still
+# round-trip losslessly through the raw igniter dict (DESIGN D3/D4): the GUI
+# never rewrites a key the user did not edit.
+_PYROGEN_GUI_PASSTHROUGH = {
+    'Cp_gas': 'optional product-gas Cp; None = derive from gamma/M, and a '
+              'FloatProperty cannot hold None',
+}
+
+# Per ``_IGNITER_SIZING_DEFAULTS`` key -> GUI metadata for the chamber sizing
+# (ported verbatim from the fork's former ``Igniter`` class). -1 is the "auto"
+# sentinel on the sizing fields.
+_IGNITER_CHAMBER_META = {
+    'mass': {'label': 'Pyrogen Mass', 'unit': 'kg', 'min': -1, 'max': 100},
+    'throat_area': {'label': 'Throat Area', 'unit': 'm^2',
+                    'min': -1, 'max': 1},
+    'volume': {'label': 'Volume', 'unit': 'm^3', 'min': -1, 'max': 1},
+    'burn_area': {'label': 'Burn Area', 'unit': 'm^2', 'min': -1, 'max': 100},
+    'burn_law': {'label': 'Burn Law', 'choices': _BURN_LAWS},
+    'injection_topology': {'label': 'Injection Topology',
+                           'choices': _VALID_TOPOLOGIES},
+    'cartridge_length_m': {'label': 'Cartridge Length', 'unit': 'm',
+                           'min': -1, 'max': 100},
+    'basket_fill_fraction': {'label': 'Basket Fill Fraction', 'unit': '',
+                             'min': 0, 'max': 1},
+    'pellet_packing_fraction': {'label': 'Pellet Packing Fraction', 'unit': '',
+                                'min': 0, 'max': 1},
+}
+
+
+def _igniter_schema(meta, defaults):
+    """A FRESH openMotor ``PropertyCollection`` built from a metadata table,
+    then seeded with ``defaults`` (a dict; keys outside ``meta`` are ignored)."""
+    _setup_openmotor_path()
+    from motorlib.properties import (  # type: ignore
+        PropertyCollection, FloatProperty, EnumProperty, StringProperty,
+    )
+    schema = PropertyCollection()
+    for key, m in meta.items():
+        if 'choices' in m:
+            schema.props[key] = EnumProperty(m['label'], list(m['choices']))
+        elif 'min' in m:
+            schema.props[key] = FloatProperty(
+                m['label'], m['unit'], m['min'], m['max'])
+        else:
+            schema.props[key] = StringProperty(m['label'])
+    schema.setProperties({k: v for k, v in defaults.items()
+                          if k in meta and v is not None})
+    return schema
+
+
+def _pyrogen_default_values():
+    """The ``Pyrogen`` dataclass's own field defaults (``kappa_jet`` 8.0, ...),
+    so a material missing those keys displays what srm_1d would use."""
+    import dataclasses
+    from .propellant import Pyrogen
+    return {f.name: f.default for f in dataclasses.fields(Pyrogen)
+            if f.init and f.default is not dataclasses.MISSING}
+
+
+def _igniter_material_schema():
+    """Schema for ONE igniter material (``data.igniter.pyrogen``)."""
+    return _igniter_schema(_PYROGEN_FIELD_META, _pyrogen_default_values())
+
+
+def _igniter_chamber_schema():
+    """Schema for the per-motor chamber sizing / topology."""
+    from .openmotor_adapter import _IGNITER_SIZING_DEFAULTS
+    return _igniter_schema(_IGNITER_CHAMBER_META, _IGNITER_SIZING_DEFAULTS)
 
 
 def simulate_motor(motor, igniter_pyrogen=None, callback=None, **sim_overrides):
@@ -498,6 +625,25 @@ def register():
 
         def get_config_schema(self):
             return _transient_config_schema()
+
+        # ---- plugin-provided igniter hooks (DESIGN D2) ----
+        def get_igniter_material_schema(self):
+            return _igniter_material_schema()
+
+        def get_igniter_chamber_schema(self):
+            return _igniter_chamber_schema()
+
+        def get_igniter_materials(self):
+            from .openmotor_adapter import library_materials
+            return library_materials()
+
+        def get_default_igniter(self):
+            from .openmotor_adapter import default_igniter_block
+            return default_igniter_block('bpnv')
+
+        def upgrade_igniter_block(self, block):
+            from .openmotor_adapter import upgrade_igniter_block
+            return upgrade_igniter_block(block)
 
     return register_solver(Srm1dTransientSolver())
 

@@ -35,6 +35,7 @@ Unit conversions from openMotor internal units:
 """
 
 import os
+import copy
 import math
 import dataclasses
 import warnings
@@ -683,6 +684,108 @@ def _warn_if_stale_igniter_material(pyro):
         StaleIgniterMaterialWarning, stacklevel=3)
 
 
+# ----------------------------------------------------------------
+# Plugin-provided igniter (docs/igniter_provider/DESIGN.md, D1/D5)
+# ----------------------------------------------------------------
+# srm_1d owns the igniter material library AND its history. When a library
+# entry is corrected (e.g. ``bfc2f3f`` BPNV), the OUTGOING values are appended
+# here so a motor file / GUI library that still embeds the old snapshot can be
+# upgraded to the current entry automatically -- but only on an EXACT match, so
+# a customised material is never touched.
+
+SUPERSEDED_PYROGENS = {
+    'BPNV': [
+        # pre-bfc2f3f library BPNV; superseded 2026-06-18. This is EXACTLY the
+        # ``pyrogen`` dict of the openMotor fork's former
+        # ``uilib/fileIO.py DEFAULT_IGNITER`` (== ``uilib/defaults.py
+        # DEFAULT_PYROGENS[0]``), i.e. what every pre-fix GUI-saved ``.ric`` and
+        # ``pyrogens.yaml`` embeds. Current values: srm_1d/pyrogens/bpnv.yaml
+        # (T_flame 2719, M 0.0482, gamma 1.17, gas_mass_fraction 0.781).
+        {
+            'name': 'BPNV', 'a': 2.0e-5, 'n': 0.50, 'rho': 1700.0,
+            'T_flame': 2800.0, 'M': 0.030, 'gamma': 1.25,
+            'impetus_W': 5000.0, 'heat_flux_cal_cm2_s': 69.4,
+            'kappa_jet': 8.0, 'form': 'pellets',
+            'particle_diameter_m': 3.2e-3, 'particle_LD_ratio': 1.0,
+            'heat_delivery_mode': 'demar', 'pellet_emissivity': 0.7,
+            'radiation_absorption_length_m': 1.0,
+        },
+    ],
+}
+
+
+class IgniterMaterialUpgradedWarning(UserWarning):
+    """A motor's embedded igniter material was an exact superseded library
+    snapshot and has been replaced by the current library entry (see
+    :func:`upgrade_igniter_block`)."""
+
+
+def library_materials():
+    """The built-in material library as a list of ``igniter.pyrogen`` dicts:
+    one per ``srm_1d/pyrogens/*.yaml``, sorted by filename. Fresh dicts on
+    every call (safe to mutate)."""
+    return [_pyrogen_to_block(pyro) for _, pyro in _library_pyrogen_files()]
+
+
+def _values_equal(a, b):
+    """Block-value equality for superseded matching: ``None`` only equals
+    ``None``; numbers compare as floats with rel tol 1e-9; all else exactly."""
+    if a is None or b is None:
+        return a is None and b is None
+    if (isinstance(a, (int, float)) and isinstance(b, (int, float))
+            and not isinstance(a, bool) and not isinstance(b, bool)):
+        return math.isclose(float(a), float(b), rel_tol=1e-9, abs_tol=0.0)
+    return a == b
+
+
+def _matches_superseded(material, snapshot):
+    """True iff ``material`` equals the legacy ``snapshot``: every snapshot key
+    is present and equal (``name`` case-insensitively, like the library
+    lookup) and every key NOT in the snapshot is ``None``."""
+    for key, legacy in snapshot.items():
+        if key not in material:
+            return False
+        value = material[key]
+        if key == 'name':
+            if not (isinstance(value, str) and value.lower() == legacy.lower()):
+                return False
+        elif not _values_equal(value, legacy):
+            return False
+    return all(material[key] is None for key in material if key not in snapshot)
+
+
+def upgrade_igniter_block(block):
+    """Upgrade a ``data.igniter`` block whose material is an exact superseded
+    library snapshot. Returns ``(new_block, changed)``.
+
+    Pure: ``block`` is never mutated (``new_block`` is always a deep copy).
+    The block's ``pyrogen`` is replaced by the CURRENT library entry of the
+    same (case-insensitive) name iff it matches a :data:`SUPERSEDED_PYROGENS`
+    snapshot of that name (rules in :func:`_matches_superseded`); every other
+    key of the block -- the chamber sizing in particular -- is left untouched.
+    Customised materials never match, so user edits are safe; the call is
+    idempotent (current library entries are not superseded snapshots)."""
+    new_block = copy.deepcopy(block)
+    if not isinstance(new_block, dict):
+        return new_block, False
+    material = new_block.get('pyrogen')
+    if not isinstance(material, dict) or not isinstance(material.get('name'), str):
+        return new_block, False
+    key = material['name'].lower()
+    for legacy_name, snapshots in SUPERSEDED_PYROGENS.items():
+        if legacy_name.lower() != key:
+            continue
+        if not any(_matches_superseded(material, s) for s in snapshots):
+            continue
+        current = next((m for m in library_materials()
+                        if m['name'].lower() == key), None)
+        if current is None:        # no current entry to upgrade to
+            return new_block, False
+        new_block['pyrogen'] = current
+        return new_block, True
+    return new_block, False
+
+
 def default_igniter_block(pyrogen_name='bpnv'):
     """A default ``data.igniter`` block: the named built-in pyrogen material
     + auto chamber sizing (forward_plenum). Used by the migration to make
@@ -698,12 +801,24 @@ def load_igniter(motor):
     directly onto :func:`build_pyrogen_chamber` (``-1.0`` mass/throat/volume/
     burn_area sentinels become None = auto).
 
-    The embedded material is authoritative and is never modified. If it
-    differs from the library entry of the same name, a single
+    An embedded material that is an exact superseded library snapshot (see
+    :func:`upgrade_igniter_block`) is replaced by the current library entry,
+    with one :class:`IgniterMaterialUpgradedWarning`; the motor dict itself is
+    not modified. Any other embedded material is authoritative and never
+    modified: if it differs from the library entry of the same name, a single
     :class:`StaleIgniterMaterialWarning` lists the differing fields."""
     ig = motor.get('igniter')
     if ig is None:
         return None
+    ig, upgraded = upgrade_igniter_block(ig)
+    if upgraded:
+        name = ig['pyrogen']['name']
+        warnings.warn(
+            f"The motor's embedded igniter material '{name}' was a superseded "
+            "library snapshot (an exact match of the pre-correction library "
+            "values); the current library values are used instead. Re-saving "
+            "the motor persists the upgrade.",
+            IgniterMaterialUpgradedWarning, stacklevel=2)
     pyro = _block_to_pyrogen(ig['pyrogen'])
     _warn_if_stale_igniter_material(pyro)
 

@@ -138,6 +138,8 @@ try:
         build_transport_library,
         load_igniter,
         default_igniter_block,
+        library_materials,
+        upgrade_igniter_block,
         build_pyrogen_chamber,
     )
 except ImportError:
