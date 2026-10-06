@@ -6,7 +6,7 @@ Run (all three env vars from docs/igniter_provider/TASKS.md exported):
 Starts the real openMotor App (as main.py does, without entering the event
 loop) with ``platformdirs`` pointed at a temp dir (the user's real config/log
 dirs are never touched), loads a temp copy of the COMMITTED
-motors/machbusterNew.ric (legacy BPNV igniter), drives the motor-config editor
+motors/machbusterNew.ric with the legacy BPNV igniter restored, drives the motor-config editor
 widgets, saves to a temp file and reloads it.
 """
 import copy
@@ -65,12 +65,20 @@ def diff_paths(a, b, path=''):
     return out
 
 
+# The committed file has since been refreshed (I3), so rebuild the legacy state:
+# take the committed motors/machbusterNew.ric and put the pre-bfc2f3f BPNV
+# snapshot back into its igniter block (what every pre-fix GUI-saved file holds).
 src = subprocess.run(
     ['git', '-C', ROOT, 'show', 'HEAD:motors/machbusterNew.ric'],
     capture_output=True, check=True).stdout
 ric = os.path.join(TMP, 'machbusterNew.ric')
 with open(ric, 'wb') as f:
     f.write(src)
+from srm_1d.openmotor_adapter import SUPERSEDED_PYROGENS  # noqa: E402
+import uilib.fileIO as _fio  # noqa: E402
+_data = _fio.loadFile(ric, _fio.fileTypes.MOTOR)
+_data['igniter']['pyrogen'] = copy.deepcopy(SUPERSEDED_PYROGENS['BPNV'][0])
+_fio.saveFile(ric, _data, _fio.fileTypes.MOTOR)
 
 app = App(sys.argv)
 # Modal dialogs would block an offscreen run forever: never show them.

@@ -236,3 +236,42 @@ the same content as the requested `HEAD~`):
 
 All 21 committed files now load silently through `load_igniter` (no stale /
 upgraded warning).
+
+## I4 — stale GUI solver-config defaults (spec cherry-picked as `02e72f4`)
+
+srm_1d (commit after `a8efc19`): `_transient_config_schema` seeds are derived
+from `inspect.signature(run_simulation)` (`_solver_config_defaults`; roughness
+m→µm via `round(x*1e6, 9)`): t_max 10, P_cutoff 5e5, cfl 0.3, roughness 32 µm,
+kappa 0.44, T_ignition 756. `SUPERSEDED_SOLVER_CONFIG = {roughness:[50.0],
+kappa:[0.45], T_ignition:[850.0]}`; `upgrade_solver_config(values) ->
+(new_values, upgraded_keys)` (pure, idempotent, rel tol 1e-9) and the plugin
+hook. `tests/test_solver_config_upgrade.py` (5 tests): schema defaults ==
+`run_simulation` defaults for every key; superseded ≠ current; the user's saved
+config (copied into the test) upgrades exactly roughness/kappa/T_ignition and
+keeps P_cutoff 344750; customised (roughness 40) untouched; idempotent / noise /
+empty. `tests/test_srm1d_plugin.py::test_solver_config_schema` asserted the stale
+kappa 0.45 / roughness 50 → updated to 0.44 / 32 (deviation: it encoded the bug).
+
+Fork (`d7ece77`): generic `SolverPlugin.upgrade_solver_config` (default
+passthrough) + `solvers.upgrade_solver_configs(configs)`; applied in
+`PreferencesManager.loadPreferences` (upgraded keys logged; preferences saved if
+changed) and `Motor.applyDict` (per-motor `solverConfigs`; logged via `logging`).
+`app.py` now discovers plugins BEFORE the `PreferencesManager` (it was after).
+Fork tests +4 (`test/unit/igniter.py`): base passthrough; helper (not mutated,
+unknown solver / non-dict pass through); `Motor.applyDict` upgrades per-motor
+config, customised kept; preferences load with a temp config dir applies the hook
+and saves (reloaded file holds the upgraded values). Fork suite **90 OK, 0 skipped**
+(72 + 14 + 4).
+
+Smoke: the committed `machbusterNew.ric` is now refreshed, so the smoke restores
+the legacy BPNV snapshot into a temp copy of it first; 21 PASS, still green after
+the `app.py` reorder.
+
+Gates: B0 PASS; srm_1d suite **655 passed, 0 failed** (643 + 7 refresh-tool + 5
+config-upgrade), 441 s; fork 90 OK. No pre-existing test moved except the one
+schema-default assertion above.
+
+Open: a user who deliberately types exactly 50 µm / 0.45 / 850 K in the dialog is
+indistinguishable from the stale default and is upgraded on the next load (inherent
+to exact-match upgrade, as for materials). The user's saved preferences file is
+upgraded on their next GUI start with the new fork.
