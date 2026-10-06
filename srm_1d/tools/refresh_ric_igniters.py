@@ -10,8 +10,12 @@ library snapshots, DESIGN D5) -> ``Motor.getDict`` -> ``uilib.fileIO.saveFile``.
 
 Safety check (per file, BEFORE saving): the parsed data before and after the
 round trip are compared and every changed key path is printed. Permitted:
-the ``igniter.pyrogen`` material (only when it was actually upgraded) and the
-keys openMotor's save normally adds (``ADDED_BY_OPENMOTOR``). ANY other
+the ``igniter.pyrogen`` material (only when it was actually upgraded), the
+keys openMotor's save normally adds (``ADDED_BY_OPENMOTOR``), and an ADDED
+``/config/<key>`` whose value equals the fork's ``MotorConfig`` default for that
+key (``MotorConfig`` fills absent keys with its defaults on load, and srm_1d
+reads only ``ambPressure`` from a motor's config, so this is pure
+normalisation; the default is read from the fork, never hardcoded). ANY other
 added / removed / changed key means the round trip is lossy for that file: it
 is NOT saved and the run exits non-zero.
 
@@ -62,7 +66,19 @@ def diff_paths(a, b, path=''):
     return out
 
 
-def _is_permitted(path, kind, material_upgraded):
+def motor_config_defaults(motormod):
+    """``{key: default}`` of the fork's ``MotorConfig`` (read, not hardcoded)."""
+    return motormod.MotorConfig().getProperties()
+
+
+def _is_permitted(path, kind, material_upgraded, after=None, config_defaults=None):
+    """``after`` = the parsed post-round-trip data (to read an added value)."""
+    parts = path.split('/')
+    if (kind == 'added' and len(parts) == 3 and parts[1] == 'config'
+            and config_defaults is not None and after is not None
+            and parts[2] in config_defaults
+            and after.get('config', {}).get(parts[2]) == config_defaults[parts[2]]):
+        return True
     if path == '/igniter/pyrogen' or path.startswith('/igniter/pyrogen/'):
         return material_upgraded
     return kind == 'added' and any(
@@ -113,7 +129,9 @@ def refresh(path, motormod, fileIO, dry_run=False):
     material = (ig_after or {}).get('name', '(no igniter)')
 
     diffs = diff_paths(before, after)
-    bad = [(p, k) for p, k in diffs if not _is_permitted(p, k, upgraded)]
+    cfg_defaults = motor_config_defaults(motormod)
+    bad = [(p, k) for p, k in diffs
+           if not _is_permitted(p, k, upgraded, after, cfg_defaults)]
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter('always')

@@ -202,3 +202,37 @@ files no longer emit stale-material warnings). No existing test's numbers moved.
    be upgraded + completed with MTV/MTV_fast/thermite on their next GUI start
    with the new fork.
 7. Not pushed; no stash used.
+
+## I3b — the three refused files (follow-up)
+
+`refresh_ric_igniters.py` permit rule extended: an ADDED `/config/<key>` is
+permitted iff its value equals the fork's `MotorConfig` default for that key
+(`motor_config_defaults()` reads `MotorConfig().getProperties()`; nothing
+hardcoded). Rationale: srm_1d reads only `ambPressure` from a motor's config
+and openMotor fills absent keys with those defaults on load, so this is pure
+normalisation. Any other added/removed/changed key is still a STOP. Test:
+`tests/test_refresh_ric_igniters.py` (7 tests: at-default permitted;
+non-default / changed / removed / unknown key / other section refused; old rules
+unchanged).
+
+Tool re-run on the three files (all `[ok]`, saved, RESULT OK):
+
+| file | material | upgraded | changed key paths |
+|---|---|---|---|
+| example_bates | BPNV | yes | added `config/{burnoutThrustThres, burnoutWebThres, flowSeparationWarnPercent, mapDim, maxMachNumber, maxMassFlux, maxPressure, minPortThroat, sepPressureRatio, taperSlices, timestep}` (all at MotorConfig defaults); `igniter/pyrogen/{M,T_flame,gamma}` changed, `+gas_mass_fraction`; added `solverConfigs` |
+| zerox | BPNV | yes | added `config/maxMachNumber`, `config/taperSlices`; pyrogen M/T_flame/gamma/+gas_mass_fraction; added `solverConfigs` |
+| zerox_LHS | BPNV | yes | same as zerox |
+
+Sim equivalence (`run_from_ric`, `pyrogen='bpnv', pyrogen_mass=None`, roughness
+32e-6, kappa 0.44, T_ignition 756, `t_max=0.05`; before = `git show
+HEAD:motors/<f>.ric` in scratch — the files were unmodified at HEAD, so this is
+the same content as the requested `HEAD~`):
+
+| file | steps before/after | time equal | max abs dP_head | peak MPa |
+|---|---|---|---|---|
+| example_bates | 57591 / 57591 | yes | 0.0 | 3.2566 |
+| zerox | 27723 / 27723 | yes | 0.0 | 7.7835 |
+| zerox_LHS | 27742 / 27742 | yes | 0.0 | 6.7610 |
+
+All 21 committed files now load silently through `load_igniter` (no stale /
+upgraded warning).
