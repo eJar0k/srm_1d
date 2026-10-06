@@ -420,6 +420,9 @@ def energy_momentum_timeseries(result: dict) -> dict[str, np.ndarray]:
         "nozzle_enthalpy_power",
         "thermal_source_power",
         "clipping_correction_power",
+        "convective_wall_sink_power",
+        "source_ledger_mismatch_W",
+        "nozzle_ledger_mismatch_W",
         "energy_residual",
         "pyrogen_momentum_expected",
         "pyrogen_momentum_deposited",
@@ -455,6 +458,20 @@ def step_diagnostics_timeseries(result: dict) -> dict[str, np.ndarray]:
         "max_mach",
         "pressure_floor_cells",
         "pressure_floor_mass",
+        "pressure_floor_energy",
+        "convective_wall_sink_power",
+        "source_ledger_mismatch_W",
+        "nozzle_ledger_mismatch_W",
+        "storage_jump_eos_J",
+        "storage_jump_floor_J",
+        "storage_jump_mixture_J",
+        "storage_jump_geometry_J",
+        "storage_jump_remainder_J",
+        "mass_jump_eos_kg",
+        "mass_jump_floor_kg",
+        "mass_jump_mixture_kg",
+        "mass_jump_geometry_kg",
+        "mass_jump_remainder_kg",
     )
     out = {"times_s": times}
     for key in keys:
@@ -463,6 +480,214 @@ def step_diagnostics_timeseries(result: dict) -> dict[str, np.ndarray]:
             values = np.zeros_like(times)
         out[key] = values
     return out
+
+
+# ---------------------------------------------------------------------------
+# Solver-verification T6: sensible-enthalpy energy audit
+# ---------------------------------------------------------------------------
+
+ENERGY_CONVENTION = "sensible_enthalpy_CpT"
+JUMP_CATEGORIES = ("eos", "floor", "mixture", "geometry", "remainder")
+AUDIT_PHASES = ("fill", "spike", "plateau")
+
+
+def _hist(result: dict, key: str, n: int) -> np.ndarray:
+    values = np.asarray(result.get(key, np.zeros(n)), dtype=float)
+    return values if values.size == n else np.zeros(n)
+
+
+def audit_phase_masks(result: dict, spike_half_window_s: float = 0.005,
+                      fill_fraction: float = 0.5) -> dict[str, Any]:
+    """Per-step phase masks: fill / spike / plateau (a partition).
+
+    fill    : t < first time P_head >= ``fill_fraction`` x the startup peak
+    spike   : |t - t_peak| <= ``spike_half_window_s`` and not fill
+    plateau : everything else.
+    The peak is the ``pressure_landmarks`` startup-window peak.
+    """
+    t = np.asarray(result.get("time", []), dtype=float)
+    p = np.asarray(result.get("P_head", []), dtype=float)
+    n = t.size
+    masks = {k: np.zeros(n, dtype=bool) for k in AUDIT_PHASES}
+    bounds = {"t_fill_end_s": float("nan"), "t_peak_s": float("nan"),
+              "p_peak_pa": float("nan")}
+    if n == 0:
+        return {"masks": masks, "bounds": bounds}
+    lm = pressure_landmarks(result)
+    t_peak, p_peak = lm["peak_time_s"], lm["peak_pressure_pa"]
+    idx = np.flatnonzero(p >= fill_fraction * p_peak)
+    t_fill_end = float(t[idx[0]]) if idx.size else float("nan")
+    fill = t < t_fill_end if np.isfinite(t_fill_end) else np.zeros(n, bool)
+    spike = (~fill) & (np.abs(t - t_peak) <= spike_half_window_s)
+    masks["fill"], masks["spike"] = fill, spike
+    masks["plateau"] = ~(fill | spike)
+    bounds = {"t_fill_end_s": t_fill_end, "t_peak_s": float(t_peak),
+              "p_peak_pa": float(p_peak)}
+    return {"masks": masks, "bounds": bounds}
+
+
+def _signed_stats(x: np.ndarray) -> dict[str, float]:
+    x = np.asarray(x, dtype=float)
+    if x.size == 0:
+        return {"max_abs_single": 0.0, "sum_abs": 0.0, "sum_signed": 0.0,
+                "n": 0}
+    return {"max_abs_single": float(np.max(np.abs(x))),
+            "sum_abs": float(np.sum(np.abs(x))),
+            "sum_signed": float(np.sum(x)), "n": int(x.size)}
+
+
+def _audit_block(h: dict[str, np.ndarray], mask: np.ndarray) -> dict[str, Any]:
+    """Statistics over the steps selected by ``mask`` (length-n bool)."""
+    n = mask.size
+    gap = mask.copy()
+    if n:
+        gap[-1] = False  # the last slot is an incomplete gap
+    dt = h["dt"]
+
+    def integ(key):
+        return float(np.sum(h[key][mask] * dt[mask]))
+
+    def mabs(key):
+        return float(np.max(np.abs(h[key][mask]))) if mask.any() else 0.0
+
+    out: dict[str, Any] = {"n_steps": int(mask.sum())}
+    out["energy_residual_max_abs_W"] = mabs("energy_residual")
+    out["energy_residual_rms_W"] = (
+        float(np.sqrt(np.mean(h["energy_residual"][mask] ** 2)))
+        if mask.any() else 0.0)
+    out["source_ledger_mismatch_max_abs_W"] = mabs("source_ledger_mismatch_W")
+    out["nozzle_ledger_mismatch_max_abs_W"] = mabs("nozzle_ledger_mismatch_W")
+    out["jumps_J"] = {c: _signed_stats(h[f"storage_jump_{c}_J"][gap])
+                      for c in JUMP_CATEGORIES}
+    out["jumps_J"]["total"] = _signed_stats(h["storage_jump_total_J"][gap])
+    out["jumps_kg"] = {c: _signed_stats(h[f"mass_jump_{c}_kg"][gap])
+                       for c in JUMP_CATEGORIES}
+    out["jumps_kg"]["total"] = _signed_stats(h["mass_jump_total_kg"][gap])
+
+    src_in = (integ("normal_sidewall_thermal_power")
+              + integ("erosive_sidewall_thermal_power")
+              + integ("endface_thermal_power")
+              + integ("pyrogen_enthalpy_power"))
+    conv = integ("convective_scalar_flux_power")
+    src_net = integ("thermal_source_power")
+    clip = integ("clipping_correction_power")
+    jumps = float(np.sum(h["storage_jump_total_J"][gap]))
+    delta = float(np.sum((h["gas_sensible_energy"]
+                          - h["gas_sensible_energy_before"])[mask]) + jumps)
+    closure = delta - (conv + src_net + clip + jumps)
+    closure_nojump = delta - (conv + src_net + clip)
+    denom = abs(src_in) if abs(src_in) > 0.0 else float("nan")
+    out["budget_J"] = {
+        "sources_in_gross": src_in,
+        "sources_net": src_net,
+        "wall_and_pyrogen_sinks": src_net - src_in,
+        "nozzle_out": integ("nozzle_scalar_flux_power"),
+        "convective_net_in": conv,
+        "clip": clip,
+        "floor": float(np.sum(h["storage_jump_floor_J"][gap])),
+        "eos": float(np.sum(h["storage_jump_eos_J"][gap])),
+        "mixture": float(np.sum(h["storage_jump_mixture_J"][gap])),
+        "geometry": float(np.sum(h["storage_jump_geometry_J"][gap])),
+        "remainder": float(np.sum(h["storage_jump_remainder_J"][gap])),
+        "jumps_total": jumps,
+        "delta_storage": delta,
+        "closure_error_with_jumps": closure,
+        "closure_error_without_jumps": closure_nojump,
+        "closure_error_with_jumps_frac_of_source": closure / denom,
+        "closure_error_without_jumps_frac_of_source": closure_nojump / denom,
+    }
+    return out
+
+
+def sensible_enthalpy_audit(result: dict, gamma: float | None = None,
+                            spike_half_window_s: float = 0.005,
+                            fill_fraction: float = 0.5) -> dict[str, Any]:
+    """Energy audit of the sensible-enthalpy (Cp*T) PISO ledger.
+
+    Whole-run and per-phase (fill / spike / plateau): ledger residual,
+    source- and nozzle-ledger mismatches, the between-step storage-jump
+    decomposition (EOS reconciliation, pressure floor, mixture refresh,
+    geometry refresh, remainder; J and kg) and the integrated run budget.
+    Jump slot n = gap between the end of step n and the start of step n+1's
+    PISO; the LAST slot is incomplete and excluded from all statistics.
+    Sign: jump = stored-after minus stored-before for that operation.
+    ``omitted_term_magnitude`` (needs snapshots) is included.
+    """
+    t = np.asarray(result.get("time", []), dtype=float)
+    n = t.size
+    keys = ("dt", "energy_residual", "source_ledger_mismatch_W",
+            "nozzle_ledger_mismatch_W", "normal_sidewall_thermal_power",
+            "erosive_sidewall_thermal_power", "endface_thermal_power",
+            "pyrogen_enthalpy_power", "convective_scalar_flux_power",
+            "thermal_source_power", "clipping_correction_power",
+            "nozzle_scalar_flux_power", "gas_sensible_energy",
+            "gas_sensible_energy_before", "storage_jump_total_J",
+            "mass_jump_total_kg") + tuple(
+        f"storage_jump_{c}_J" for c in JUMP_CATEGORIES) + tuple(
+        f"mass_jump_{c}_kg" for c in JUMP_CATEGORIES)
+    h = {k: _hist(result, k, n) for k in keys}
+    ph = audit_phase_masks(result, spike_half_window_s, fill_fraction)
+    summary = result.get("summary", {}) if hasattr(result, "get") else {}
+    return {
+        "convention": ENERGY_CONVENTION,
+        "omitted_terms": list(summary.get("energy_omitted_terms", [])),
+        "phase_bounds": ph["bounds"],
+        "run": _audit_block(h, np.ones(n, dtype=bool)),
+        "phases": {k: _audit_block(h, ph["masks"][k]) for k in AUDIT_PHASES},
+        "omitted_term_magnitude": omitted_term_magnitude(
+            result, gamma=gamma, spike_half_window_s=spike_half_window_s,
+            fill_fraction=fill_fraction),
+    }
+
+
+def omitted_term_magnitude(result: dict, gamma: float | None = None,
+                           spike_half_window_s: float = 0.005,
+                           fill_fraction: float = 0.5) -> dict[str, Any]:
+    """Kinetic/sensible-enthalpy ratio (u^2/2)/(Cp*T) = (gamma-1)/2 * M^2.
+
+    Per snapshot: bore max, mass-weighted mean (weight rho*D_port^2) and the
+    nozzle-inlet cell (N-1) value (= stagnation-vs-static enthalpy outflow
+    fraction). Approximation: ``gamma`` is the propellant species gamma
+    (``result['species_params'][1, 0]`` by default), not the local mixture
+    gamma (not stored in snapshots). Reported per phase.
+    """
+    snaps = result.get("snapshots", []) or []
+    if not snaps:
+        return {"gamma": gamma,
+                "phases": {k: {"n_snapshots": 0} for k in AUDIT_PHASES}}
+    if gamma is None:
+        sp = np.asarray(result.get("species_params", []), dtype=float)
+        gamma = float(sp[1, 0]) if sp.ndim == 2 and sp.shape[0] > 1 else 1.2
+    b = audit_phase_masks(result, spike_half_window_s, fill_fraction)["bounds"]
+    rows = []
+    for s in snaps:
+        ratio = 0.5 * (gamma - 1.0) * np.asarray(s["Mach"], dtype=float) ** 2
+        w = (np.asarray(s["rho"], dtype=float)
+             * np.asarray(s["D_port"], dtype=float) ** 2)
+        tt = float(s["t"])
+        if np.isfinite(b["t_fill_end_s"]) and tt < b["t_fill_end_s"]:
+            phase = "fill"
+        elif abs(tt - b["t_peak_s"]) <= spike_half_window_s:
+            phase = "spike"
+        else:
+            phase = "plateau"
+        rows.append((phase, float(np.max(ratio)),
+                     float(np.sum(w * ratio) / np.sum(w)) if np.sum(w) > 0 else 0.0,
+                     float(ratio[-1])))
+    out: dict[str, Any] = {}
+    for k in AUDIT_PHASES:
+        sel = [r for r in rows if r[0] == k]
+        if not sel:
+            out[k] = {"n_snapshots": 0}
+            continue
+        a = np.array([r[1:] for r in sel])
+        out[k] = {
+            "n_snapshots": len(sel),
+            "bore_max": {"max": float(a[:, 0].max()), "mean": float(a[:, 0].mean())},
+            "mass_weighted_mean": {"max": float(a[:, 1].max()), "mean": float(a[:, 1].mean())},
+            "nozzle_inlet": {"max": float(a[:, 2].max()), "mean": float(a[:, 2].mean())},
+        }
+    return {"gamma": float(gamma), "phases": out}
 
 
 def _time_integral(values: np.ndarray, dt: np.ndarray, mask: np.ndarray) -> float:

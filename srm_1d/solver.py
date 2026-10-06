@@ -380,6 +380,34 @@ def _piso_step_with_energy_diagnostics(
 
     The four ``floor_*`` values are ACCOUNTING ONLY -- the floor value and
     the clamp are unchanged.
+
+    Solver-verification T6 (energy audit) appends five more ACCOUNTING-ONLY
+    values (read-only on every state array; the trajectory is unchanged):
+
+    gas_mass_before : float
+        ``sum(rho * A_port * dx)`` of the incoming state [kg] (the mass
+        behind ``gas_energy_before``).
+    gas_mass_after : float
+        ``sum(max(rho_new_1 * A_port * dx, 1e-16))`` [kg]: the mass the
+        energy ledger closed on (behind ``gas_energy_after``).
+    eos_mass_jump : float
+        EOS reconciliation, mass [kg]: ``sum((P_raw/(R*T_new) - rho_new_1)
+        * A_port * dx)`` with ``P_raw`` the post-correction, pre-clamp
+        pressure. The ledger closes on the PISO intermediate density
+        ``rho_new_1 = P/(R*T_old)`` but the carried state is
+        ``rho = P/(R*T_new)``; this is the storage the carry adds BEFORE
+        the pressure floor (``floor_mass_added`` is the floor's share).
+    eos_energy_jump : float
+        ``eos_mass_jump`` weighted per cell by ``Cp_arr[i] * T_new[i]`` [J].
+    nozzle_mdot_piso : float
+        The signed nozzle mass flow the energy loop actually used [kg/s]
+        (evaluated from the PRE-clamp ``P_new`` and the START-of-step
+        ``T``), for comparison with the post-PISO reconstruction.
+
+    Identity (pinned by tests): ``gas_mass_after + eos_mass_jump +
+    floor_mass_added == sum(rho_new * A_port * dx)`` and the same for
+    energy with ``* Cp_arr * T_new`` -- i.e. ledger storage + EOS jump +
+    floor jump is exactly the carried storage.
     """
     # v0.7.1 Phase 3: nozzle boundary uses cell-N-1 mixture thermo
     gamma_bnd = gamma_arr[N - 1]
@@ -718,6 +746,36 @@ def _piso_step_with_energy_diagnostics(
     # "No clamp" min raw P is a large FINITE sentinel, not +inf: this
     # function is compiled with fastmath (nnan/ninf), under which an inf
     # operand in a comparison is undefined.
+    # Solver-verification T6: ACCOUNTING ONLY, read-only on every state array
+    # (placed before the clamp so P_new is still the raw post-correction
+    # pressure). Separate loop so the energy loop above is untouched.
+    #   gas_mass_before  = sum(rho A dx)            (mass behind gas_energy_before)
+    #   gas_mass_after   = sum(new_mass)            (mass behind gas_energy_after)
+    #   eos_*_jump       = carried-EOS storage minus ledger storage, BEFORE
+    #                      the floor:  m_eos = P_raw/(R T_new) A dx
+    #                      vs          new_mass = max(rho_new_1 A dx, 1e-16)
+    # The floor's own share (m_floor) is tallied separately by the T3 loop
+    # below, so  gas_mass_after + eos_mass_jump + floor_mass_added
+    # == sum(rho_new A dx)  (the carried mass) up to round-off.
+    gas_mass_before = 0.0
+    gas_mass_after = 0.0
+    eos_mass_jump = 0.0
+    eos_energy_jump = 0.0
+    for i in range(N):
+        old_mass_acct = rho[i] * A_port[i] * dx
+        new_mass_acct = max(rho_new_1[i] * A_port[i] * dx, 1e-16)
+        m_eos_acct = P_new[i] / (R_arr[i] * T_new[i]) * A_port[i] * dx
+        gas_mass_before += old_mass_acct
+        gas_mass_after += new_mass_acct
+        eos_mass_jump += m_eos_acct - new_mass_acct
+        eos_energy_jump += (m_eos_acct - new_mass_acct) * Cp_arr[i] * T_new[i]
+    # The nozzle mass flow the energy loop used (identical call/arguments to
+    # the i == N-1 branch there: pre-clamp P_new, start-of-step T).
+    nozzle_mdot_piso, _dmdp_acct, _Tup_acct, _state_acct = _nozzle_boundary_flow(
+        P_new[N - 1], T[N - 1], A_throat, gamma_bnd, R_bnd,
+        P_ambient, T_ambient,
+    )
+
     n_floor_cells = 0
     floor_mass_added = 0.0
     floor_energy_added = 0.0
@@ -753,7 +811,9 @@ def _piso_step_with_energy_diagnostics(
             thermal_source_power, clipping_correction_power,
             energy_residual,
             n_floor_cells, floor_mass_added, floor_energy_added,
-            floor_min_raw_P)
+            floor_min_raw_P,
+            gas_mass_before, gas_mass_after,
+            eos_mass_jump, eos_energy_jump, nozzle_mdot_piso)
 
 
 @njit(cache=True, fastmath=True)
@@ -775,7 +835,8 @@ def piso_step(
     ``_piso_step_with_energy_diagnostics``.
 
     Solver-verification T3: the diagnostics function's return tuple grew
-    four trailing pressure-floor counters; this wrapper still returns only
+    four trailing pressure-floor counters (and, from solver-verification T6,
+    five more energy-audit values); this wrapper still returns only
     ``(rho, u, P, T)`` (it slices ``out[0:4]``), so its contract is unchanged.
     """
     out = _piso_step_with_energy_diagnostics(

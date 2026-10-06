@@ -1485,3 +1485,36 @@ API notes:
   Artifacts: `artifacts/ISP_Super_Loki/2026-05-25T07-16-08*`
   (head_basket A/B/control), `artifacts/hasegawa_a_aft_basket/2026-05-25T07-19-25*`
   (aft_basket A/B/control).
+
+### Post-v0.8.1 — solver-verification T6 (energy audit)
+
+Bookkeeping only: no diagnostic writes simulation state (gate B0 + a byte-level
+trajectory A/B of every history array at 100/400/800 cells — see
+`docs/solver_verification/worklog/T6.md`).
+
+- **BREAK — PISO return tuple grew again (16 → 21).** Appended after the T3
+  floor values: `(gas_mass_before, gas_mass_after, eos_mass_jump,
+  eos_energy_jump, nozzle_mdot_piso)`. Identity: `gas_mass_after +
+  eos_mass_jump + floor_mass_added == Σ rho_new·A·dx` (same for energy with
+  `·Cp·T_new`).
+- **BREAK — `_goodman_ignition_sources_and_mass`** returns a 10th value
+  `convective_wall_sink_power` [W] (the v0.7.4 wall heat-loss sink, previously
+  folded into `thermal_source` with no history).
+- **BREAK — `_run_time_loop`** takes 11 more history arrays (after
+  `pressure_floor_mass_hist`); its return tuple is unchanged. New helper
+  `_gas_mass_energy`. Clear `srm_1d/__pycache__/` after upgrading.
+- **ADDITIVE — results:** `convective_wall_sink_power`, `pressure_floor_energy`,
+  `nozzle_enthalpy_power_post_piso`, `nozzle_massflow_piso`,
+  `source_ledger_mismatch_W`, `nozzle_ledger_mismatch_W`,
+  `nozzle_mass_mismatch_kg_s`, and the between-step storage-jump decomposition
+  `storage_jump_{eos,floor,mixture,geometry,remainder,total}_J` /
+  `mass_jump_{...}_kg`. Slot n = gap between the END of step n and the START
+  of step n+1's PISO; the last slot is incomplete (excluded by the audit).
+  Summary: `energy_convention`, `energy_omitted_terms`.
+- **ADDITIVE — tools:** `ignition_diagnostics.sensible_enthalpy_audit`,
+  `omitted_term_magnitude`, `audit_phase_masks`.
+- Always on (cost ≈ −1.5% steps/s on Chunc); no `energy_audit` kwarg.
+- Known, NOT fixed: with `radiation_emissivity > 0` the radiation sink on the
+  left neighbour of a heated cell is recorded but never debited from the gas
+  (ordering inside the Goodman loop); canonical runs use emissivity 0. Pinned by
+  an `xfail(strict=True)` test.

@@ -252,6 +252,23 @@ def _gas_sensible_energy(rho, T, A_port, dx, Cp_arr, N):
 
 
 @njit(cache=True, fastmath=True)
+def _gas_mass_energy(rho, T, A_port, dx, Cp_arr, N):
+    """Gas mass [kg] and sensible energy [J] of a state (energy audit, T6).
+
+    Read-only bookkeeping helper: ``(sum rho*A*dx, sum rho*A*dx*Cp*T)``.
+    Used to evaluate the storage before/after the operations that act on the
+    carried state between PISO steps (mixture refresh, geometry refresh).
+    """
+    mass = 0.0
+    energy = 0.0
+    for i in range(N):
+        m_i = rho[i] * A_port[i] * dx
+        mass += m_i
+        energy += m_i * Cp_arr[i] * T[i]
+    return mass, energy
+
+
+@njit(cache=True, fastmath=True)
 def _thermal_source_power(thermal_source, dx, N):
     """Sum solver enthalpy-source units to thermal power [W].
 
@@ -1076,6 +1093,10 @@ def _goodman_ignition_sources_and_mass(
     normal_sidewall_thermal_power = 0.0
     erosive_sidewall_thermal_power = 0.0
     endface_thermal_power = 0.0
+    # Solver-verification T6: power the v0.7.4 convective wall heat-loss sink
+    # removes from the gas [W] (sum of h_conv*dT*C_burn*dx). Previously folded
+    # into thermal_source with no history of its own.
+    convective_wall_sink_power = 0.0
     # v0.7.3 Phase B.2: a cell radiates meaningfully if EITHER its
     # propellant is burning (existing criterion) OR its bore gas is
     # majority-pyrogen species (new criterion). Pyrogen-hot cells with
@@ -1258,6 +1279,9 @@ def _goodman_ignition_sources_and_mass(
                 # handles this and the bore gas cools correctly.
                 if h_conv > 0.0 and dT_conv > 0.0 and C_burn[i] > 0.0:
                     thermal_source[i] -= h_conv * dT_conv * C_burn[i]
+                    convective_wall_sink_power += (
+                        h_conv * dT_conv * C_burn[i] * dx
+                    )
 
                 if _surface_has_ignited(T_surf[i], T_ignition):
                     has_ignited[i] = True
@@ -1310,7 +1334,7 @@ def _goodman_ignition_sources_and_mass(
             pyrogen_surface_heat_power, radiation_heat_power,
             radiation_sink_total_power,
             normal_sidewall_thermal_power, erosive_sidewall_thermal_power,
-            endface_thermal_power)
+            endface_thermal_power, convective_wall_sink_power)
 
 
 # ================================================================
@@ -1385,6 +1409,12 @@ def _run_time_loop(
     min_surface_temperature_hist, max_surface_temperature_hist,
     min_pressure_hist, max_pressure_hist, max_mach_hist,
     pressure_floor_cells_hist, pressure_floor_mass_hist,
+    # --- T6 energy audit (accounting only) ---
+    pressure_floor_energy_hist, convective_wall_sink_power_hist,
+    nozzle_enthalpy_power_post_hist, nozzle_massflow_piso_hist,
+    jump_eos_J_hist, jump_mixture_J_hist, jump_geometry_J_hist,
+    jump_eos_kg_hist, jump_mixture_kg_hist, jump_geometry_kg_hist,
+    jump_total_kg_hist,
     max_hist,
     # --- Output: snapshots (pre-allocated) ---
     snap_data, snap_times, max_snaps,
@@ -1500,6 +1530,10 @@ def _run_time_loop(
     t_last_geometry_refresh = 0.0
     max_burn_refresh_gap = 0.0
     max_geometry_refresh_gap = 0.0
+    # Energy audit (solver-verification T6): ledger storage at the END of the
+    # previous step, to difference against this step's pre-PISO storage.
+    prev_gas_energy_after = 0.0
+    prev_gas_mass_after = 0.0
     first_bt_time = -1.0
     last_snapshot_t = -snapshot_interval
     termination_code = 0
@@ -1671,11 +1705,19 @@ def _run_time_loop(
             cell_wall_web, cell_segment_id,
         )
 
+        # T6 energy audit (bookkeeping only): the storage change the geometry
+        # refresh (A_port) makes to the carried state, evaluated as sum
+        # before/after. Zero on steps where no refresh runs.
+        geo_dM = 0.0
+        geo_dE = 0.0
         if step % geometry_update_interval == 0:
             gap_geometry = t - t_last_geometry_refresh
             if gap_geometry > max_geometry_refresh_gap:
                 max_geometry_refresh_gap = gap_geometry
             t_last_geometry_refresh = t
+            geo_mass_pre, geo_energy_pre = _gas_mass_energy(
+                rho, T, A_port, dx, Cp_mix_arr, N,
+            )
             update_cell_geometry(
                 regress, D_port, x_centers, dx, N, N_seg, cell_D_outer,
                 seg_x_start, seg_length,
@@ -1689,6 +1731,11 @@ def _run_time_loop(
                 cell_segment_type, cell_fmm_idx,
                 fmm_offset, fmm_reg_flat, fmm_perim_flat, fmm_port_flat,
             )
+            geo_mass_post, geo_energy_post = _gas_mass_energy(
+                rho, T, A_port, dx, Cp_mix_arr, N,
+            )
+            geo_dM = geo_mass_post - geo_mass_pre
+            geo_dE = geo_energy_post - geo_energy_pre
             if diagnostic_disable_endfaces:
                 for i in range(N):
                     endface_msource[i] = 0.0
@@ -1887,7 +1934,8 @@ def _run_time_loop(
          pyrogen_surface_heat_power, radiation_heat_power,
          radiation_sink_total_power,
          normal_sidewall_thermal_power, erosive_sidewall_thermal_power,
-         endface_thermal_power) = _goodman_ignition_sources_and_mass(
+         endface_thermal_power,
+         convective_wall_sink_power) = _goodman_ignition_sources_and_mass(
             P, T, T_surf, delta, has_ignited, is_burning, is_grain,
             ignition_time, r_total, r_erosive,
             mass_source, thermal_source,
@@ -2034,13 +2082,28 @@ def _run_time_loop(
          thermal_power_before_piso, clipping_correction_power,
          energy_residual,
          n_floor_cells, floor_mass_added, floor_energy_added,
-         floor_min_raw_P) = _piso_step_with_energy_diagnostics(
+         floor_min_raw_P,
+         gas_mass_before, gas_mass_after,
+         eos_mass_jump, eos_energy_jump,
+         nozzle_mdot_piso) = _piso_step_with_energy_diagnostics(
             rho, u, P, T, A_port, D_hyd,
             mass_source, thermal_source, momentum_source, f_darcy,
             dx, dt, gamma_mix_arr, R_mix_arr, Cp_mix_arr, T_ceiling_arr,
             A_throat, P_ambient, ambient_temperature, N,
             port_mach_cap,
         )
+
+        # T6 energy audit (bookkeeping only): the gap between the END of the
+        # previous step (ledger storage) and the START of this step's PISO is
+        # complete only now, so its geometry part and total mass jump are
+        # written back into the PREVIOUS step's history slot. The last step of
+        # a run therefore keeps 0.0 here (no following step; see the audit).
+        if hist_idx > 0:
+            jump_geometry_J_hist[hist_idx - 1] = geo_dE
+            jump_geometry_kg_hist[hist_idx - 1] = geo_dM
+            jump_total_kg_hist[hist_idx - 1] = gas_mass_before - prev_gas_mass_after
+        prev_gas_energy_after = gas_energy_after
+        prev_gas_mass_after = gas_mass_after
 
         # ============================================
         # STEP 5: POST-PISO
@@ -2061,10 +2124,20 @@ def _run_time_loop(
             P_ambient, ambient_temperature,
         )
         total_mass_nozzle += nozzle_mdot * dt
+        # T6: post-PISO nozzle enthalpy power (final P, final T) for the
+        # PISO-vs-reconstruction nozzle ledger comparison.
+        nozzle_enthalpy_power_post = (
+            nozzle_mdot * Cp_mix_arr[N - 1] * nozzle_upstream_T
+        )
 
         # v0.7.1: species advection using post-PISO (u, rho) and the
         # pre-PISO rho snapshot. mass_source_by_species was populated
         # earlier (pyrogen at cell 0, propellant grain at active cells).
+        # T6 energy audit (bookkeeping only): storage before/after the
+        # mixture refresh (Cp changes at fixed rho, T, A_port).
+        mix_mass_pre, mix_energy_pre = _gas_mass_energy(
+            rho, T, A_port, dx, Cp_mix_arr, N,
+        )
         _advect_species(
             Y_species, rho_pre_step, rho, u, A_port,
             nozzle_mdot, dx, dt,
@@ -2078,6 +2151,9 @@ def _run_time_loop(
         _refresh_mixture_arrays(
             Y_species, species_params_arr,
             gamma_mix_arr, Cp_mix_arr, R_mix_arr, M_mix_arr, N,
+        )
+        mix_mass_post, mix_energy_post = _gas_mass_energy(
+            rho, T, A_port, dx, Cp_mix_arr, N,
         )
         _compute_T_ceiling_arr(
             Y_species, species_params_arr, T_ceiling_arr, N, T_initial_gas,
@@ -2180,6 +2256,20 @@ def _run_time_loop(
         max_mach_hist[hist_idx] = max_mach_abs
         pressure_floor_cells_hist[hist_idx] = n_floor_cells
         pressure_floor_mass_hist[hist_idx] = floor_mass_added
+        # T6 energy audit histories. Jump slot n = the gap between the end of
+        # step n and the start of step n+1's PISO; the geometry part and the
+        # total mass jump are filled in by step n+1 (0.0 until then).
+        pressure_floor_energy_hist[hist_idx] = floor_energy_added
+        convective_wall_sink_power_hist[hist_idx] = convective_wall_sink_power
+        nozzle_enthalpy_power_post_hist[hist_idx] = nozzle_enthalpy_power_post
+        nozzle_massflow_piso_hist[hist_idx] = nozzle_mdot_piso
+        jump_eos_J_hist[hist_idx] = eos_energy_jump
+        jump_mixture_J_hist[hist_idx] = mix_energy_post - mix_energy_pre
+        jump_geometry_J_hist[hist_idx] = 0.0
+        jump_eos_kg_hist[hist_idx] = eos_mass_jump
+        jump_mixture_kg_hist[hist_idx] = mix_mass_post - mix_mass_pre
+        jump_geometry_kg_hist[hist_idx] = 0.0
+        jump_total_kg_hist[hist_idx] = 0.0
         if n_floor_cells > 0:
             floor_energy_total += floor_energy_added
             if floor_min_raw_P < floor_min_raw_P_global:
@@ -2793,6 +2883,20 @@ def run_simulation(
     # cells clamped to the 1 kPa floor and the gas mass [kg] the clamp added.
     pressure_floor_cells_hist = np.empty(max_hist)
     pressure_floor_mass_hist = np.empty(max_hist)
+    # Energy audit (solver-verification T6): per-step ledger completeness
+    # histories and the between-step storage-jump decomposition. See
+    # tools/ignition_diagnostics.sensible_enthalpy_audit.
+    pressure_floor_energy_hist = np.empty(max_hist)
+    convective_wall_sink_power_hist = np.empty(max_hist)
+    nozzle_enthalpy_power_post_hist = np.empty(max_hist)
+    nozzle_massflow_piso_hist = np.empty(max_hist)
+    jump_eos_J_hist = np.empty(max_hist)
+    jump_mixture_J_hist = np.empty(max_hist)
+    jump_geometry_J_hist = np.empty(max_hist)
+    jump_eos_kg_hist = np.empty(max_hist)
+    jump_mixture_kg_hist = np.empty(max_hist)
+    jump_geometry_kg_hist = np.empty(max_hist)
+    jump_total_kg_hist = np.empty(max_hist)
 
     # Pre-allocate snapshot storage
     max_snaps = int(t_max / snapshot_interval) + 10
@@ -2914,6 +3018,11 @@ def run_simulation(
         min_surface_temperature_hist, max_surface_temperature_hist,
         min_pressure_hist, max_pressure_hist, max_mach_hist,
         pressure_floor_cells_hist, pressure_floor_mass_hist,
+        pressure_floor_energy_hist, convective_wall_sink_power_hist,
+        nozzle_enthalpy_power_post_hist, nozzle_massflow_piso_hist,
+        jump_eos_J_hist, jump_mixture_J_hist, jump_geometry_J_hist,
+        jump_eos_kg_hist, jump_mixture_kg_hist, jump_geometry_kg_hist,
+        jump_total_kg_hist,
         max_hist,
         # Output: snapshots
         snap_data, snap_times, max_snaps,
@@ -2992,6 +3101,63 @@ def run_simulation(
     max_mach_arr = max_mach_hist[:n_steps].copy()
     pressure_floor_cells_arr = pressure_floor_cells_hist[:n_steps].copy()
     pressure_floor_mass_arr = pressure_floor_mass_hist[:n_steps].copy()
+
+    # ---- Energy audit (solver-verification T6): trim + derived ledgers ----
+    pressure_floor_energy_arr = pressure_floor_energy_hist[:n_steps].copy()
+    convective_wall_sink_power_arr = convective_wall_sink_power_hist[:n_steps].copy()
+    nozzle_enthalpy_power_post_arr = nozzle_enthalpy_power_post_hist[:n_steps].copy()
+    nozzle_massflow_piso_arr = nozzle_massflow_piso_hist[:n_steps].copy()
+    jump_eos_J_arr = jump_eos_J_hist[:n_steps].copy()
+    jump_mixture_J_arr = jump_mixture_J_hist[:n_steps].copy()
+    jump_geometry_J_arr = jump_geometry_J_hist[:n_steps].copy()
+    jump_eos_kg_arr = jump_eos_kg_hist[:n_steps].copy()
+    jump_mixture_kg_arr = jump_mixture_kg_hist[:n_steps].copy()
+    jump_geometry_kg_arr = jump_geometry_kg_hist[:n_steps].copy()
+    jump_total_kg_arr = jump_total_kg_hist[:n_steps].copy()
+
+    # Source ledger: sum of the per-channel thermal-source powers vs the
+    # PISO's own sum(thermal_source * dx) [W]. Positive channels inject,
+    # negative channels (radiation sink, pyrogen surface sink, convective
+    # wall sink) are debited from the gas.
+    source_ledger_mismatch_arr = (
+        normal_sidewall_thermal_power_arr
+        + erosive_sidewall_thermal_power_arr
+        + endface_thermal_power_arr
+        + pyrogen_enthalpy_power_arr
+        - radiation_sink_power_arr
+        - gas_surface_heat_sink_power_arr
+        - convective_wall_sink_power_arr
+        - thermal_source_power_arr
+    )
+    # Nozzle ledger: the PISO's explicit nozzle enthalpy outflow (start-of-step
+    # T, pre-clamp P) minus the post-PISO reconstruction (final P, final T).
+    nozzle_ledger_mismatch_arr = (
+        nozzle_enthalpy_power_arr - nozzle_enthalpy_power_post_arr
+    )
+    nozzle_mass_mismatch_arr = nozzle_massflow_piso_arr - massflow_arr
+
+    # Between-step storage jumps. Slot n = gap between the END of step n
+    # (ledger storage) and the START of step n+1's PISO. The last slot has no
+    # following step: its total/geometry/remainder are 0 and the audit
+    # excludes it from every statistic. J jumps: the total comes straight
+    # from the two stored ledger energies, so the remainder is an independent
+    # check that the four named operations are exhaustive.
+    jump_total_J_arr = np.zeros(n_steps)
+    if n_steps > 1:
+        jump_total_J_arr[:-1] = (
+            gas_sensible_energy_before_arr[1:] - gas_sensible_energy_arr[:-1]
+        )
+    jump_remainder_J_arr = jump_total_J_arr - (
+        jump_eos_J_arr + pressure_floor_energy_arr
+        + jump_mixture_J_arr + jump_geometry_J_arr
+    )
+    jump_remainder_kg_arr = jump_total_kg_arr - (
+        jump_eos_kg_arr + pressure_floor_mass_arr
+        + jump_mixture_kg_arr + jump_geometry_kg_arr
+    )
+    if n_steps > 0:
+        jump_remainder_J_arr[-1] = 0.0
+        jump_remainder_kg_arr[-1] = 0.0
 
     # Pressure-floor accounting summary (solver-verification T3). Times are
     # the per-step ``time`` history convention (step START time).
@@ -3170,6 +3336,18 @@ def run_simulation(
         'geometry_refresh_interval_steps': int(geometry_update_interval),
         'max_burn_refresh_gap_s': float(max_burn_refresh_gap),
         'max_geometry_refresh_gap_s': float(max_geometry_refresh_gap),
+        # Energy audit (solver-verification T6). The balance is a
+        # sensible-enthalpy (Cp*T) one, NOT total energy: see
+        # tools/ignition_diagnostics.sensible_enthalpy_audit for the ledger
+        # closure, the between-step storage-jump decomposition and the size
+        # of the omitted terms.
+        'energy_convention': 'sensible_enthalpy_CpT',
+        'energy_omitted_terms': [
+            'kinetic_energy', 'pressure_work',
+            'formation_energy_implicit_via_T_flame',
+            'solid_energy_storage',
+            'nozzle_kinetic_energy_static_outflow',
+        ],
     }
 
     # Per-grain summary from snapshots
@@ -3253,6 +3431,29 @@ def run_simulation(
         'max_mach': max_mach_arr,
         'pressure_floor_cells': pressure_floor_cells_arr,
         'pressure_floor_mass': pressure_floor_mass_arr,
+        # Energy audit (solver-verification T6). Slot n of the *_jump_*
+        # arrays = gap between the end of step n and the start of step n+1's
+        # PISO (J = sensible Cp*T energy, kg = gas mass); the last slot is
+        # incomplete and excluded by sensible_enthalpy_audit.
+        'pressure_floor_energy': pressure_floor_energy_arr,
+        'convective_wall_sink_power': convective_wall_sink_power_arr,
+        'nozzle_enthalpy_power_post_piso': nozzle_enthalpy_power_post_arr,
+        'nozzle_massflow_piso': nozzle_massflow_piso_arr,
+        'source_ledger_mismatch_W': source_ledger_mismatch_arr,
+        'nozzle_ledger_mismatch_W': nozzle_ledger_mismatch_arr,
+        'nozzle_mass_mismatch_kg_s': nozzle_mass_mismatch_arr,
+        'storage_jump_eos_J': jump_eos_J_arr,
+        'storage_jump_floor_J': pressure_floor_energy_arr,
+        'storage_jump_mixture_J': jump_mixture_J_arr,
+        'storage_jump_geometry_J': jump_geometry_J_arr,
+        'storage_jump_remainder_J': jump_remainder_J_arr,
+        'storage_jump_total_J': jump_total_J_arr,
+        'mass_jump_eos_kg': jump_eos_kg_arr,
+        'mass_jump_floor_kg': pressure_floor_mass_arr,
+        'mass_jump_mixture_kg': jump_mixture_kg_arr,
+        'mass_jump_geometry_kg': jump_geometry_kg_arr,
+        'mass_jump_remainder_kg': jump_remainder_kg_arr,
+        'mass_jump_total_kg': jump_total_kg_arr,
         'ignition_time_by_cell': ignition_time.copy(),
         # v0.8.x station-viz data contract: per-cell axial geometry so the
         # GUI station model + axial-payload builder work from `result`

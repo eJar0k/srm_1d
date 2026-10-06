@@ -62,7 +62,7 @@ class TestPressureFloorCounters:
         # 12 pre-T3 values (rho, u, P, T, 3 energy, 3 power, clip, residual)
         # + (n_floor_cells, floor_mass_added, floor_energy_added,
         #    floor_min_raw_P)
-        assert len(out) == 16
+        assert len(out) == 21
 
     def test_single_cell_clamp_is_counted_exactly(self):
         N = 1
