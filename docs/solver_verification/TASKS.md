@@ -421,6 +421,13 @@ B. Fill-Mach attribution: Chunc `t_max=0.05` at cells ∈ {50, 100, 200} ×
    (`pyrogen='mtv'`)}: fill Mach + peak. Compare with Codex (MTV
    0.448/0.498/0.479; current BPNV 1.987/2.200/2.311; legacy
    3.271/4.821/11.722) and §6 (3.36/4.81/12.04).
+   Reviewer data point (2026-10-05, plugin-path triage, 100 cells,
+   committed Chunc, canonical knobs): max of the `max_mach` history for
+   t ≤ 20 ms = 3.94 @ 2.48 ms with library BPNV and 4.81 @ 1.38 ms with the
+   embedded legacy BPNV, both near the aft end (x ≈ 817–833 mm) — well above
+   Codex's "current BPNV" 1.987/2.200/2.311. Find and state the reason for
+   the difference (metric definition? cell-centre vs face Mach? config?)
+   rather than assuming either is right.
    Lead from T1 (worklog/T1.md step 6b): Chunc with the embedded legacy
    igniter (`pyrogen=None`) peaks at 12.654 MPa @ 11.55 ms at 100 cells vs
    11.473 with library BPNV — §6 reports 12.64/12.65 MPa at 100 cells. Check
