@@ -311,6 +311,15 @@ in geometry/burn rate/ignition (called every step or every N steps).
 
 ## API Breaking Changes Log
 
+### Solver verification T9 (unreleased) -- left-neighbour radiation sink debited
+
+- **BEHAVIOUR FIX (radiation_emissivity > 0 only):** in `_goodman_ignition_sources_and_mass`
+  the radiation gas-energy sink on the LEFT neighbour (`radiation_sink_power[i-1]`)
+  was accumulated after cell i-1's in-loop `thermal_source` debit had run, so it was
+  recorded but never subtracted (energy leak; Chunc eps 0.05: 292 W source-ledger
+  mismatch vs 570 W sink). The debit is now a separate pass after the cell loop.
+  Canonical emissivity is 0 -> B0 unchanged. The T6 strict xfail is now a passing test.
+
 ### Plugin-provided igniter, I4 (unreleased) — stale GUI solver-config defaults
 
 `srm1d_plugin._transient_config_schema` seeded roughness 50 um / kappa 0.45 /

@@ -1325,10 +1325,17 @@ def _goodman_ignition_sources_and_mass(
             thermal_source[i] += endface_msource[i] * T_flame * Cp_propellant
             endface_thermal_power += endface_msource[i] * T_flame * Cp_propellant * dx
 
-        if radiation_sink_power[i] > 0.0 and dx > 0.0:
-            thermal_source[i] -= radiation_sink_power[i] / dx
-
         mass_sum += mass_source[i]
+
+    # Radiation gas-energy sink debit (solver-verification T9). Done AFTER
+    # the cell loop: the sink on the LEFT neighbour (radiation_sink_power
+    # [i-1] += ...) is accumulated while processing cell i, i.e. after cell
+    # i-1's iteration finished, so an in-loop debit never saw it (an energy
+    # leak: recorded, never subtracted). No-op when emissivity == 0.
+    if dx > 0.0:
+        for i in range(N):
+            if radiation_sink_power[i] > 0.0:
+                thermal_source[i] -= radiation_sink_power[i] / dx
 
     return (n_burning, n_ignited, mass_sum,
             pyrogen_surface_heat_power, radiation_heat_power,

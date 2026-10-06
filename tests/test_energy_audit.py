@@ -179,13 +179,7 @@ class TestOmittedTermSynthetic:
             0.1 * np.mean(mach ** 2))
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "FINDING (T6): with radiation_emissivity > 0 the sink on the LEFT "
-    "neighbour of a heated cell is accumulated into radiation_sink_power[i-1] "
-    "after that cell's thermal_source debit already ran in the same loop, so "
-    "it is recorded but never removed from the gas. Source ledger mismatch "
-    "~50% of the radiation sink. Zero in canonical runs (emissivity 0). Not "
-    "fixed here (physics change outside T6)."))
+# T9: the left-neighbour radiation sink is now debited (was a strict xfail, T6).
 def test_radiation_sink_is_fully_debited_from_gas():
     from srm_1d.openmotor_adapter import run_from_ric
     r = run_from_ric(
