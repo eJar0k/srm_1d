@@ -27,6 +27,7 @@ from srm_1d.tools.ignition_diagnostics import (
     collapse_event_trace,
     early_time_diagnostics,
     energy_momentum_timeseries,
+    ignition_refresh_delays,
     ignition_spread_metrics,
     pressure_landmarks,
     step_diagnostics_timeseries,
@@ -662,3 +663,34 @@ def test_disabling_momentum_removes_igniter_momentum_source():
     disabled_momentum = max(np.max(s["momentum_source"]) for s in disabled["snapshots"])
     assert baseline_momentum > 0.0
     assert disabled_momentum == pytest.approx(0.0)
+
+
+def test_ignition_refresh_delays_synthetic():
+    # step clock 1 ms; interval 4 -> refreshes at steps 4, 8, ...
+    time = np.arange(20) * 1.0e-3
+    res = {
+        "time": time,
+        "ignition_time_by_cell": np.array([0.0015, 0.005, 1.0e10]),
+        "summary": {"burn_refresh_interval_steps": 4},
+    }
+    out = ignition_refresh_delays(res)
+    # 1.5 ms -> step 2 -> refresh step 4 (4 ms): 2.5 ms
+    # 5 ms -> step 5 -> refresh step 8 (8 ms): 3 ms; third cell never ignited
+    assert out["n_ignitions"] == 2 and out["n_with_refresh"] == 2
+    np.testing.assert_allclose(out["delays_s"], [2.5e-3, 3.0e-3])
+    assert out["max_s"] == pytest.approx(3.0e-3)
+    assert out["median_s"] == pytest.approx(2.75e-3)
+    with pytest.raises(ValueError):
+        ignition_refresh_delays(res, interval=0)
+
+
+def test_ignition_refresh_delays_short_run():
+    result, _geo, _prop = _run_small(T_ignition=294.0, burn_update_interval=5)
+    out = ignition_refresh_delays(result)
+    assert out["interval"] == 5
+    assert out["n_ignitions"] > 0 and out["n_with_refresh"] > 0
+    t = np.asarray(result["time"])
+    # a delay can never exceed `interval` flow steps of simulated time
+    max_window = float(np.max(t[5:] - t[:-5]))
+    assert 0.0 <= out["max_s"] <= max_window
+    assert out["median_s"] <= out["max_s"]

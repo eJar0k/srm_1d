@@ -183,6 +183,46 @@ def pyrogen_landmarks(result: dict, peak_time_s: float | None = None) -> dict[st
     }
 
 
+def ignition_refresh_delays(result: dict, interval: int | None = None) -> dict[str, Any]:
+    """Per-ignition delay from the ignition event to the next burn-rate refresh.
+
+    Post-hoc, read-only. For every cell that ignited, the ignition step is the
+    first history index with ``time >= ignition_time`` and the next refresh is
+    the next multiple of ``interval`` (``burn_update_interval``, flow steps)
+    after it; the delay is ``time[next_refresh_step] - ignition_time``. This is
+    the statistic behind the "29.84 us" quoted by the Codex review (it is NOT
+    the max gap between consecutive refreshes, ``max_burn_refresh_gap_s``).
+    Uses the history ``time`` array as the step clock (history index == flow
+    step), so the value is accurate to within one flow step.
+
+    Returns ``{'delays_s', 'n_ignitions', 'n_with_refresh', 'max_s',
+    'median_s', 'interval'}``; max/median are NaN when no delay is observable.
+    """
+    if interval is None:
+        interval = int(result["summary"]["burn_refresh_interval_steps"])
+    interval = int(interval)
+    if interval < 1:
+        raise ValueError("interval must be >= 1")
+    time = np.asarray(result["time"], dtype=float)
+    ign = np.asarray(result["ignition_time_by_cell"], dtype=float)
+    finite = ign[np.isfinite(ign) & (ign < 1.0e9)]
+    delays = []
+    for t_ign in finite:
+        step = int(np.searchsorted(time, t_ign, side="left"))
+        nxt = (step // interval + 1) * interval
+        if nxt < len(time):
+            delays.append(max(0.0, float(time[nxt] - t_ign)))
+    d = np.asarray(delays, dtype=float)
+    return {
+        "delays_s": d,
+        "n_ignitions": int(finite.size),
+        "n_with_refresh": int(d.size),
+        "max_s": float(d.max()) if d.size else float("nan"),
+        "median_s": float(np.median(d)) if d.size else float("nan"),
+        "interval": interval,
+    }
+
+
 def ignition_spread_metrics(result: dict) -> dict[str, Any]:
     """Burning-fraction time history and inferred first-burning times."""
     snapshot_times = _snapshot_times(result)
