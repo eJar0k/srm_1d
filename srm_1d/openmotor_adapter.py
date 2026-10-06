@@ -29,7 +29,7 @@ Usage:
 
 Unit conversions from openMotor internal units:
     erosionCoeff: m/(s·Pa) → μm/(s·MPa)  (multiply by 1e12)
-    slagCoeff:    kept as-is, (m·MPa)/s — verify against openMotor source
+    slagCoeff:    (m·Pa)/s → (m·MPa)/s  (divide by 1e6)
     propellant.m: g/mol → kg/mol  (divide by 1000)
     propellant.a: m/s per Pa^n  (same as ours, no conversion)
 """
@@ -1142,13 +1142,15 @@ def convert_nozzle(ric_nozzle):
         convAngle     → conv_angle            (deg, same)
         throatLength  → throat_length         (m, same)
         erosionCoeff  → erosion_coeff         m/(s·Pa) → μm/(s·MPa) (×1e12)
-        slagCoeff     → slag_coeff            (m·MPa)/s, same convention
+        slagCoeff     → slag_coeff            (m·Pa)/s → (m·MPa)/s (÷1e6)
     """
     # openMotor stores erosionCoeff in m/(s·Pa); our convention: μm/(s·MPa).
     # 1 m/(s·Pa) = 1e12 μm/(s·MPa).
     erosion_ours = ric_nozzle.get('erosionCoeff', 0.0) * 1e12
-    # Slag matches the openMotor convention.
-    slag_ours = ric_nozzle.get('slagCoeff', 0.0)
+    # openMotor computes slag_rate = slagCoeff / pressure with pressure in Pa
+    # (motorlib/motor.py), so slagCoeff is (m*Pa)/s. srm_1d divides by
+    # pressure in MPa, so the coefficient must be divided by 1e6.
+    slag_ours = ric_nozzle.get('slagCoeff', 0.0) / 1e6
 
     return Nozzle(
         D_throat=ric_nozzle['throat'],
@@ -1667,5 +1669,5 @@ def print_ric_summary(filepath):
     if erosion > 0 or slag > 0:
         print(f"    erosion={erosion:.2e} m/(s·Pa) "
               f"[= {erosion*1e12:.1f} μm/(s·MPa)]  "
-              f"slag={slag:.2e} (m·MPa)/s")
+              f"slag={slag:.2e} (m·Pa)/s [= {slag/1e6:.2e} (m·MPa)/s]")
     print()

@@ -351,6 +351,22 @@ in geometry/burn rate/ignition (called every step or every N steps).
   mismatch vs 570 W sink). The debit is now a separate pass after the cell loop.
   Canonical emissivity is 0 -> B0 unchanged. The T6 strict xfail is now a passing test.
 
+### Slag coefficient unit conversion (unreleased) — `convert_nozzle` divides `slagCoeff` by 1e6
+
+openMotor stores `nozzle.slagCoeff` in (m*Pa)/s and computes
+`slagRate = slagCoeff / P[Pa]` (`motorlib/motor.py`). srm_1d's throat-evolution
+step divides by pressure in MPa (`slag_coeff / P_throat_MPa`), but the adapter
+passed the `.ric` value through unconverted, so any nonzero slag was **1e6x too
+fast**. `convert_nozzle` now converts (m*Pa)/s -> (m*MPa)/s (`/1e6`);
+`Nozzle.slag_coeff` stays in (m*MPa)/s (human-readable units kept internally).
+- **BEHAVIOUR FIX:** user `.ric` files with `slagCoeff > 0` now behave
+  correctly (previously 1e6x too fast). All 21 committed `motors/*.ric` have
+  `slagCoeff: 0.0`, so committed-motor results (B0) are unchanged. Direct
+  `Nozzle(slag_coeff=...)` callers are unaffected (already (m*MPa)/s).
+- Pinned by `tests/test_adapter.py::test_slag_unit_conversion` (srm_1d throat
+  slag rate == openMotor's formula at the same P). Found by the Codex review
+  (`docs/solver_verification/CODEX_REVIEW.md`, P0).
+
 ### Plugin-provided igniter, I4 (unreleased) — stale GUI solver-config defaults
 
 `srm1d_plugin._transient_config_schema` seeded roughness 50 um / kappa 0.45 /

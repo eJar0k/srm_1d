@@ -382,6 +382,28 @@ class TestNozzleConversion:
         noz = convert_nozzle(SAMPLE_RIC_NOZZLE)
         assert noz.slag_coeff == 0.0
 
+    def test_slag_unit_conversion(self):
+        """2e-3 (m*Pa)/s should become 2e-9 (m*MPa)/s, and srm_1d's
+        throat slag rate must equal openMotor's formula
+        slagRate = slagCoeff / P[Pa] (motorlib/motor.py) at the same P."""
+        from srm_1d.nozzle import compute_thrust_history
+        ric_nozzle = dict(SAMPLE_RIC_NOZZLE, slagCoeff=2e-3)
+        noz = convert_nozzle(ric_nozzle)
+        assert noz.slag_coeff == pytest.approx(2e-9)
+
+        # One forward-Euler step at constant P: dD = -2 * slag_rate * dt
+        P_Pa, dt = 5e6, 1e-3
+        t = np.array([0.0, dt])
+        P = np.array([P_Pa, P_Pa])
+        out = compute_thrust_history(
+            t, P, 2, 1.2, noz.D_throat, noz.D_exit, 0.0, noz.slag_coeff,
+            1.0, 0.95, 0.0, 1.0, 101325.0, 1500.0, 9.80665)
+        D_arr = out[4]
+        srm_rate = -(D_arr[1] - D_arr[0]) / (2.0 * dt)
+        om_rate = ric_nozzle['slagCoeff'] / P_Pa   # openMotor formula
+        assert om_rate == pytest.approx(4e-10)
+        assert srm_rate == pytest.approx(om_rate, rel=1e-9)
+
     def test_divergence_angle(self):
         noz = convert_nozzle(SAMPLE_RIC_NOZZLE)
         assert noz.div_angle == pytest.approx(15.0)

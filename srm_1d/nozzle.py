@@ -94,7 +94,7 @@ class Nozzle:
         aluminized propellant. Positive = throat grows.
     slag_coeff : float
         Slag (alumina deposition) coefficient [(m·MPa)/s].
-        (openMotor: 'slagCoeff', same units.)
+        (openMotor: 'slagCoeff' is in (m·Pa)/s; the adapter divides by 1e6.)
         Typical: 0 for non-aluminized propellant. Positive = throat shrinks.
     """
     D_throat: float
