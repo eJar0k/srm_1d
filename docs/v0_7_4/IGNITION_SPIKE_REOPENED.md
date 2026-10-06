@@ -377,6 +377,14 @@ pressure equation; (3) total-energy formulation; (4) the Lever B IMEX / density-
 based route, which removes the lag structurally. Diagnostics already in place:
 `storage_jump_eos_J` / `mass_jump_eos_kg` histories and
 `tools.ignition_diagnostics.sensible_enthalpy_audit()`.
+**Supporting evidence (T7, `docs/solver_verification/worklog/T7.md`):** the
+fill-phase quantities are NOT converged in time while the validation metrics
+are. Halving CFL (0.3 → 0.15) lowers max fill Mach by 14% (Chunc 3.94) / 3.5%
+(BALLSstick) / 13.5% (Hasegawa A) and raises the fill-phase minimum pressure by
++57% / +10% / +46%; every-step burn refresh moves them the same direction
+(−5.5% Mach, +14% min P on Chunc). Peak, plateau and startup ratios move
+≤ 0.35% throughout. A lag that shrinks with dt is the signature to expect from
+the energy–pressure coupling above.
 
 **Meta-caution (user, 2026-06-17):** treat every "eliminated" lever as eliminated
 IN ISOLATION only. Something is still missing; the per-cell ms snap-on is the most
