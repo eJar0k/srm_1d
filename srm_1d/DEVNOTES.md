@@ -317,6 +317,28 @@ in geometry/burn rate/ignition (called every step or every N steps).
 
 ## API Breaking Changes Log
 
+### History capacity fix (unreleased, 2026-10-06) -- `diagnostic_history_capacity` -> `history_capacity`
+
+Found during solver-verification T8: the per-step history arrays were sized
+from `t_max / (cfl * dx / 1000 m/s)`, below the ~1100-1200 m/s hot-gas sound
+speed, so fine-grid / low-CFL runs filled the history and stopped early
+(Chunc 806 cells @ CFL 0.15: "history array full" at t ~ 0.83 s). The 5M-row
+floor hid it at canonical grids (Chunc 0.3 s @ 100 cells: old estimate
+124,031 vs 170,292 actual steps).
+- **Estimate:** `_estimate_history_steps` uses the hottest species' sound
+  speed `sqrt(gamma * R_u / M * T_flame)` x 1.5 (flow-velocity margin), capped
+  by `dt_max`; the 5M floor stays. New summary key `history_estimated_steps`.
+  Memory is ~450 B per row (56 per-step arrays): a 1600-cell CFL-0.15 Chunc
+  run pre-allocates ~9 GB — run such cases one at a time.
+- **BREAK:** `run_simulation(diagnostic_history_capacity=...)` (could only
+  LOWER the capacity) is replaced by `history_capacity=...`, which sets it
+  exactly (raise or lower; positive int). `examples/ignition_spike_diagnostic.py`
+  flag renamed to `--history-capacity`.
+- A run that stops on "history array full" now emits a `RuntimeWarning` with
+  the time reached and a suggested `history_capacity`.
+- No change to equations or time stepping (B0 unchanged). Tests:
+  `tests/test_history_capacity.py`.
+
 ### Solver verification T10 (unreleased) -- regression mass source net of the gas filling the opened volume
 
 - **BEHAVIOUR CHANGE (all canonical results shift slightly):** the standard

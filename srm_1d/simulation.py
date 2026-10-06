@@ -2388,6 +2388,30 @@ def _run_time_loop(
 # Public API
 # ================================================================
 
+# History pre-allocation. The per-step history arrays are sized up front from
+# an estimated step count; a run that outgrows them stops early with
+# termination "history array full". The time loop's acoustic CFL step is
+# dt = cfl * dx / max(|u| + a), so the estimate bounds the wave speed by the
+# hottest species' sound speed times a margin for the flow velocity (plateau
+# port Mach ~0.3-0.4; the supersonic ignition fill lasts a few ms and adds few
+# steps). The former fixed 1000 m/s under-estimated hot-gas sound speed
+# (~1100-1200 m/s) and truncated fine-grid runs at t ~ 0.83 * t_max
+# (solver-verification T8, 2026-10-06).
+_HISTORY_WAVE_SPEED_MARGIN = 1.5
+
+
+def _estimate_history_steps(t_max, cfl_target, dx, dt_max, species_params_arr):
+    """Estimated flow-step count for a run (history pre-allocation only)."""
+    a_hot = 0.0
+    for s in range(species_params_arr.shape[0]):
+        gamma, _cp, molar_mass, T_flame = species_params_arr[s]
+        a_hot = max(a_hot, (gamma * R_UNIVERSAL / molar_mass * T_flame) ** 0.5)
+    dt_est = cfl_target * dx / (_HISTORY_WAVE_SPEED_MARGIN * a_hot)
+    if dt_max > 0.0:
+        dt_est = min(dt_est, dt_max)
+    return int(t_max / max(dt_est, 1e-12)) + 1000
+
+
 def run_simulation(
     geo,
     propellant,
@@ -2456,7 +2480,7 @@ def run_simulation(
     diagnostic_disable_pyrogen_surface_heating=False,
     diagnostic_disable_adjacent_radiation=False,
     diagnostic_disable_radiation_gas_sink=False,
-    diagnostic_history_capacity=None,
+    history_capacity=None,
     igniter_axial_momentum_fraction=1.0,
     # --- Termination ---
     t_max=10.0,
@@ -2552,11 +2576,14 @@ def run_simulation(
     diagnostic_disable_radiation_gas_sink : bool
         If True, keep adjacent-radiation Goodman receiver heating but do
         not debit the emitting gas cell. Diagnostic isolation only.
-    diagnostic_history_capacity : int or None
-        Optional diagnostic-only cap for preallocated history rows. This
-        does not change equations or time stepping; it only allows probe
-        runs to terminate earlier through the normal "history array full"
-        path.
+    history_capacity : int or None
+        Number of preallocated per-step history rows. ``None`` (default)
+        sizes them from the hottest species' sound speed (see
+        ``_estimate_history_steps``), with a 5,000,000-row floor. An integer
+        sets the capacity exactly — raise it for very fine grids / low CFL /
+        long runs, or lower it to make a probe stop early. It never changes
+        the equations or the time stepping; a run that fills its history
+        stops with termination "history array full" and a warning.
     igniter_axial_momentum_fraction : float
         Fraction of pyrogen orifice momentum projected downstream into
         the bore. Default 1.0 represents a head-end axial jet.
@@ -2878,14 +2905,15 @@ def run_simulation(
     )
 
     # Pre-allocate output arrays
-    # Conservative estimate: dt_min ~ cfl * dx / 1000 m/s
-    est_steps = int(t_max / max(cfl_target * dx / 1000.0, 1e-8)) + 1000
+    est_steps = _estimate_history_steps(
+        t_max, cfl_target, dx, dt_max, species_params_arr)
     max_hist = max(est_steps, 5_000_000)
-    if diagnostic_history_capacity is not None:
-        diagnostic_history_capacity = int(diagnostic_history_capacity)
-        if diagnostic_history_capacity < 1:
-            raise ValueError("diagnostic_history_capacity must be positive")
-        max_hist = min(max_hist, diagnostic_history_capacity)
+    if history_capacity is not None:
+        if int(history_capacity) != history_capacity or history_capacity < 1:
+            raise ValueError(
+                "history_capacity must be None or a positive integer; "
+                f"got {history_capacity!r}")
+        max_hist = int(history_capacity)
     time_hist = np.empty(max_hist)
     P_head_hist = np.empty(max_hist)
     P_exit_hist = np.empty(max_hist)
@@ -3277,6 +3305,16 @@ def run_simulation(
         4: "numerical collapse aborted", 5: "canceled by user",
     }
     term_str = termination_names.get(termination_code, "unknown")
+    if termination_code == 3:
+        import warnings
+        t_end = float(time_arr[-1]) if len(time_arr) > 0 else 0.0
+        suggested = int(max_hist * t_max / max(t_end, 1e-12) * 1.1) + 1
+        warnings.warn(
+            f"run_simulation stopped at t = {t_end:.4g} s (< t_max = "
+            f"{t_max:g} s): the history arrays filled after {max_hist} steps. "
+            f"Results after t = {t_end:.4g} s are missing. Pass "
+            f"history_capacity={suggested} (~{suggested * 450 / 1e9:.1f} GB "
+            "of history) to complete the run.", RuntimeWarning, stacklevel=2)
 
     if verbose:
         print(f"\n{'='*65}")
@@ -3332,6 +3370,7 @@ def run_simulation(
         'steps': n_steps,
         'cells': N,
         'history_capacity': int(max_hist),
+        'history_estimated_steps': int(est_steps),
         'termination_code': int(termination_code),
         'history_cap_reached': bool(termination_code == 3),
         'dt_min': float(np.min(dt_arr)) if len(dt_arr) > 0 else float("nan"),

@@ -329,7 +329,7 @@ def _run_variant(args, motor_path: Path, variant: str, overrides: dict):
         "t_max": args.t_max,
         "dt_max": args.dt_max,
         "cfl_target": args.cfl_target,
-        "diagnostic_history_capacity": args.diagnostic_history_capacity,
+        "history_capacity": args.history_capacity,
         "snapshot_interval": args.snapshot_interval,
         "print_interval": args.print_interval,
         "verbose": args.verbose,
@@ -384,9 +384,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--T-ignition", dest="T_ignition", type=float, default=850.0)
     parser.add_argument("--t-max", type=float, default=3.0)
     parser.add_argument("--dt-max", type=float, default=1.0e-4)
-    parser.add_argument("--diagnostic-history-cap", type=int, default=None,
-                        dest="diagnostic_history_capacity",
-                        help="Optional diagnostic-only max history rows.")
+    parser.add_argument("--history-capacity", type=int, default=None,
+                        dest="history_capacity",
+                        help="Exact number of preallocated history rows (default: auto).")
     parser.add_argument("--P-cutoff", dest="P_cutoff", type=float, default=0.01e6)
     parser.add_argument("--snapshot-interval", type=float, default=0.005)
     parser.add_argument("--print-interval", type=float, default=1.0)
