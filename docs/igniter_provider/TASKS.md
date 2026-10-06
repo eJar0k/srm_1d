@@ -209,3 +209,36 @@ against the fork worktree; smoke passes.
    no `StaleIgniterMaterialWarning` / `IgniterMaterialUpgradedWarning` when
    loading any refreshed committed file; srm_1d suite = I1 final + 0 new
    failures.
+
+## I4 — stale GUI solver-config defaults (same bug class, added 2026-10-05)
+
+Found from the user's GUI run: `srm1d_plugin._transient_config_schema()`
+seeds roughness 50 µm / kappa 0.45 / T_ignition 850 K — the PRE-v0.7.5
+values (canonical: 32 µm / 0.44 / 756 K) — while its docstring claims they
+"mirror run_simulation's". The user's saved preferences
+(`solverConfigs.srm_1d-transient`) hold the same stale three (plus a
+deliberate `P_cutoff` 344750 Pa). Measured on Chunc: the stale knobs alone
+raise the startup peak ~28% (14.15 vs 11.02 MPa). Same principle as D1/D5:
+the plugin owns its defaults and upgrades only untouched superseded values.
+
+1. srm_1d `_transient_config_schema`: derive every seed default from
+   `inspect.signature(run_simulation)` (roughness converted m → µm at this
+   boundary) so they cannot drift again. Test: schema defaults ==
+   run_simulation defaults for every key.
+2. srm_1d: `SUPERSEDED_SOLVER_CONFIG = {'roughness': [50.0], 'kappa':
+   [0.45], 'T_ignition': [850.0]}` (GUI units: roughness in µm; comment
+   "pre-v0.7.5 defaults, superseded by the v0.7.5 re-LHS"), and plugin hook
+   `upgrade_solver_config(values) -> (new_values, upgraded_keys)`: per key,
+   a value equal (rel tol 1e-9) to a superseded default becomes the current
+   default; every other key/value untouched; pure; idempotent.
+3. Fork: generic `SolverPlugin.upgrade_solver_config` (default
+   passthrough). Apply it when loading global preferences
+   (`solverConfigs[<solver>]`) and in `Motor.applyDict` for per-motor
+   `solverConfigs`; log the upgraded keys. Save preferences if changed.
+4. Tests: srm_1d — a dict equal to the user's saved config
+   (`{P_cutoff: 344750.0, T_ignition: 850.0, cfl_target: 0.3, kappa: 0.45,
+   roughness: 50.0, t_max: 10.0}`) upgrades exactly roughness/kappa/
+   T_ignition and keeps P_cutoff 344750; a customised value (e.g.
+   roughness 40.0) is untouched; idempotent. Fork — preferences load with
+   a temp config dir applies the hook and saves.
+5. Gates: srm_1d suite + fork unit suite green; B0 PASS.
