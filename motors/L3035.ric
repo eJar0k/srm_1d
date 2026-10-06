@@ -10,6 +10,7 @@ data:
     maxPressure: 10342500.000000002
     minPortThroat: 2.0
     sepPressureRatio: 0.4
+    taperSlices: 0
     timestep: 0.001
   grains:
   - properties:
@@ -35,11 +36,12 @@ data:
     pellet_packing_fraction: 0.6
     pyrogen:
       Cp_gas: null
-      M: 0.03
-      T_flame: 2800.0
+      M: 0.0482
+      T_flame: 2719.0
       a: 2.0e-05
       form: pellets
-      gamma: 1.25
+      gamma: 1.17
+      gas_mass_fraction: 0.781
       heat_delivery_mode: demar
       heat_flux_cal_cm2_s: 69.4
       impetus_W: 5000.0
@@ -79,6 +81,7 @@ data:
       n: 0.265
       t: 2835.896
     transportVariant: frozen
+  solverConfigs: {}
 type: !!python/object/apply:uilib.fileIO.fileTypes
 - 3
 version: !!python/tuple
