@@ -1347,7 +1347,7 @@ def _run_time_loop(
     tab_min_p, tab_max_p, tab_a, tab_n, n_tabs,
         # --- Simulation parameters ---
     roughness, kappa,
-    cfl_target, dt_max, burn_update_interval,
+    cfl_target, dt_max, burn_update_interval, geometry_update_interval,
     source_cfl_factor, port_mach_cap,
     T_ignition, P_ambient, ambient_temperature,
     diagnostic_disable_erosive, diagnostic_disable_endfaces,
@@ -1455,6 +1455,12 @@ def _run_time_loop(
     floor_min_raw_P_global : float
         Minimum raw pre-clamp pressure [Pa] over all clamped cells and
         steps; ``FLOOR_MIN_RAW_P_NONE`` (finite sentinel) if never clamped.
+    (... and, appended by solver-verification T5 -- refresh-gap diagnostics:)
+    max_burn_refresh_gap : float
+        Largest simulated time [s] between two consecutive burn-rate
+        refreshes (``compute_burn_rates``, cadence ``burn_update_interval``).
+    max_geometry_refresh_gap : float
+        Same for ``update_cell_geometry`` (cadence ``geometry_update_interval``).
     """
     PI = 3.141592653589793
 
@@ -1486,6 +1492,14 @@ def _run_time_loop(
     # pressure. Finite sentinel (fastmath: no infs); gated on n_floor_cells.
     floor_energy_total = 0.0
     floor_min_raw_P_global = FLOOR_MIN_RAW_P_NONE
+    # Refresh-gap diagnostics (solver-verification T5): simulated time between
+    # consecutive refreshes of each kind. Both kinds refresh on step 0 (t=0),
+    # so the first gap is measured from there. Bookkeeping only -- reads ``t``,
+    # never feeds back into the state.
+    t_last_burn_refresh = 0.0
+    t_last_geometry_refresh = 0.0
+    max_burn_refresh_gap = 0.0
+    max_geometry_refresh_gap = 0.0
     first_bt_time = -1.0
     last_snapshot_t = -snapshot_interval
     termination_code = 0
@@ -1657,7 +1671,11 @@ def _run_time_loop(
             cell_wall_web, cell_segment_id,
         )
 
-        if step % burn_update_interval == 0:
+        if step % geometry_update_interval == 0:
+            gap_geometry = t - t_last_geometry_refresh
+            if gap_geometry > max_geometry_refresh_gap:
+                max_geometry_refresh_gap = gap_geometry
+            t_last_geometry_refresh = t
             update_cell_geometry(
                 regress, D_port, x_centers, dx, N, N_seg, cell_D_outer,
                 seg_x_start, seg_length,
@@ -1679,6 +1697,10 @@ def _run_time_loop(
         # STEP 2: BURN RATES
         # ============================================
         if step % burn_update_interval == 0:
+            gap_burn = t - t_last_burn_refresh
+            if gap_burn > max_burn_refresh_gap:
+                max_burn_refresh_gap = gap_burn
+            t_last_burn_refresh = t
             r_total_new, r_erosive_new = compute_burn_rates(
                 P, Re, D_hyd, x_centers, is_burning, roughness,
                 Pr, k_thermal, Cp_gas,
@@ -2220,7 +2242,8 @@ def _run_time_loop(
             first_bt_time, D_throat, termination_code,
             pyrogen_initial_mass - plenum_state[0],
             pyrogen_duration, pyrogen_peak_P,
-            floor_energy_total, floor_min_raw_P_global)
+            floor_energy_total, floor_min_raw_P_global,
+            max_burn_refresh_gap, max_geometry_refresh_gap)
 
 
 # ================================================================
@@ -2283,6 +2306,7 @@ def run_simulation(
     # plateau.
     port_mach_cap=0.0,
     burn_update_interval=None,
+    geometry_update_interval=None,
     # --- Ignition ---
     T_ignition=756.0,  # v0.7.5 cross-motor re-LHS (was 850); docs/v0_7_5/RESULT.md
     tau_establishment=0.0,
@@ -2354,7 +2378,17 @@ def run_simulation(
     dt_max : float
         Maximum allowed time step [s]. Default: 0.002.
     burn_update_interval : int or None
-        Recompute burn rates every N flow steps. If None, auto-set.
+        Recompute burn rates (``compute_burn_rates``) every N flow steps.
+        If None, auto-set to ``max(10, N_cells // 5)``.
+    geometry_update_interval : int or None
+        Recompute the per-cell port geometry (``update_cell_geometry``:
+        ``A_port``, ``C_burn``, ``D_hyd``, end-face mass source) every N flow
+        steps. If None (default), uses the resolved ``burn_update_interval``,
+        i.e. one shared cadence exactly as before this kwarg existed.
+        Regression itself advances every step regardless. The summary reports
+        both resolved intervals and the largest simulated-time gap between
+        consecutive refreshes of each kind (``max_burn_refresh_gap_s`` /
+        ``max_geometry_refresh_gap_s``).
     T_ignition : float
         Per-cell solid surface ignition threshold [K]. Default: 850 K.
     initial_gas_temperature : float or None
@@ -2411,6 +2445,12 @@ def run_simulation(
         raise ValueError("initial_gas_temperature must be positive")
     if not 0.0 <= igniter_axial_momentum_fraction <= 1.0:
         raise ValueError("igniter_axial_momentum_fraction must be between 0 and 1")
+    if geometry_update_interval is not None and (
+            int(geometry_update_interval) != geometry_update_interval
+            or geometry_update_interval < 1):
+        raise ValueError(
+            "geometry_update_interval must be None or a positive integer; "
+            f"got {geometry_update_interval!r}")
     # Erosive-closure registry resolution + validation (before any
     # sim setup, per docs/erosive_model_registry/DESIGN.md §3): unknown
     # name -> ValueError listing registered names; erosive_mp_cap is a
@@ -2476,6 +2516,12 @@ def run_simulation(
 
     if burn_update_interval is None:
         burn_update_interval = max(10, N // 5)
+    # Solver-verification T5: geometry and burn rates have separate cadences.
+    # None -> share the (resolved) burn cadence, i.e. the pre-T5 behaviour.
+    if geometry_update_interval is None:
+        geometry_update_interval = burn_update_interval
+    else:
+        geometry_update_interval = int(geometry_update_interval)
 
     # ============================================================
     # SETUP — extract everything into scalars and arrays
@@ -2791,7 +2837,8 @@ def run_simulation(
      termination_code,
      pyrogen_mass_burned, pyrogen_duration,
      pyrogen_peak_P,
-     floor_energy_total, floor_min_raw_P_global) = _run_time_loop(
+     floor_energy_total, floor_min_raw_P_global,
+     max_burn_refresh_gap, max_geometry_refresh_gap) = _run_time_loop(
         # Cell arrays
         rho, u, P, T,
         D_port, x_centers, A_port, C_burn, D_hyd,
@@ -2824,7 +2871,7 @@ def run_simulation(
         tab_min_p, tab_max_p, tab_a, tab_n, n_tabs,
         # Simulation parameters
         roughness, kappa,
-        cfl_target, dt_max, burn_update_interval,
+        cfl_target, dt_max, burn_update_interval, geometry_update_interval,
         source_cfl_factor, float(port_mach_cap),
         T_ignition, P_ambient, T_ambient,
         bool(diagnostic_disable_erosive), bool(diagnostic_disable_endfaces),
@@ -3116,6 +3163,13 @@ def run_simulation(
         'pressure_floor_energy_added_J': float(floor_energy_total),
         'pressure_floor_first_time_s': floor_first_time,
         'pressure_floor_min_raw_P': floor_min_raw_P,
+        # Refresh cadence + staleness (solver-verification T5). Intervals are
+        # in flow steps; gaps are the largest simulated time [s] between two
+        # consecutive refreshes of that kind (burn rate / port geometry).
+        'burn_refresh_interval_steps': int(burn_update_interval),
+        'geometry_refresh_interval_steps': int(geometry_update_interval),
+        'max_burn_refresh_gap_s': float(max_burn_refresh_gap),
+        'max_geometry_refresh_gap_s': float(max_geometry_refresh_gap),
     }
 
     # Per-grain summary from snapshots

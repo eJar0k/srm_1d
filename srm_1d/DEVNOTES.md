@@ -388,6 +388,37 @@ exact step counts — see `docs/solver_verification/worklog/T3.md`).
   `min_pressure` history can never read below 1 kPa; a `min_pressure` series
   pinned at exactly 1000 Pa is the floor, not a physical minimum.
 
+### Post-v0.8.1 — solver-verification T5 (split burn / geometry refresh)
+
+Before this change ONE cadence, `burn_update_interval` (auto `max(10, N // 5)`,
+21 steps on the 106-cell Chunc grid), gated BOTH `update_cell_geometry` and
+`compute_burn_rates` in `_run_time_loop` (regression itself always advanced
+every step). They now have separate cadences. Defaults are unchanged
+(`geometry_update_interval=None` → the resolved `burn_update_interval`); gate
+B0 (Chunc / BALLSstick / Hasegawa A, exact step counts, rtol 1e-12) enforces
+that — see `docs/solver_verification/worklog/T5.md`.
+
+- **ADDITIVE — `run_simulation(..., geometry_update_interval=None)`.** `None`
+  → share the burn cadence (pre-T5 behaviour). Otherwise a positive integer
+  (`ValueError` for `< 1` or non-integers). `run_from_ric(...,
+  geometry_update_interval=n)` works through `**sim_overrides`. Note
+  `burn_update_interval=1` alone still means BOTH every step; pass
+  `geometry_update_interval` explicitly to decouple them.
+- **BREAK — `_run_time_loop`** takes a new `geometry_update_interval` argument
+  directly after `burn_update_interval` and returns two extra trailing scalars
+  (`max_burn_refresh_gap`, `max_geometry_refresh_gap`, after
+  `floor_min_raw_P_global`). Clear `srm_1d/__pycache__/` after upgrading.
+  `burn_update_interval` still governs `compute_burn_rates` and, with
+  `zn_enabled`, the refresh of the held quasi-steady Z-N targets
+  (`r_qs_persist` / `r_ero_qs_persist`); the Z-N relaxation itself runs every
+  step.
+- **ADDITIVE — summary keys:** `burn_refresh_interval_steps`,
+  `geometry_refresh_interval_steps` (resolved, in flow steps),
+  `max_burn_refresh_gap_s`, `max_geometry_refresh_gap_s` (largest simulated
+  time between two CONSECUTIVE refreshes of that kind; both kinds first
+  refresh at step 0, t = 0; the open interval after the last refresh is not
+  counted).
+
 ### v0.8.1 (tag `v0.8.1`, public) — additions since v0.8.0
 
 Public release folding the post-v0.8.0 `openmotor-frontend` work onto `main`.
