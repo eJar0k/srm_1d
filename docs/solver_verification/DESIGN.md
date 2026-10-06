@@ -29,6 +29,24 @@ Per-task records: `worklog/T<n>.md`. Shared gate: `probes/baseline_gate.py`.
 | Fill Mach (Chunc, 3 grids) | MTV **0.448/0.498/0.479**; current BPNV **1.987/2.200/2.311**; legacy BPNV **3.271/4.821/11.722** (≈ REOPENED §6's 3.36/4.81/12.04) → the §6 grid-divergent supersonic fill is mainly the pre-`bfc2f3f` BPNV gas |
 | Grid convergence | to 1600 cells: finest-pair Δ peak **0.151%**, t_peak **1.373%**, fill Mach **1.389%**; ~first order; extrapolated **12.4478 MPa / Mach 0.4343**; min P unconverged — **1 kPa pressure floor activates at ≥400 cells** |
 
+### 1b. Reconciled after reading their code (R1, `CODEX_REVIEW.md`, 2026-10-06)
+
+- Their headline numbers (12.4478 MPa / Mach 0.4343, erosion-off 12.1574 →
+  8.1357 MPa, the floor probes) come from a STALE Chunc config (MTV igniter,
+  35 µm, kappa 0.45, T_ign 900 K, k_solid 0.4) — not comparable with our B0.
+  With canonical knobs their tree reproduces our B0 exactly; none of their
+  commits changes default results.
+- Their fill Mach uses a 3 ms window (`max(max_mach[t<=3 ms])`), which hides
+  the excursion (BPNV peaks 3.69 @ 3.69 ms; MTV 3.21 @ 6.9 ms). "Legacy BPNV
+  causes the supersonic fill" is overstated: legacy ≈ 1.2–1.3× library on the
+  full window.
+- "29.84 µs" is the per-ignition delay to the next burn-rate refresh, not the
+  max refresh gap (reproduced 2.984e-5 s).
+- Their 806-cell pressure-floor events vanish at CFL 0.15 → TEMPORAL; our
+  canonical re-run agrees (193 cell-steps @ −734 Pa at CFL 0.3, 0 at 0.15).
+- New bug found in OUR code: `nozzle.slagCoeff` unit mismatch (1e6× for any
+  nonzero slag) → port task PA/P0.
+
 ## 2. Verified against our code (2026-10-05)
 
 - **Bisection clamp — CONFIRMED.** `burn_rate.py` `burn_rate_cell` code-0

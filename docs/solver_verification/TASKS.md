@@ -400,6 +400,18 @@ BALLSstick pk/trough, pk/mid; Hasegawa peak) that moves > 1%.
 
 ### T8 — grid convergence + fill-Mach attribution + REOPENED §12 draft
 
+**Updated after R1 (`CODEX_REVIEW.md` Q1/Q5/Q7) — read those sections first.**
+Runs AFTER T10 merges (T10 changes the mass source). ADAPT the friend's
+`scripts/run_spatial_extension.py` (part A) and
+`scripts/run_fill_configuration_comparison.py` (part B) from remote
+`codexfork` instead of writing probes from scratch (port P4): switch them to
+the canonical config (B0 knobs, library BPNV), `t_max=1.0`, and report fill
+Mach in BOTH windows — Codex's `max(max_mach[t<=3 ms])` and the full
+pre-peak window — plus the time of the max. Run every grid ≥ 400 cells at
+CFL 0.3 AND 0.15 (R1: the 806-cell floor events and much of the fill Mach
+are temporal). Their 1600-cell headline (12.4478 MPa / Mach 0.4343) came
+from a stale config with no committed data — do not compare against it.
+
 Files: new `docs/solver_verification/probes/grid_convergence.py`;
 `docs/v0_7_4/IGNITION_SPIKE_REOPENED.md` (append a §12 marked
 **DRAFT — for review**). No source edits.
@@ -508,3 +520,62 @@ every result shifts slightly and the B0 baseline is re-recorded.
 3. DEVNOTES: behaviour-change log entry + the Calibration State note
    (canonical validation values updated). Do NOT edit CLAUDE.md or any
    memory — the reviewer does.
+
+---
+
+## WAVE 5 — ports from the Codex review (R1, `CODEX_REVIEW.md`)
+
+The review's §3 table is the authoritative spec for each port (files,
+expected conflicts, gates); read the matching per-commit section in §1 and
+the friend's code (remote `codexfork`, read-only) before porting. Ports are
+ADAPTATIONS into our tree — never cherry-pick their commits (they predate
+the registry, T1–T6, T9/T10 and the igniter provider). Port their tests where
+the table says so, adapted to our APIs.
+
+### PA — non-solver ports (P0 slag fix + P3 refresh-delay statistic + P6 B0 provenance)
+
+1. **P0 slag unit fix.** openMotor stores `nozzle.slagCoeff` in (m·Pa)/s and
+   uses `slagRate = slagCoeff / P[Pa]` (`motorlib/motor.py` ~452); srm_1d
+   passes it through unconverted and divides by P in MPa
+   (`simulation.py` `s_rate = slag_coeff / P_throat_MPa`) → 1e6× too fast for
+   any nonzero slag. Convert at the adapter boundary (÷1e6 → (m·MPa)/s, the
+   srm_1d convention — UNITS stay human-readable per
+   `feedback_openmotor_alignment`), fix the docstrings/comments R1 lists, and
+   add `test_slag_unit_conversion` asserting srm_1d's throat slag rate equals
+   openMotor's formula for the same nozzle + pressure. B0 must PASS (committed
+   motors have slag 0). DEVNOTES API-log entry: user `.ric` files with slag > 0
+   now behave correctly (previously 1e6× too fast).
+2. **P3 refresh-delay statistic.** Post-hoc
+   `ignition_refresh_delays(result)` in `tools/ignition_diagnostics.py` (per
+   ignited cell: time from ignition to the next burn-rate refresh; summary
+   max/median), test on a short run, and reproduce the ~29.8 µs-scale value on
+   canonical Chunc. Append a correction note to `worklog/T5.md` and
+   `worklog/T7.md`: Codex's "29.84 µs" is THIS statistic, not the max refresh
+   gap (R1 reproduced 2.984e-5 s).
+3. **P6 B0 provenance.** `probes/baseline_gate.py` prints git HEAD + dirty
+   flag, numpy/numba versions, and the sha256 of each `.ric` it runs. Output
+   only — gate logic unchanged.
+
+Gates: B0 PASS; full suite = baseline + new tests, 0 new failures.
+
+### PB — solver-touching ports (P1 hardening + P2 limit diagnostics) — AFTER T9/T10 merge
+
+As specified in `CODEX_REVIEW.md` §3 rows P1 and P2. P1: validate
+`burn_update_interval >= 1`; `D_hyd <= 0 → (r0, 0)` in `burn_rate_cell`;
+optional `pressure_floor_pa` kwarg (default 1e3, bit-identical). P2: per-cell
+T-floor / T-ceiling / pressure-floor activation counts, durations, first/last
+times, |energy| for the T limits, per-cell max floor deficit, optional
+port-Mach-cap face counts; summary view `numerical_limits` + a
+`tools/ignition_diagnostics` helper. Gates: B0 bit-identical (rtol 1e-12,
+exact steps); byte-identical trajectory A/B at 106/406/806 cells
+(`worklog/T3_scripts/trajectory_ab.py`); steps/s cost < 10%; full suite.
+
+### P5 — thread-F floor discriminator — HELD for a user decision
+
+R1 Q5: the 806-cell floor events are temporal (193 cell-steps @ −734 Pa at
+CFL 0.3, none at 0.15/0.075) and sit at the bore→gap area jump next to the
+nozzle. Whether they come from the thread-F energy–pressure lag or from an
+area-jump / nozzle linearisation is undecided; thread F's test #1 (iterate T
+inside the PISO corrector, on an isolated branch) is the discriminator. This
+is solver-core research (`docs/core_loop_opt/` planned a literature read +
+isolated worktree prototype first), so it waits for the user's go-ahead.
