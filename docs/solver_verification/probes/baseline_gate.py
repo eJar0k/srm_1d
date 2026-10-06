@@ -27,7 +27,9 @@ Usage (from the checkout root, pyenv 3.10.5 interpreter):
 Exit code 0 = all identical, 1 = mismatch.
 """
 import argparse
+import hashlib
 import importlib.util
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -59,8 +61,36 @@ BASELINE = {
     'haseg': dict(peak=6.108574454139173, t_peak=2.391606230911318,
                   n_steps=2336140),
 }
+RIC_FILE = {'chunc': 'machbusterNew.ric', 'balls': 'BALLSstick.ric',
+            'haseg': 'hasegawa_a.ric'}
 ROWS = {'chunc': _probe.chunc_row, 'balls': _probe.balls_row,
         'haseg': _probe.haseg_row}
+
+
+def _print_provenance(names):
+    """Output-only provenance (P6): git HEAD + dirty flag, library versions,
+    and the sha256 of each .ric file this gate will actually run (resolved
+    by the probe's own committed-copy logic). Never affects pass/fail."""
+    import numpy
+    import numba
+    def _git(*a):
+        try:
+            return subprocess.run(['git', *a], cwd=str(ROOT), capture_output=True,
+                                  text=True, check=True).stdout.strip()
+        except Exception as exc:  # provenance must never break the gate
+            return f"<unavailable: {exc}>"
+    head = _git('rev-parse', 'HEAD')
+    dirty = bool(_git('status', '--porcelain', '--untracked-files=no'))
+    print(f"[provenance] git HEAD {head}  dirty={dirty}")
+    print(f"[provenance] numpy {numpy.__version__}  numba {numba.__version__}  "
+          f"python {sys.version.split()[0]}")
+    for name in names:
+        try:
+            path = _probe._committed_ric_path(RIC_FILE[name])
+            digest = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+            print(f"[provenance] {RIC_FILE[name]} sha256 {digest}  ({path})")
+        except Exception as exc:
+            print(f"[provenance] {RIC_FILE[name]} sha256 <unavailable: {exc}>")
 
 
 def main():
@@ -72,6 +102,7 @@ def main():
     args = ap.parse_args()
 
     print(f"[provenance] srm_1d imported from {Path(srm_1d.__file__).parent}")
+    _print_provenance([n.strip() for n in args.only.split(',')])
     ok = True
     for name in args.only.split(','):
         name = name.strip()
