@@ -188,3 +188,24 @@ def test_radiation_sink_is_fully_debited_from_gas():
         radiation_emissivity=0.05, print_interval=0.0, verbose=False)[0]
     peak = np.max(np.abs(np.asarray(r["thermal_source_power"])))
     assert np.max(np.abs(np.asarray(r["source_ledger_mismatch_W"]))) <= 1e-6 * peak
+
+
+class TestRegressionFillDebit:
+    """T10: the gas filling newly opened port volume is debited at the source,
+    so it cancels the geometry-refresh storage jump (which adds rho_g*dA*dx)."""
+
+    def test_debit_cancels_geometry_jump(self, chunc_short):
+        r = chunc_short
+        dt = np.asarray(r["dt"])[:-1]
+        geo_kg = np.sum(np.asarray(r["mass_jump_geometry_kg"])[:-1])
+        geo_J = np.sum(np.asarray(r["storage_jump_geometry_J"])[:-1])
+        deb_kg = np.sum(np.asarray(r["regression_fill_debit_massflow"])[:-1] * dt)
+        deb_J = np.sum(np.asarray(r["regression_fill_debit_power"])[:-1] * dt)
+        assert deb_kg > 0.0 and deb_J > 0.0
+        assert geo_kg == pytest.approx(deb_kg, rel=1e-2)
+        assert geo_J == pytest.approx(deb_J, rel=1e-2)
+
+    def test_source_ledger_includes_debit(self, chunc_short):
+        r = chunc_short
+        peak = np.max(np.abs(np.asarray(r["thermal_source_power"])))
+        assert np.max(np.abs(np.asarray(r["source_ledger_mismatch_W"]))) <= 1e-6 * peak

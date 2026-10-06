@@ -1063,6 +1063,10 @@ def _goodman_ignition_sources_and_mass(
     flame_front_enabled,     # bool — gate ALL surface heating to the front
     ignitable,               # [N] bool — cell exposed (cartridge or behind front)
     topology_code,           # 0=forward_plenum (single-cell DeMar induction exempt)
+    # Solver-verification T10: start-of-step local gas state, for the debit of
+    # the gas that fills the volume the regressing grain opens
+    rho_gas,                 # [N] cell gas density [kg/m^3]
+    Cp_mix_gas,              # [N] cell mixture Cp [J/(kg K)]
 ):
     """Goodman surface-temperature ignition and propellant source assembly.
 
@@ -1097,6 +1101,10 @@ def _goodman_ignition_sources_and_mass(
     # removes from the gas [W] (sum of h_conv*dT*C_burn*dx). Previously folded
     # into thermal_source with no history of its own.
     convective_wall_sink_power = 0.0
+    # Solver-verification T10: debit of the local gas that fills the volume
+    # the regressing grain opens, as mass [kg/s] and sensible enthalpy [W].
+    fill_debit_massflow = 0.0
+    fill_debit_power = 0.0
     # v0.7.3 Phase B.2: a cell radiates meaningfully if EITHER its
     # propellant is burning (existing criterion) OR its bore gas is
     # majority-pyrogen species (new criterion). Pyrogen-hot cells with
@@ -1327,6 +1335,32 @@ def _goodman_ignition_sources_and_mass(
 
         mass_sum += mass_source[i]
 
+        # Solver-verification T10: the standard fixed-area formulation has a
+        # net mass source (rho_p - rho_g) * dV/dt, because the burned
+        # propellant first fills the volume it vacates. The solver advances
+        # continuity at fixed A_port and update_cell_geometry then grows
+        # A_port at fixed rho, which re-adds rho_g*dA*dx -- so the local gas
+        # filling the opened volume is debited here (mass, sensible enthalpy,
+        # per species), using the SAME effective regression rate x area as the
+        # source above (sidewall r_total*C_burn, f_active already inside
+        # C_burn; end face endface_msource/rho_p). Start-of-step cell state.
+        # Momentum is deliberately left unchanged. mass_sum above stays the
+        # GROSS generation (total_mass_produced / mass_balance_error).
+        fill_vol = 0.0
+        if is_burning[i] and C_burn[i] > 0.0:
+            fill_vol += r_total[i] * C_burn[i]
+        if endface_msource[i] > 0.0:
+            fill_vol += endface_msource[i] / rho_propellant
+        if fill_vol > 0.0:
+            fill_mass = rho_gas[i] * fill_vol
+            fill_enthalpy = fill_mass * Cp_mix_gas[i] * T[i]
+            mass_source[i] -= fill_mass
+            thermal_source[i] -= fill_enthalpy
+            for sp in range(S_local):
+                mass_source_by_species[i, sp] -= fill_mass * Y_species[i, sp]
+            fill_debit_massflow += fill_mass * dx
+            fill_debit_power += fill_enthalpy * dx
+
     # Radiation gas-energy sink debit (solver-verification T9). Done AFTER
     # the cell loop: the sink on the LEFT neighbour (radiation_sink_power
     # [i-1] += ...) is accumulated while processing cell i, i.e. after cell
@@ -1341,7 +1375,8 @@ def _goodman_ignition_sources_and_mass(
             pyrogen_surface_heat_power, radiation_heat_power,
             radiation_sink_total_power,
             normal_sidewall_thermal_power, erosive_sidewall_thermal_power,
-            endface_thermal_power, convective_wall_sink_power)
+            endface_thermal_power, convective_wall_sink_power,
+            fill_debit_massflow, fill_debit_power)
 
 
 # ================================================================
@@ -1418,6 +1453,7 @@ def _run_time_loop(
     pressure_floor_cells_hist, pressure_floor_mass_hist,
     # --- T6 energy audit (accounting only) ---
     pressure_floor_energy_hist, convective_wall_sink_power_hist,
+    fill_debit_massflow_hist, fill_debit_power_hist,
     nozzle_enthalpy_power_post_hist, nozzle_massflow_piso_hist,
     jump_eos_J_hist, jump_mixture_J_hist, jump_geometry_J_hist,
     jump_eos_kg_hist, jump_mixture_kg_hist, jump_geometry_kg_hist,
@@ -1942,7 +1978,8 @@ def _run_time_loop(
          radiation_sink_total_power,
          normal_sidewall_thermal_power, erosive_sidewall_thermal_power,
          endface_thermal_power,
-         convective_wall_sink_power) = _goodman_ignition_sources_and_mass(
+         convective_wall_sink_power,
+         fill_debit_massflow, fill_debit_power) = _goodman_ignition_sources_and_mass(
             P, T, T_surf, delta, has_ignited, is_burning, is_grain,
             ignition_time, r_total, r_erosive,
             mass_source, thermal_source,
@@ -1965,6 +2002,8 @@ def _run_time_loop(
             pyrogen_heat_flux_arr,
             # v0.7.4 Phase F: flame-spread front exposure gate
             flame_front_enabled, ignitable, topology_code,
+            # Solver-verification T10: start-of-step gas state for the fill debit
+            rho, Cp_mix_arr,
         )
 
         # v0.7.1 Phase 3.5: pyrogen mass injection uses pyrogen Cp for the
@@ -2268,6 +2307,8 @@ def _run_time_loop(
         # total mass jump are filled in by step n+1 (0.0 until then).
         pressure_floor_energy_hist[hist_idx] = floor_energy_added
         convective_wall_sink_power_hist[hist_idx] = convective_wall_sink_power
+        fill_debit_massflow_hist[hist_idx] = fill_debit_massflow
+        fill_debit_power_hist[hist_idx] = fill_debit_power
         nozzle_enthalpy_power_post_hist[hist_idx] = nozzle_enthalpy_power_post
         nozzle_massflow_piso_hist[hist_idx] = nozzle_mdot_piso
         jump_eos_J_hist[hist_idx] = eos_energy_jump
@@ -2895,6 +2936,8 @@ def run_simulation(
     # tools/ignition_diagnostics.sensible_enthalpy_audit.
     pressure_floor_energy_hist = np.empty(max_hist)
     convective_wall_sink_power_hist = np.empty(max_hist)
+    fill_debit_massflow_hist = np.empty(max_hist)
+    fill_debit_power_hist = np.empty(max_hist)
     nozzle_enthalpy_power_post_hist = np.empty(max_hist)
     nozzle_massflow_piso_hist = np.empty(max_hist)
     jump_eos_J_hist = np.empty(max_hist)
@@ -3026,6 +3069,7 @@ def run_simulation(
         min_pressure_hist, max_pressure_hist, max_mach_hist,
         pressure_floor_cells_hist, pressure_floor_mass_hist,
         pressure_floor_energy_hist, convective_wall_sink_power_hist,
+        fill_debit_massflow_hist, fill_debit_power_hist,
         nozzle_enthalpy_power_post_hist, nozzle_massflow_piso_hist,
         jump_eos_J_hist, jump_mixture_J_hist, jump_geometry_J_hist,
         jump_eos_kg_hist, jump_mixture_kg_hist, jump_geometry_kg_hist,
@@ -3112,6 +3156,8 @@ def run_simulation(
     # ---- Energy audit (solver-verification T6): trim + derived ledgers ----
     pressure_floor_energy_arr = pressure_floor_energy_hist[:n_steps].copy()
     convective_wall_sink_power_arr = convective_wall_sink_power_hist[:n_steps].copy()
+    fill_debit_massflow_arr = fill_debit_massflow_hist[:n_steps].copy()
+    fill_debit_power_arr = fill_debit_power_hist[:n_steps].copy()
     nozzle_enthalpy_power_post_arr = nozzle_enthalpy_power_post_hist[:n_steps].copy()
     nozzle_massflow_piso_arr = nozzle_massflow_piso_hist[:n_steps].copy()
     jump_eos_J_arr = jump_eos_J_hist[:n_steps].copy()
@@ -3134,6 +3180,7 @@ def run_simulation(
         - radiation_sink_power_arr
         - gas_surface_heat_sink_power_arr
         - convective_wall_sink_power_arr
+        - fill_debit_power_arr
         - thermal_source_power_arr
     )
     # Nozzle ledger: the PISO's explicit nozzle enthalpy outflow (start-of-step
@@ -3444,6 +3491,8 @@ def run_simulation(
         # incomplete and excluded by sensible_enthalpy_audit.
         'pressure_floor_energy': pressure_floor_energy_arr,
         'convective_wall_sink_power': convective_wall_sink_power_arr,
+        'regression_fill_debit_massflow': fill_debit_massflow_arr,
+        'regression_fill_debit_power': fill_debit_power_arr,
         'nozzle_enthalpy_power_post_piso': nozzle_enthalpy_power_post_arr,
         'nozzle_massflow_piso': nozzle_massflow_piso_arr,
         'source_ledger_mismatch_W': source_ledger_mismatch_arr,

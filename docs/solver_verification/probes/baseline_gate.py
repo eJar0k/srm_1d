@@ -3,8 +3,7 @@
 Re-runs the three canonical ``ma2020`` / ``erosive_mp_cap=0`` rows of
 ``docs/v0_7_4/probes/mp_cap_crossmotor.py`` (Chunc, BALLSstick, Hasegawa A;
 committed .ric files, canonical knobs, library BPNV igniter) and compares
-them to the values recorded in ``docs/erosive_model_registry/WORKLOG.md``
-(T2, 2026-08-08) at FULL float precision plus exact step counts.
+them to the recorded values (see the BASELINE comment: re-recorded by T10) at FULL float precision plus exact step counts.
 
 A task whose spec says "default behaviour unchanged" passes B0 only if the
 step counts match EXACTLY and every float matches within ``--rtol`` (default
@@ -43,14 +42,22 @@ _spec = importlib.util.spec_from_file_location(
 _probe = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_probe)
 
-# Recorded 2026-08-08 (erosive_model_registry WORKLOG, T2 results.jsonl).
+# RE-RECORDED 2026-10-05 by solver-verification T10 (regression mass source
+# now net of the gas filling the opened volume, (rho_p - rho_g)*r*C_burn).
+# Values below are the T10 results; the pre-T10 values (recorded 2026-08-08,
+# erosive_model_registry WORKLOG T2) were:
+#   chunc: peak 11.472831280605046, t_peak 0.016454109339050758,
+#          plateau 8.222465813350324, n_steps 531651
+#   balls: peak 8.42348927652058, trough 4.366702806070186,
+#          mid 4.913378178011638, n_steps 842922
+#   haseg: peak 6.143912554793205, t_peak 2.3816074267208034, n_steps 2335770
 BASELINE = {
-    'chunc': dict(peak=11.472831280605046, t_peak=0.016454109339050758,
-                  plateau=8.222465813350324, n_steps=531651),
-    'balls': dict(peak=8.42348927652058, trough=4.366702806070186,
-                  mid=4.913378178011638, n_steps=842922),
-    'haseg': dict(peak=6.143912554793205, t_peak=2.3816074267208034,
-                  n_steps=2335770),
+    'chunc': dict(peak=11.28243546264288, t_peak=0.016286760473606336,
+                  plateau=8.150933877646011, n_steps=531883),
+    'balls': dict(peak=8.331331016878805, trough=4.343222420159596,
+                  mid=4.879629094113075, n_steps=843274),
+    'haseg': dict(peak=6.108574454139173, t_peak=2.391606230911318,
+                  n_steps=2336140),
 }
 ROWS = {'chunc': _probe.chunc_row, 'balls': _probe.balls_row,
         'haseg': _probe.haseg_row}

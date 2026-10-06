@@ -88,6 +88,11 @@ transport + F+Z + κ_zn=1; `docs/v0_7_5/RESULT.md`):
 | T_ignition | **756 K**  | `run_simulation`, `run_from_ric` |
 | k_solid    | **0.271 W/(m·K)** | `Propellant.k_solid` |
 
+**T10 update (2026-10-05):** after the (rho_p - rho_g) mass-source correction the
+canonical validation values (library BPNV, B0 probes) are: Chunc peak 11.282 MPa,
+plateau 8.151; BALLSstick peak 8.331, trough 4.343, mid 4.880; Hasegawa A
+peak 6.109 MPa (0.95x exp). The as-shipped numbers below pre-date T10.
+
 As-shipped re-validation (embedded `.ric` transport, F+Z off — the user
 path, NOT the LHS basis): Hasegawa A 6.14 MPa (0.95× exp 6.44); Zerox
 7.07 (1.77×); Chunc 12.65 (1.42×, down from ~1.9× pre-recal). The
@@ -310,6 +315,32 @@ in geometry/burn rate/ignition (called every step or every N steps).
 - Micro-steps in pressure trace converge to zero with increasing N
 
 ## API Breaking Changes Log
+
+### Solver verification T10 (unreleased) -- regression mass source net of the gas filling the opened volume
+
+- **BEHAVIOUR CHANGE (all canonical results shift slightly):** the standard
+  fixed-area formulation has a net source `(rho_p - rho_g) * dV/dt` -- the burned
+  propellant first fills the volume it vacates. Before, continuity ran at fixed
+  `A_port` and `update_cell_geometry` then grew `A_port` at fixed rho, re-adding
+  `rho_g*dA*dx` plus its sensible enthalpy from nothing (Chunc +6.4 g, BALLSstick
+  +9.0 g over the burn). `_goodman_ignition_sources_and_mass` now subtracts, per
+  cell, `rho_g * (r_total*C_burn + endface_msource/rho_p)` from `mass_source`,
+  `rho_g*Cp_mix*T` times the same from `thermal_source`, and `rho_g*Y_k` times the
+  same from `mass_source_by_species[:, k]` (start-of-step cell state; sidewall
+  term uses the effective rate with `f_active` already in `C_burn`). Momentum
+  unchanged. `total_mass_produced` / `mass_sum` stay GROSS generation.
+- **API:** `_goodman_ignition_sources_and_mass` takes two new trailing args
+  (`rho_gas`, `Cp_mix_gas`) and returns two more values
+  (`fill_debit_massflow` [kg/s], `fill_debit_power` [W]); `_run_time_loop` takes
+  two more history arrays. New result keys `regression_fill_debit_massflow`,
+  `regression_fill_debit_power`; `source_ledger_mismatch_W` now includes the debit.
+- **`mass_balance_error` meaning:** it is `|produced - nozzle|/theoretical`, i.e.
+  the stored bore-gas inventory. Pre-T10 the +6.4 g geometry artifact partially
+  masked it (Chunc 4.5e-4); now it reads the true inventory (Chunc 3.5e-3).
+- **B0 re-recorded** (`probes/baseline_gate.py`). Canonical validation values
+  moved <= 1.7%: Chunc peak 11.473 -> 11.282, plateau 8.222 -> 8.151 MPa;
+  BALLSstick peak 8.423 -> 8.331; Hasegawa A peak 6.144 -> 6.109 MPa (0.95x exp).
+  See `docs/solver_verification/worklog/T9_T10.md`.
 
 ### Solver verification T9 (unreleased) -- left-neighbour radiation sink debited
 
