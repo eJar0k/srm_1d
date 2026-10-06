@@ -32,6 +32,7 @@ from .fmm_grain import _setup_openmotor_path
 from .igniter_plenum import _VALID_TOPOLOGIES
 
 SOLVER_NAME = 'srm_1d-transient'
+ROUGHNESS_KEY = 'roughness'   # edited in um in the GUI; run_simulation wants m
 
 # The transient solver emits one sample per solver step (10^5+ for a typical
 # burn). openMotor's graph widget re-converts (per-point, in Python) and
@@ -75,14 +76,60 @@ def _transient_config_schema():
     # for heated gas. It is NOT an erosive-burning coefficient.
     schema.props['kappa'] = FloatProperty('Gnielinski Temp-Ratio Exponent', '', 0.0, 2.0)
     schema.props['T_ignition'] = FloatProperty('Ignition Temperature', 'K', 300.0, 2000.0)
-    # Seed defaults (FloatProperty clamps to range; values mirror run_simulation,
-    # roughness expressed in um). NOTE: transport variant is a per-propellant
-    # property (propellant editor / .ric), not a run-control param.
-    schema.setProperties({
-        't_max': 10.0, 'P_cutoff': 0.5e6, 'cfl_target': 0.3,
-        'roughness': 50.0, 'kappa': 0.45, 'T_ignition': 850.0,
-    })
+    # Seed defaults: DERIVED from run_simulation's signature (so they cannot
+    # drift from the solver again -- they once did, 50 um / 0.45 / 850 K were
+    # the pre-v0.7.5 values), roughness converted m -> um at this boundary.
+    # NOTE: transport variant is a per-propellant property (propellant editor /
+    # .ric), not a run-control param.
+    schema.setProperties(_solver_config_defaults())
     return schema
+
+
+# Pre-v0.7.5 run defaults (GUI units: roughness in um), superseded by the
+# v0.7.5 re-LHS (roughness 32 um / kappa 0.44 / T_ignition 756 K). A saved GUI
+# solver config (preferences or per-motor) that still holds exactly one of these
+# is an UNTOUCHED stale default and is upgraded to the current default; any
+# other value is a deliberate user choice and is never touched. Append, never
+# edit, when a default changes again.
+SUPERSEDED_SOLVER_CONFIG = {
+    'roughness': [50.0],
+    'kappa': [0.45],
+    'T_ignition': [850.0],
+}
+
+
+def _solver_config_defaults():
+    """``{key: default}`` in GUI units, read from ``run_simulation``'s
+    signature for every key of the config schema."""
+    import inspect
+    from .simulation import run_simulation
+    params = inspect.signature(run_simulation).parameters
+    keys = ('t_max', 'P_cutoff', 'cfl_target', 'roughness', 'kappa', 'T_ignition')
+    out = {k: float(params[k].default) for k in keys}
+    out[ROUGHNESS_KEY] = round(out[ROUGHNESS_KEY] * 1.0e6, 9)   # m -> um
+    return out
+
+
+def upgrade_solver_config(values):
+    """Upgrade stale GUI solver-config defaults.
+
+    ``values`` is a saved run-config dict (GUI units). Returns
+    ``(new_values, upgraded_keys)``: each key whose value equals (rel tol 1e-9)
+    a :data:`SUPERSEDED_SOLVER_CONFIG` default becomes the current default;
+    everything else is untouched. Pure (never mutates ``values``) and
+    idempotent."""
+    import math
+    new = dict(values or {})
+    current = _solver_config_defaults()
+    upgraded = []
+    for key, old_values in SUPERSEDED_SOLVER_CONFIG.items():
+        v = new.get(key)
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and any(
+                math.isclose(float(v), o, rel_tol=1e-9, abs_tol=0.0)
+                for o in old_values):
+            new[key] = current[key]
+            upgraded.append(key)
+    return new, upgraded
 
 
 # ----------------------------------------------------------------
@@ -625,6 +672,9 @@ def register():
 
         def get_config_schema(self):
             return _transient_config_schema()
+
+        def upgrade_solver_config(self, values):
+            return upgrade_solver_config(values)
 
         # ---- plugin-provided igniter hooks (DESIGN D2) ----
         def get_igniter_material_schema(self):

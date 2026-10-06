@@ -110,10 +110,12 @@ def test_solver_config_schema(om):
     defaults = schema.getProperties()
     assert defaults['t_max'] == 10.0
     assert defaults['cfl_target'] == 0.3
-    assert defaults['kappa'] == 0.45
-    # Roughness is in micrometers (own unit category), default 50 um.
+    # Defaults are DERIVED from run_simulation (v0.7.5 canonical knobs);
+    # see tests/test_solver_config_upgrade.py for the full equality check.
+    assert defaults['kappa'] == 0.44
+    # Roughness is in micrometers (own unit category), default 32 um.
     assert schema.props['roughness'].unit == 'um'
-    assert defaults['roughness'] == 50.0
+    assert defaults['roughness'] == pytest.approx(32.0)
 
 
 def test_solver_config_schema_drives_run(om):

@@ -311,6 +311,21 @@ in geometry/burn rate/ignition (called every step or every N steps).
 
 ## API Breaking Changes Log
 
+### Plugin-provided igniter, I4 (unreleased) — stale GUI solver-config defaults
+
+`srm1d_plugin._transient_config_schema` seeded roughness 50 um / kappa 0.45 /
+T_ignition 850 K (pre-v0.7.5) while claiming to mirror `run_simulation`.
+- **BEHAVIOUR FIX:** the schema seeds are now DERIVED from
+  `inspect.signature(run_simulation)` (`_solver_config_defaults`, roughness
+  m -> um): 32 um / 0.44 / 756 K / P_cutoff 0.5 MPa. Pinned by
+  `tests/test_solver_config_upgrade.py`.
+- **ADDITIVE:** `SUPERSEDED_SOLVER_CONFIG` (append-only history of replaced
+  defaults, GUI units) + hook `Srm1dTransientSolver.upgrade_solver_config(values)
+  -> (new_values, upgraded_keys)`: a saved value equal (rel tol 1e-9) to a
+  superseded default becomes the current default; all else untouched; pure,
+  idempotent. The fork calls it (`motorlib.solvers.upgrade_solver_configs`)
+  when loading preferences and in `Motor.applyDict`.
+
 ### Plugin-provided igniter, I1 (unreleased) — srm_1d owns the igniter model
 
 `docs/igniter_provider/` (DESIGN D1-D7, TASKS I1). The openMotor fork hardcoded
