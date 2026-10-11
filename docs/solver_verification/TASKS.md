@@ -616,3 +616,56 @@ startup spike (grid-converged ≈ 12.55 MPa vs the 100-cell 11.28)?
    `IGNITION_SPIKE_REOPENED.md` marked **DRAFT — for review**, numbers only,
    stating which of {fill Mach bounded?, floor events gone?, spike moved?}
    the iteration changes. No default changes; no recommendations.
+
+---
+
+## T11 — adopt the P5 PISO corrections as defaults (user decision 2026-10-11)
+
+User decision: make BOTH P5 corrections the defaults —
+`piso_corr2_storage=True` (the second pressure corrector gets the storage term
+`a_t·P′` the first corrector already took; without it every transient
+pressure increment is applied ~twice: P″ ≈ 0.93·P′ at CFL 0.3, reviewer-
+verified in `solver.py`) and `piso_energy_coupling_iters=1`. Read
+`worklog/P5.md` and the §13 DRAFT on branch `sv/p5` first, and
+`worklog/PB.md` (merged after P5 branched).
+
+1. **Merge.** In your worktree (branched from `openmotor-frontend`, which has
+   PB), `git merge --no-ff sv/p5`. Resolve the `solver.py` / `simulation.py`
+   / test conflicts keeping BOTH: PB's limit diagnostics (separate tally loop
+   AFTER the energy loop, re-deriving clips from the stored `T_raw` — the
+   fastmath lesson: add no extra stores inside the energy loop) and P5's
+   iteration loop + S term + its return-tuple additions. PB's tally must
+   observe the FINAL pass. Gate with defaults still OFF (K=0, S=False): B0
+   PASS against the current constants, byte-identical 80-array trajectory A/B
+   vs `openmotor-frontend` at 106 cells (`worklog/T3_scripts/trajectory_ab.py`
+   pattern, same compile state per pair), full suite green. Commit the merge.
+2. **Flip the defaults** to `piso_corr2_storage=True`,
+   `piso_energy_coupling_iters=1` in `run_simulation` (check whether
+   `piso_step`, `run_from_ric` or `srm1d_plugin` carry their own defaults —
+   all must agree). Commit separately.
+3. **Measure, old defaults (K=0,S=0) vs new (K=1,S=1)** — canonical knobs,
+   library BPNV:
+   a. B0 three motors before/after; then RE-RECORD `BASELINE` in
+      `probes/baseline_gate.py` with a dated T11 comment keeping the previous
+      values; confirm PASS.
+   b. Validation vs experiment: Chunc peak / plateau / ratio (exp 8.66 MPa,
+      1.027), BALLSstick pk/trough & pk/mid (~1.50 / ~1.35), Hasegawa A peak
+      & t_peak (~6.44 MPa).
+   c. Grid check, Chunc CFL 0.3, 106 / 406 / 806 cells (one at a time):
+      peak, t_peak, plateau, fill Mach, floor activations; observed order +
+      Richardson f∞ for the peak.
+   d. Erosive-model axis under the NEW defaults: re-run
+      `docs/v0_7_4/probes/mp_cap_crossmotor.py`'s 5-row model axis
+      (ma2020 cap 0 / 1.0 / 1.1, mukunda_paul, saint_robert) on all three
+      motors — the REOPENED §10 "spike = Ma-vs-MP excess" table was measured
+      with the bug; report the new table next to the old.
+   e. Cost: Chunc `t_max=1.0` steps/s before/after.
+   f. Full suite: list every test whose pinned simulation numbers moved
+      (old → new); update a pinned value only where the test pins a sim
+      output; never loosen a tolerance.
+   **STOP before re-recording anything** if the plateau moves > 1%, any
+   startup metric moves > 15%, or any run diverges / collapses.
+4. **Docs:** DEVNOTES behaviour-change log entry + Calibration State note
+   (the v0.7.5 knobs were fit WITH the bug — say so; re-fitting is a later
+   user decision); append to §13 a dated "Adopted as default (T11)" note with
+   the before/after table. Do NOT edit CLAUDE.md or memory.
