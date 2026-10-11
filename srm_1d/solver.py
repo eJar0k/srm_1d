@@ -287,6 +287,7 @@ def _piso_step_with_energy_diagnostics(
     dx, dt, gamma_arr, R_arr, Cp_arr, T_ceiling_arr,
     A_throat, P_ambient, T_ambient, N,
     port_mach_cap=0.0,
+    pressure_floor_pa=1.0e3,
 ):
     """
     One complete PISO time step on a staggered grid.
@@ -380,6 +381,11 @@ def _piso_step_with_energy_diagnostics(
 
     The four ``floor_*`` values are ACCOUNTING ONLY -- the floor value and
     the clamp are unchanged.
+
+    ``pressure_floor_pa`` (solver-verification PB/P1; default 1.0e3, the
+    historical constant, bit-identical) is the pressure-floor value, now a
+    runtime argument. Overriding it changes the physics (limiter-sensitivity
+    probe).
 
     Solver-verification T6 (energy audit) appends five more ACCOUNTING-ONLY
     values (read-only on every state array; the trajectory is unchanged):
@@ -738,7 +744,9 @@ def _piso_step_with_energy_diagnostics(
     # -------------------------------------------------------
     # STEP 4: UPDATE DENSITY
     # -------------------------------------------------------
-    pressure_floor = 1.0e3
+    # PB/P1: the floor is a runtime value (kwarg ``pressure_floor_pa``,
+    # default 1.0e3 = the historical constant, bit-identical).
+    pressure_floor = pressure_floor_pa
     # Solver-verification T3: ACCOUNTING ONLY. Tally what the clamp below
     # adds, relative to the EOS at the UNclamped pressure (mass the clamp
     # injects = (P_floor - P_raw)/(R*T) per unit volume), before it runs.

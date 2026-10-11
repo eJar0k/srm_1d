@@ -1414,7 +1414,7 @@ def _run_time_loop(
         # --- Simulation parameters ---
     roughness, kappa,
     cfl_target, dt_max, burn_update_interval, geometry_update_interval,
-    source_cfl_factor, port_mach_cap,
+    source_cfl_factor, port_mach_cap, pressure_floor_pa,
     T_ignition, P_ambient, ambient_temperature,
     diagnostic_disable_erosive, diagnostic_disable_endfaces,
     diagnostic_disable_momentum, diagnostic_disable_pyrogen_surface_heating,
@@ -2137,6 +2137,7 @@ def _run_time_loop(
             dx, dt, gamma_mix_arr, R_mix_arr, Cp_mix_arr, T_ceiling_arr,
             A_throat, P_ambient, ambient_temperature, N,
             port_mach_cap,
+            pressure_floor_pa,
         )
 
         # T6 energy audit (bookkeeping only): the gap between the END of the
@@ -2491,6 +2492,12 @@ def run_simulation(
     verbose=True,
     # --- v0.8.0 Phase 6: live progress / cooperative cancel ---
     progress_state=None,
+    # Limiter-sensitivity knob (solver-verification PB/P1). The PISO step
+    # clamps the raw post-correction pressure to this floor [Pa]. The
+    # default 1.0e3 is the historical constant and is bit-identical to it;
+    # any other value CHANGES the physics of the run (diagnostic only).
+    # Kept last for positional API compatibility.
+    pressure_floor_pa=1.0e3,
 ):
     """
     Run a complete transient simulation.
@@ -2576,6 +2583,11 @@ def run_simulation(
     diagnostic_disable_radiation_gas_sink : bool
         If True, keep adjacent-radiation Goodman receiver heating but do
         not debit the emitting gas cell. Diagnostic isolation only.
+    pressure_floor_pa : float
+        Pressure floor [Pa] applied by the PISO step (default 1.0e3 = the
+        historical constant, bit-identical). Overriding it is a
+        limiter-sensitivity diagnostic and changes the run's physics. Must
+        be finite and positive.
     history_capacity : int or None
         Number of preallocated per-step history rows. ``None`` (default)
         sizes them from the hottest species' sound speed (see
@@ -2610,6 +2622,14 @@ def run_simulation(
         raise ValueError("initial_gas_temperature must be positive")
     if not 0.0 <= igniter_axial_momentum_fraction <= 1.0:
         raise ValueError("igniter_axial_momentum_fraction must be between 0 and 1")
+    if not np.isfinite(pressure_floor_pa) or pressure_floor_pa <= 0.0:
+        raise ValueError("pressure_floor_pa must be finite and positive")
+    if burn_update_interval is not None and (
+            int(burn_update_interval) != burn_update_interval
+            or burn_update_interval < 1):
+        raise ValueError(
+            "burn_update_interval must be None or a positive integer; "
+            f"got {burn_update_interval!r}")
     if geometry_update_interval is not None and (
             int(geometry_update_interval) != geometry_update_interval
             or geometry_update_interval < 1):
@@ -3054,7 +3074,7 @@ def run_simulation(
         # Simulation parameters
         roughness, kappa,
         cfl_target, dt_max, burn_update_interval, geometry_update_interval,
-        source_cfl_factor, float(port_mach_cap),
+        source_cfl_factor, float(port_mach_cap), float(pressure_floor_pa),
         T_ignition, P_ambient, T_ambient,
         bool(diagnostic_disable_erosive), bool(diagnostic_disable_endfaces),
         bool(diagnostic_disable_momentum),
@@ -3422,6 +3442,7 @@ def run_simulation(
         'pressure_floor_energy_added_J': float(floor_energy_total),
         'pressure_floor_first_time_s': floor_first_time,
         'pressure_floor_min_raw_P': floor_min_raw_P,
+        'pressure_floor_pa': float(pressure_floor_pa),
         # Refresh cadence + staleness (solver-verification T5). Intervals are
         # in flow steps; gaps are the largest simulated time [s] between two
         # consecutive refreshes of that kind (burn rate / port geometry).

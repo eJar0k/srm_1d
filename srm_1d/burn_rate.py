@@ -598,6 +598,13 @@ def burn_rate_cell(
     if Re_local < 100.0:
         return r0, 0.0
 
+    # Hardening (PB/P1): a non-positive hydraulic diameter has no defined
+    # Reynolds/Nusselt closure (division by D_hyd below). Unreachable in the
+    # time loop (ports never close to D <= 0 while Re >= 100), so no
+    # trajectory change; disables the erosive term instead of NaN/inf.
+    if D_hyd <= 0.0:
+        return r0, 0.0
+
     # Friction factor
     f = haaland_friction(Re_local, roughness, D_hyd)
 
