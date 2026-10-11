@@ -570,12 +570,49 @@ port-Mach-cap face counts; summary view `numerical_limits` + a
 exact steps); byte-identical trajectory A/B at 106/406/806 cells
 (`worklog/T3_scripts/trajectory_ab.py`); steps/s cost < 10%; full suite.
 
-### P5 — thread-F floor discriminator — HELD for a user decision
+### P5 — thread-F discriminator: energy-coupled PISO iteration (EXPERIMENT)
 
-R1 Q5: the 806-cell floor events are temporal (193 cell-steps @ −734 Pa at
-CFL 0.3, none at 0.15/0.075) and sit at the bore→gap area jump next to the
-nozzle. Whether they come from the thread-F energy–pressure lag or from an
-area-jump / nozzle linearisation is undecided; thread F's test #1 (iterate T
-inside the PISO corrector, on an isolated branch) is the discriminator. This
-is solver-core research (`docs/core_loop_opt/` planned a literature read +
-isolated worktree prototype first), so it waits for the user's go-ahead.
+**Approved by the user after T8 (2026-10-11).** An isolated experiment on its
+own branch — it is NOT merged by default; the reviewer and user decide
+afterwards from the numbers.
+
+Question (spike thread F, `docs/v0_7_4/IGNITION_SPIKE_REOPENED.md` §8 F and
+§12): is the energy–pressure lag — continuity closed on
+`rho_new_1 = P/(R·T_old)`, then the state re-derived as `rho = P/(R·T_new)`
+(T6: ~30% of fill-phase source energy carried outside the ledgers) — what
+drives the fill pathology T8 measured: fill Mach that grows WITHOUT BOUND
+with refinement (CFL 0.3: 3.9 → 13.9 → 16.9 → 49.3 at 106→1606 cells; CFL
+0.15: 3.4 → 7.25), the temporal pressure-floor events (806 cells @ CFL 0.3,
+raw P down to −23 kPa at 1606), and — the real target — does it move the
+startup spike (grid-converged ≈ 12.55 MPa vs the 100-cell 11.28)?
+
+1. **Implement an opt-in energy-coupled iteration** in the PISO step, kwarg
+   `piso_energy_coupling_iters=0` on `run_simulation` (0 = today's step,
+   bit-identical; B0 must PASS with 0). With K > 0: after the energy update
+   gives `T_new`, rebuild the density/compressibility the pressure correction
+   uses with the updated T (`P/(R·T_new)`), redo the pressure correction(s)
+   and the energy update, and repeat up to K times or until
+   `max|T_k+1 − T_k|/T_k < 1e-6`. Record per step the iterations used and the
+   final relative T change. You decide the exact insertion point after
+   reading `_piso_step_with_energy_diagnostics` end to end — document the
+   algebra and the choice in the worklog (this is research: implementation
+   judgement is expected, but every choice is written down and defaults never
+   change).
+2. **Measure** (canonical Chunc, library BPNV, post-T10 tree), K ∈ {0, 1, 3}
+   (add 10 if K=3 has not converged the EOS jump):
+   a. EOS storage jump (T6 `storage_jump_eos_J` / `mass_jump_eos_kg`) and the
+      fill-phase closure fraction (`sensible_enthalpy_audit`) — does it go to
+      ~0?
+   b. Fill Mach (max of `max_mach` pre-peak, and its time), min P, raw floor
+      P and floor activations at 106 / 406 / 806 cells × CFL 0.3 / 0.15
+      (t_max 0.05 is enough for these).
+   c. Startup peak, t_peak, first-ignition time, time until 90% of grain
+      cells are ignited (`ignition_time_by_cell`), and plateau (t_max 1.0) at
+      106 and 406 cells, CFL 0.3.
+   d. BALLSstick at 106 cells, CFL 0.3: peak, pk/trough, pk/mid, fill Mach.
+   e. Cost: steps/s and mean iterations per step.
+   Run fine-grid rows ONE AT A TIME (history memory ~450 B/step).
+3. Deliverables: `worklog/P5.md` with every table, and a §13 in
+   `IGNITION_SPIKE_REOPENED.md` marked **DRAFT — for review**, numbers only,
+   stating which of {fill Mach bounded?, floor events gone?, spike moved?}
+   the iteration changes. No default changes; no recommendations.
