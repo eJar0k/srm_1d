@@ -40,12 +40,21 @@ def _step(K=0, S=False, T_src=3000.0, dt=1.0e-6, tol=1.0e-9, extra=True):
 
 
 class TestK0Identity:
-    def test_defaults_equal_explicit_zero(self):
+    def test_defaults_equal_explicit_new_defaults(self):
+        # T11: the defaults are K=1, S=True (the P5 corrections).
         a, *_ = _step(extra=False)
-        b, *_ = _step(K=0, S=False)
+        b, *_ = _step(K=1, S=True)
         for x, y in zip(a[:21], b[:21]):
             assert np.array_equal(np.asarray(x), np.asarray(y))
-        assert b[21] == 0  # passes
+        assert a[21] == b[21]  # passes
+
+    def test_legacy_step_is_explicit_zero_false(self):
+        # K=0, S=False reproduces the pre-T11 step (0 extra passes) and is
+        # distinguishable from the new default.
+        a, *_ = _step(K=0, S=False)
+        b, *_ = _step(extra=False)
+        assert a[21] == 0
+        assert not np.array_equal(np.asarray(a[0]), np.asarray(b[0]))
 
     def test_tuple_has_p5_outputs(self):
         out, *_ = _step(K=2)

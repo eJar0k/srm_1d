@@ -28,7 +28,7 @@ GAMMA = 1.2
 
 
 def _vent_step(N, P_initial, A_port_value=1.0e-3, dx=0.01, dt=1.0e-4,
-               P_ambient=1.0):
+               P_ambient=1.0, **piso_kw):
     """One PISO step of an N-cell duct venting through a throat the size of
     the port into a near-vacuum back pressure (no sources, no friction).
 
@@ -50,7 +50,7 @@ def _vent_step(N, P_initial, A_port_value=1.0e-3, dx=0.01, dt=1.0e-4,
         dx, dt,
         np.full(N, GAMMA), np.full(N, R_GAS), np.full(N, CP_GAS),
         np.full(N, 3000.0 * 1.01),
-        A_port_value, P_ambient, 300.0, N,
+        A_port_value, P_ambient, 300.0, N, **piso_kw,
     )
 
 
@@ -92,7 +92,12 @@ class TestPressureFloorCounters:
     def test_multi_cell_count_matches_clamped_cells(self, P_initial,
                                                     expected_cells):
         N = 3
-        out = _vent_step(N, P_initial)
+        # T11: the new PISO defaults (K=1, S=True) no longer drive this
+        # over-large-dt duct below the floor in every cell (1 of 3 clamps);
+        # this test pins the counter-vs-clamp identity, so it keeps exercising
+        # the pre-T11 step (explicit K=0, S=False), where all 3 cells clamp.
+        out = _vent_step(N, P_initial, energy_coupling_iters=0,
+                         corr2_storage=False)
         P_new = out[2]
         n_cells, m_add, e_add, p_raw = out[12], out[13], out[14], out[15]
 

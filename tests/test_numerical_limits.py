@@ -264,7 +264,11 @@ class TestChuncLimits:
             "motors/machbusterNew.ric", roughness=32e-6, kappa=0.44,
             pyrogen="bpnv", pyrogen_mass=None, T_ignition=756.0,
             t_max=0.05, target_propellant_cells=400, print_interval=0.0,
-            verbose=False)[0]
+            verbose=False,
+            # T11: the new PISO defaults (K=1, S=True) remove the floor
+            # events in this regime (P5/T11); this test needs them to tie the
+            # per-cell map to the T3 counters, so it runs the pre-T11 step.
+            piso_energy_coupling_iters=0, piso_corr2_storage=False)[0]
         return res
 
     def test_pressure_floor_map_ties_to_t3_counters(self, run):

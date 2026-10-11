@@ -2539,14 +2539,15 @@ def run_simulation(
     # behaviour). ~1.0 is the physical choking limit. No-op at the subsonic
     # plateau.
     port_mach_cap=0.0,
-    # P5 (opt-in experiment): energy-coupled PISO outer iteration. 0 = the
-    # original step (bit-identical). K > 0 = up to K extra pressure-
+    # T11 (default ON since the T11 adoption, 2026-10-11): energy-coupled PISO
+    # outer iteration. 0 = the pre-T11 step. K > 0 = up to K extra pressure-
     # correction + energy passes with T-updated compressibility
-    # (solver._piso_step_with_energy_diagnostics docstring).
-    piso_energy_coupling_iters=0,
-    # P5 ablation: add the omitted storage term to the 2nd pressure corrector
-    # (see solver docstring). Default False = original step.
-    piso_corr2_storage=False,
+    # (solver._piso_step_with_energy_diagnostics docstring). Default K = 1.
+    piso_energy_coupling_iters=1,
+    # T11 (default ON): the storage term the pre-T11 second pressure
+    # corrector omitted (it re-applied the first corrector's storage, so every
+    # transient pressure increment was applied ~twice). False = pre-T11 step.
+    piso_corr2_storage=True,
     burn_update_interval=None,
     geometry_update_interval=None,
     # --- Ignition ---

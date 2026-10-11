@@ -306,9 +306,9 @@ def _piso_step_with_energy_diagnostics(
     mach_limit_last_time_s=None,
     step_start_time_s=0.0,
     pressure_floor_pa=1.0e3,
-    energy_coupling_iters=0,
+    energy_coupling_iters=1,
     energy_coupling_tol=1.0e-6,
-    corr2_storage=False,
+    corr2_storage=True,
 ):
     """
     One complete PISO time step on a staggered grid.
@@ -448,8 +448,10 @@ def _piso_step_with_energy_diagnostics(
     energy with ``* Cp_arr * T_new`` -- i.e. ledger storage + EOS jump +
     floor jump is exactly the carried storage.
 
-    P5 (opt-in energy-coupled iteration; ``energy_coupling_iters=0`` is the
-    original step, bit-identical).  ``energy_coupling_iters = K`` re-runs
+    P5 energy-coupled iteration + second-corrector storage, DEFAULT ON since
+    T11 (2026-10-11): ``energy_coupling_iters=1``, ``corr2_storage=True``.
+    ``energy_coupling_iters=0, corr2_storage=False`` is the pre-T11 step
+    (bit-identical to it).  ``energy_coupling_iters = K`` re-runs
     pressure corrections 1 and 2 and the energy update up to K more times,
     with the compressibility ``1/(R T)`` and the intermediate density
     ``rho_new_1 = P/(R T)`` built from the previous pass's temperature
@@ -1004,9 +1006,9 @@ def piso_step(
     dx, dt, gamma_arr, R_arr, Cp_arr, T_ceiling_arr,
     A_throat, P_ambient, T_ambient, N,
     port_mach_cap=0.0,
-    energy_coupling_iters=0,
+    energy_coupling_iters=1,
     energy_coupling_tol=1.0e-6,
-    corr2_storage=False,
+    corr2_storage=True,
 ):
     """Public PISO step returning only the updated flow state.
 
