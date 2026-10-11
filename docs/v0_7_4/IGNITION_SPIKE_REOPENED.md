@@ -811,3 +811,77 @@ plots under `artifacts/ignition_mach_clamp/`, `artifacts/ignition_flamespread*/`
 `artifacts/chunc_G_reconstruction.png`. Experimental trace: `srm_1d/plotting.py`
 `CHUNC_EXPERIMENTAL` is the 59-pt digitization; the full 346-pt trace is
 `ThomasMach5_edited.xlsx` (user-supplied).
+
+---
+
+## 12. Solver verification (Codex-review replication) -- DRAFT -- for review
+
+**DRAFT -- for review.** Numbers only. Source: solver-verification T8 (`docs/solver_verification/worklog/T8.md`, probe
+`docs/solver_verification/probes/grid_convergence.py`, raw rows `docs/solver_verification/worklog/T8_results/`). Config:
+Chunc (`machbusterNew.ric`), roughness 32 um, kappa 0.44, T_ignition 756 K, default k_solid, ma2020, library BPNV
+(`pyrogen='bpnv'`), post-T10 tree (regression mass source net of the filled volume) with the history-capacity fix;
+`t_max = 1.0` (part A), 0.05 (part B). 100-cell canonical row reproduces B0 (peak 11.28243546264288, n_steps 531883).
+
+### 12.1 Grid convergence (part A)
+Target cells -> actual 56/106/206/406/806/1606. Fill Mach = max of `max_mach` for `t < t_peak` (identical to the
+`t <= 3 ms` and `t <= 20 ms` windows in every canonical row; the maximum is at 1.7-2.9 ms).
+
+| cells | CFL | peak MPa | t_peak ms | plateau MPa | fill Mach | min P Pa | raw floor P Pa | floor act |
+|---|---|---|---|---|---|---|---|---|
+| 56 | 0.3 | 10.629 | 20.09 | 8.1224 | 3.10 | 36681 | - | 0 |
+| 106 | 0.3 | 11.282 | 16.29 | 8.1509 | 3.94 | 20462 | - | 0 |
+| 206 | 0.3 | 11.718 | 13.88 | 8.1742 | 4.94 | 6460 | - | 0 |
+| 406 | 0.3 | 12.057 | 12.30 | 8.1827 | 13.89 | 1000 (clamped) | +568.8 | 24 |
+| 806 | 0.3 | 12.265 | 11.43 | 8.1852 | 16.94 | 1000 (clamped) | -1252.3 | 192 |
+| 1606 | 0.3 | 12.388 | 10.91 | 8.1875 | 49.25 | 1000 (clamped) | -22957 | 193 |
+| 56 | 0.15 | 10.641 | 19.98 | 8.1225 | 2.84 | 43536 | - | 0 |
+| 106 | 0.15 | 11.296 | 16.20 | 8.1510 | 3.38 | 32209 | - | 0 |
+| 206 | 0.15 | 11.733 | 13.80 | 8.1743 | 4.02 | 20891 | - | 0 |
+| 406 | 0.15 | 12.071 | 12.24 | 8.1827 | 4.91 | 13943 | - | 0 |
+| 806 | 0.15 | 12.279 | 11.36 | 8.1853 | 6.02 | 8835 | - | 0 |
+| 1606 | 0.15 | 12.397 | 10.86 | 8.1876 | 7.25 | 6045 | - | 0 |
+
+Observed order / Richardson (target cells 400/800/1600, ratio 2): peak p = 0.750 (CFL 0.3) / 0.819 (CFL 0.15), f_inf =
+12.569 / 12.552 MPa; t_peak p = 0.747 / 0.832, f_inf = 10.14 / 10.23 ms; plateau differences 0.03% (p not meaningful;
+f_inf 8.23 / 8.21); fill Mach: no convergence (p = -3.40 at CFL 0.3, p = -0.14 at CFL 0.15, values above); min P at CFL 0.3
+floor-censored from 406 cells; at CFL 0.15 6045 Pa at 1606 cells and still falling (p = 0.87).
+Successive peak changes 50->100 ... 800->1600: +6.1, +3.9, +2.9, +1.7, +1.0 % (both CFL). Peak at CFL 0.15 vs 0.3:
++0.07 to +0.13 % on every grid. Floor activations: CFL 0.3 from 406 cells; none at CFL 0.15 on any grid. Pre-fix fine-grid
+rows that hit the history cap (termination `history array full`, 6,562,666 steps) had the same startup metrics; their plateau
+was partial and is not used.
+
+Codex's 1600-cell headline (12.4478 MPa, Mach 0.4343, finest pair 0.151 %) is from a stale MTV configuration with a 3 ms
+window and no committed data; it is not comparable (canonical finest pair 1.0 %, f_inf 12.55-12.57 MPa).
+
+### 12.2 Fill-Mach attribution (part B, t_max 0.05, CFL 0.3 -> 0.15)
+Mach in the `t <= 3 ms` window (pre-peak value in parentheses where different), 56/106/206 cells:
+
+| igniter | CFL 0.3 | CFL 0.15 | peak MPa (CFL 0.3) |
+|---|---|---|---|
+| library BPNV (= `.ric` embedded, refreshed; bit-identical) | 3.10 / 3.94 / 4.94 | 2.84 / 3.38 / 4.02 | 10.629 / 11.282 / 11.718 |
+| legacy BPNV (`SUPERSEDED_PYROGENS['BPNV'][0]`) | 3.36 / 4.81 / 12.01 | 3.33 / 4.31 / 5.75 | 11.600 / 12.443 / 12.979 |
+| library MTV | 0.45 / 0.54 / 0.48 (2.67 / 3.29 / 4.33) | 0.45 / 0.58 / 0.48 (2.53 / 3.16 / 3.81) | 10.991 / 11.204 / 11.307 |
+
+Codex's 1.987 / 2.200 / 2.311 (current BPNV), 3.271 / 4.821 / 11.722 (legacy), 0.448 / 0.498 / 0.479 (MTV) are reproduced
+(1.9875 / 2.2002 / 2.3105; 3.2702 / 4.8132 / 11.6867; 0.4481 / 0.4976 / 0.4794) with Codex's knobs (roughness 35 um, kappa
+0.45, T_ign 900 K, k_solid 0.4, P_cutoff 50 kPa). With those knobs the library-BPNV maximum is at 3.3-3.8 ms (pre-peak
+2.93 / 3.69 / 4.67) and the MTV maximum at 6.3-8.2 ms (2.61 / 3.21 / 4.11), i.e. outside their `t <= 3 ms` window; with the
+canonical knobs the library-BPNV maximum is at 2.0-2.9 ms, inside it. Metric (max over cell-centred |Mach|) identical in both
+trees. 100-cell values 3.94 @ 2.48 ms (library) and 4.81 @ 1.38 ms (legacy) match the plugin-path triage.
+`docs/v0_7_4/probes/chunc_mach_convergence.py` passes `pyrogen="bpnv"` by name; on 2026-06-17 that name resolved to the
+pre-`bfc2f3f` values (T 2800 K, M 0.030, gamma 1.25, full gas), i.e. the legacy igniter; today it resolves to the corrected
+library entry. Legacy snapshot reproduces §6: Mach 3.357 / 4.806 / 12.005 vs 3.36 / 4.81 / 12.04; peaks 11.600 / 12.443 /
+12.979 vs 11.77 / 12.65 / 13.22 (the 1.7 % peak offset equals the T10 effect, library BPNV 11.4728 -> 11.2824 = x0.9834,
+legacy 12.654 -> 12.443 = x0.9833).
+
+### 12.3 §6 claims
+| §6 claim | status | numbers |
+|---|---|---|
+| Supersonic fill Mach grows without bound as dx -> 0 (3.36 / 4.81 / 12.04) | stands (legacy igniter) | reproduced 3.36 / 4.81 / 12.01 at CFL 0.3; library BPNV 3.10 ... 49.2 over 56-1606 cells (CFL 0.3), 2.84 ... 7.25 (CFL 0.15) |
+| Fill Mach is "converged in CFL" -> spatial, not time-stepping | corrected | 106 cells: 4.81 -> 4.31 (legacy), 3.94 -> 3.38 (library), mild. Finer: 806 cells 16.94 -> 6.02, 1606 cells 49.2 -> 7.25 (library, CFL 0.3 -> 0.15); legacy 206 cells 12.01 -> 5.75. Floor events (24-193 steps) disappear at CFL 0.15. At CFL 0.15 the Mach still rises with refinement (4.02, 4.91, 6.02, 7.25; p = -0.14) |
+| Fill Mach is confined to the violent fill (collapses once the nozzle flows) | not tested here | maxima at 1.7-2.9 ms |
+| Spike P_peak "grid-converges ... -> ~14 MPa" (increments 0.88, 0.56) | corrected (value) / stands (convergence) | peak increments 0.65, 0.44, 0.34, 0.21, 0.12 MPa (50 ... 1600 cells, CFL 0.3); Richardson 12.55-12.57 MPa (p = 0.75-0.82), not ~14; the 11.76 / 12.64 / 13.20 series is the legacy-igniter, pre-T10 series (now 11.60 / 12.44 / 12.98 legacy; 10.63 / 11.28 / 11.72 library) |
+| Spike set by hot-gas presence, independent of velocity (port_mach_cap) | not tested here | -- |
+| Pressurization ~2.4x too fast, head port smaller than throat | not tested here | -- |
+| "v0.7.4 closeout tested only CFL and cadence, never grid" | stands | -- |
+| §6 runs used `pyrogen="bpnv"` (legacy values at the time) | stands, with attribution | see 12.2 |
