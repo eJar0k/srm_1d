@@ -317,6 +317,31 @@ in geometry/burn rate/ignition (called every step or every N steps).
 
 ## API Breaking Changes Log
 
+### Solver verification PB (unreleased, 2026-10-11) -- hardening + per-cell numerical-limit diagnostics (ports of Codex review P1/P2)
+
+No change to equations, defaults or trajectories (B0 + byte-identical A/B at
+106/406/806 cells: `docs/solver_verification/worklog/PB.md`).
+- **P1 hardening:** `run_simulation(pressure_floor_pa=1.0e3)` (last kwarg;
+  validated finite and > 0; default is the historical constant, bit-identical;
+  any other value changes the physics -- a limiter-sensitivity probe, reported in
+  `summary['pressure_floor_pa']`). `burn_update_interval` is now validated
+  (`None` or a positive integer, else `ValueError`; `0` used to be `step % 0`
+  inside the njit loop). `burn_rate_cell` returns `(r0, 0.0)` for
+  `D_hyd <= 0` (unreachable in a run).
+- **P2 diagnostics (bookkeeping only, never read back into state):**
+  `_piso_step_with_energy_diagnostics` takes 12 new OPTIONAL trailing args
+  (per-cell tally arrays for the T-floor / T-ceiling / pressure-floor clips,
+  per-cell max floor deficit, per-face `port_mach_cap` tallies, `step_start_time_s`,
+  `pressure_floor_pa`); the return tuple (21) is UNCHANGED. `_run_time_loop`
+  gained `pressure_floor_pa` (after `port_mach_cap`) and 10 tally arrays (after
+  `T_ceiling_arr`) -- internal API. New `result['numerical_limits']` (per-cell
+  count / duration / first / last time, |clip energy| for the T limits,
+  `maximum_raw_deficit_pa_by_cell`, optional Mach-cap faces; NaN = never) and
+  `srm_1d.tools.ignition_diagnostics.numerical_limits_summary(result)`.
+  `solver.LIMIT_*` / `N_LIMIT_DIAGNOSTICS` constants are the row indices.
+  Times: `first` = start of the first active step, `last` = END of the last.
+- Tests: `tests/test_numerical_limits.py`.
+
 ### History capacity fix (unreleased, 2026-10-06) -- `diagnostic_history_capacity` -> `history_capacity`
 
 Found during solver-verification T8: the per-step history arrays were sized

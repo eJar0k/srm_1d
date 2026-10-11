@@ -170,6 +170,13 @@ NOZZLE_STATE_CHOKED_OUT = 2
 # infs). Callers must gate on ``n_floor_cells > 0`` before using the value.
 FLOOR_MIN_RAW_P_NONE = 1.0e300
 
+# Per-cell numerical-limit diagnostics (solver-verification PB / P2): row
+# indices of the (N_LIMIT_DIAGNOSTICS, N) activation arrays.
+LIMIT_TEMPERATURE_FLOOR = 0
+LIMIT_TEMPERATURE_CEILING = 1
+LIMIT_PRESSURE_FLOOR = 2
+N_LIMIT_DIAGNOSTICS = 3
+
 
 @njit(cache=True, fastmath=True)
 def _critical_pressure_ratio(gamma):
@@ -287,6 +294,17 @@ def _piso_step_with_energy_diagnostics(
     dx, dt, gamma_arr, R_arr, Cp_arr, T_ceiling_arr,
     A_throat, P_ambient, T_ambient, N,
     port_mach_cap=0.0,
+    limit_activation_counts=None,
+    limit_duration_s=None,
+    limit_abs_energy_j=None,
+    limit_first_time_s=None,
+    limit_last_time_s=None,
+    pressure_floor_max_deficit_pa=None,
+    mach_limit_activation_counts=None,
+    mach_limit_duration_s=None,
+    mach_limit_first_time_s=None,
+    mach_limit_last_time_s=None,
+    step_start_time_s=0.0,
     pressure_floor_pa=1.0e3,
 ):
     """
@@ -382,10 +400,22 @@ def _piso_step_with_energy_diagnostics(
     The four ``floor_*`` values are ACCOUNTING ONLY -- the floor value and
     the clamp are unchanged.
 
-    ``pressure_floor_pa`` (solver-verification PB/P1; default 1.0e3, the
-    historical constant, bit-identical) is the pressure-floor value, now a
-    runtime argument. Overriding it changes the physics (limiter-sensitivity
-    probe).
+    Solver-verification PB (ports of Codex d08bcc5/d773b55/86c587f):
+      * ``pressure_floor_pa`` (default 1.0e3, the historical constant,
+        bit-identical): the pressure-floor value, now a runtime argument.
+        Overriding it changes the physics (limiter-sensitivity probe).
+      * Optional per-cell numerical-limit TALLIES (all default ``None`` =
+        off; BOOKKEEPING ONLY, never read back into the state; when
+        ``limit_activation_counts`` is given the other five ``limit_*``
+        arrays must be given too): ``limit_activation_counts`` int64
+        (3, N), ``limit_duration_s`` (3, N), ``limit_abs_energy_j`` (3, N;
+        only the two T-limit rows are filled), ``limit_first_time_s`` /
+        ``limit_last_time_s`` (3, N; -1.0 = never), rows indexed by
+        ``LIMIT_TEMPERATURE_FLOOR/_CEILING/LIMIT_PRESSURE_FLOOR``;
+        ``pressure_floor_max_deficit_pa`` (N,) running max of
+        (floor - raw P); ``mach_limit_*`` (N-1,) per interior face
+        activations of ``port_mach_cap`` (all four together). Times use
+        ``step_start_time_s`` (first = step start, last = step END).
 
     Solver-verification T6 (energy audit) appends five more ACCOUNTING-ONLY
     values (read-only on every state array; the trajectory is unchanged):
@@ -654,10 +684,21 @@ def _piso_step_with_energy_diagnostics(
             T_f = 0.5 * (T[j - 1] + T[j])
             a_f = (gamma_f * R_f * max(T_f, 1.0)) ** 0.5
             u_lim = port_mach_cap * a_f
+            mach_hit = False
             if u_new[j] > u_lim:
                 u_new[j] = u_lim
+                mach_hit = True
             elif u_new[j] < -u_lim:
                 u_new[j] = -u_lim
+                mach_hit = True
+            # PB/P2 bookkeeping only: face activation tally (interior face
+            # j -> array index j-1). Never writes state.
+            if mach_hit and mach_limit_activation_counts is not None:
+                mach_limit_activation_counts[j - 1] += 1
+                mach_limit_duration_s[j - 1] += dt
+                if mach_limit_first_time_s[j - 1] < 0.0:
+                    mach_limit_first_time_s[j - 1] = step_start_time_s
+                mach_limit_last_time_s[j - 1] = step_start_time_s + dt
 
     # -------------------------------------------------------
     # STEP 3b: ENERGY EQUATION  (v0.7.1 Phase 3: sensible-enthalpy form)
@@ -681,6 +722,7 @@ def _piso_step_with_energy_diagnostics(
     thermal_source_power = 0.0
     clipping_correction_power = 0.0
     T_new = np.zeros(N)
+    T_raw_arr = np.empty(N)
     for i in range(N):
         Cp_i = Cp_arr[i]
         old_mass = rho[i] * A_port[i] * dx
@@ -738,8 +780,36 @@ def _piso_step_with_energy_diagnostics(
         clipping_correction_power += (
             (T_clipped - T_raw) * new_mass * Cp_i / dt
         )
+        T_raw_arr[i] = T_raw  # PB/P2 bookkeeping (read only by the tally loop)
         T_new[i] = T_clipped
         gas_energy_after += new_mass * Cp_i * T_new[i]
+
+    # PB/P2 bookkeeping only: per-cell tally of the T-floor / T-ceiling
+    # clips. A SEPARATE loop (re-deriving the clip from the stored T_raw)
+    # so the energy loop above compiles exactly as before -- tallies inside
+    # it perturb the fastmath summation order of clipping_correction_power
+    # at the ULP level. Never writes T_new / any state.
+    if limit_activation_counts is not None:
+        T_floor_tally = max(1.0, T_ambient)
+        for i in range(N):
+            T_raw_i = T_raw_arr[i]
+            limit_index = -1
+            T_c = T_raw_i
+            if T_c < T_floor_tally:
+                T_c = T_floor_tally
+                limit_index = LIMIT_TEMPERATURE_FLOOR
+            if T_c > T_ceiling_arr[i]:
+                T_c = T_ceiling_arr[i]
+                limit_index = LIMIT_TEMPERATURE_CEILING
+            if limit_index >= 0:
+                new_mass_t = max(rho_new_1[i] * A_port[i] * dx, 1e-16)
+                power_t = (T_c - T_raw_i) * new_mass_t * Cp_arr[i] / dt
+                limit_activation_counts[limit_index, i] += 1
+                limit_duration_s[limit_index, i] += dt
+                limit_abs_energy_j[limit_index, i] += abs(power_t) * dt
+                if limit_first_time_s[limit_index, i] < 0.0:
+                    limit_first_time_s[limit_index, i] = step_start_time_s
+                limit_last_time_s[limit_index, i] = step_start_time_s + dt
 
     # -------------------------------------------------------
     # STEP 4: UPDATE DENSITY
@@ -799,6 +869,19 @@ def _piso_step_with_energy_diagnostics(
             floor_energy_added += m_floor_i * Cp_arr[i] * T_new[i]
             if P_new[i] < floor_min_raw_P:
                 floor_min_raw_P = P_new[i]
+            # PB/P2 bookkeeping only: per-cell activation tally + deficit.
+            if pressure_floor_max_deficit_pa is not None:
+                deficit_i = pressure_floor - P_new[i]
+                if deficit_i > pressure_floor_max_deficit_pa[i]:
+                    pressure_floor_max_deficit_pa[i] = deficit_i
+            if limit_activation_counts is not None:
+                limit_activation_counts[LIMIT_PRESSURE_FLOOR, i] += 1
+                limit_duration_s[LIMIT_PRESSURE_FLOOR, i] += dt
+                if limit_first_time_s[LIMIT_PRESSURE_FLOOR, i] < 0.0:
+                    limit_first_time_s[LIMIT_PRESSURE_FLOOR, i] = (
+                        step_start_time_s)
+                limit_last_time_s[LIMIT_PRESSURE_FLOOR, i] = (
+                    step_start_time_s + dt)
     for i in range(N):
         P_new[i] = max(P_new[i], pressure_floor)
     rho_new = np.zeros(N)

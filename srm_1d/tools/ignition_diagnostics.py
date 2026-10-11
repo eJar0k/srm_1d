@@ -223,6 +223,76 @@ def ignition_refresh_delays(result: dict, interval: int | None = None) -> dict[s
     }
 
 
+def numerical_limits_summary(result: dict) -> dict[str, Any]:
+    """Compact scalar view of ``result['numerical_limits']`` (solver-verification P2).
+
+    Post-hoc, read-only. For each of ``temperature_floor``,
+    ``temperature_ceiling`` and ``pressure_floor``: ``total_activations``
+    (cell-steps), ``active_cells``, ``fraction_of_cell_steps`` (activations
+    over ``n_cells * n_steps``), ``total_cell_duration_s`` (sum of dt over
+    activations, cell-seconds), ``first_activation_time_s`` /
+    ``last_activation_time_s`` (global min / max over cells; NaN if never;
+    first = start of the first active step, last = END of the last),
+    ``x_of_max_activations_m``; the T limits add
+    ``total_abs_correction_energy_j`` and ``x_of_max_energy_m``; the pressure
+    floor adds ``threshold_pa``, ``maximum_raw_deficit_pa`` and
+    ``x_of_maximum_deficit_m``. ``port_mach_cap`` reports ``threshold_mach``,
+    ``active_faces``, ``total_activations`` and first/last times.
+    """
+    lim = result["numerical_limits"]
+    x = np.asarray(lim["x_m"], dtype=float)
+    n_steps = int(len(result["time"]))
+    n_cells = int(x.size)
+
+    def _tmin(a):
+        a = np.asarray(a, dtype=float)
+        return float(np.nanmin(a)) if np.any(np.isfinite(a)) else float("nan")
+
+    def _tmax(a):
+        a = np.asarray(a, dtype=float)
+        return float(np.nanmax(a)) if np.any(np.isfinite(a)) else float("nan")
+
+    def _x_of_max(v):
+        v = np.asarray(v, dtype=float)
+        return float(x[int(np.argmax(v))]) if v.size and np.max(v) > 0.0 else float("nan")
+
+    out: dict[str, Any] = {}
+    for name in ("temperature_floor", "temperature_ceiling", "pressure_floor"):
+        blk = lim[name]
+        counts = np.asarray(blk["activation_count_by_cell"])
+        total = int(counts.sum())
+        d: dict[str, Any] = {
+            "total_activations": total,
+            "active_cells": int(np.count_nonzero(counts)),
+            "fraction_of_cell_steps": (
+                total / float(n_cells * n_steps) if n_cells * n_steps else float("nan")),
+            "total_cell_duration_s": float(np.sum(blk["duration_s_by_cell"])),
+            "first_activation_time_s": _tmin(blk["first_activation_time_s_by_cell"]),
+            "last_activation_time_s": _tmax(blk["last_activation_time_s_by_cell"]),
+            "x_of_max_activations_m": _x_of_max(counts),
+        }
+        if "absolute_correction_energy_j_by_cell" in blk:
+            e = np.asarray(blk["absolute_correction_energy_j_by_cell"], dtype=float)
+            d["total_abs_correction_energy_j"] = float(e.sum())
+            d["x_of_max_energy_m"] = _x_of_max(e)
+        if name == "pressure_floor":
+            deficit = np.asarray(blk["maximum_raw_deficit_pa_by_cell"], dtype=float)
+            d["threshold_pa"] = float(blk["threshold_pa"])
+            d["maximum_raw_deficit_pa"] = float(deficit.max()) if deficit.size else 0.0
+            d["x_of_maximum_deficit_m"] = _x_of_max(deficit)
+        out[name] = d
+    m = lim["port_mach_cap"]
+    mc = np.asarray(m["activation_count_by_face"])
+    out["port_mach_cap"] = {
+        "threshold_mach": float(m["threshold_mach"]),
+        "active_faces": int(np.count_nonzero(mc)),
+        "total_activations": int(mc.sum()),
+        "first_activation_time_s": _tmin(m["first_activation_time_s_by_face"]),
+        "last_activation_time_s": _tmax(m["last_activation_time_s_by_face"]),
+    }
+    return out
+
+
 def ignition_spread_metrics(result: dict) -> dict[str, Any]:
     """Burning-fraction time history and inferred first-burning times."""
     snapshot_times = _snapshot_times(result)

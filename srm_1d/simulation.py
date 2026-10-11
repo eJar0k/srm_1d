@@ -34,6 +34,10 @@ except ImportError:
 
 from .solver import (
     FLOOR_MIN_RAW_P_NONE,
+    LIMIT_TEMPERATURE_FLOOR,
+    LIMIT_TEMPERATURE_CEILING,
+    LIMIT_PRESSURE_FLOOR,
+    N_LIMIT_DIAGNOSTICS,
     _piso_step_with_energy_diagnostics,
     compute_dt_cfl,
     compute_dt_source_cap,
@@ -1466,6 +1470,12 @@ def _run_time_loop(
     Y_species, species_params_arr, mass_source_by_species,
     gamma_mix_arr, Cp_mix_arr, R_mix_arr, M_mix_arr,
     T_ceiling_arr,
+    # --- PB/P2: per-cell numerical-limit diagnostics (bookkeeping only) ---
+    limit_activation_counts, limit_duration_s, limit_abs_energy_j,
+    limit_first_time_s, limit_last_time_s,
+    pressure_floor_max_deficit_pa,
+    mach_limit_activation_counts, mach_limit_duration_s,
+    mach_limit_first_time_s, mach_limit_last_time_s,
     # --- v0.7.2 Phase A: pyrogen axial distribution ---
     pyrogen_axial_weights,
     # --- v0.7.2 Phase B-v2: flame-front h_c augmentation ---
@@ -2137,6 +2147,12 @@ def _run_time_loop(
             dx, dt, gamma_mix_arr, R_mix_arr, Cp_mix_arr, T_ceiling_arr,
             A_throat, P_ambient, ambient_temperature, N,
             port_mach_cap,
+            limit_activation_counts, limit_duration_s, limit_abs_energy_j,
+            limit_first_time_s, limit_last_time_s,
+            pressure_floor_max_deficit_pa,
+            mach_limit_activation_counts, mach_limit_duration_s,
+            mach_limit_first_time_s, mach_limit_last_time_s,
+            t,
             pressure_floor_pa,
         )
 
@@ -2411,6 +2427,52 @@ def _estimate_history_steps(t_max, cfl_target, dx, dt_max, species_params_arr):
     if dt_max > 0.0:
         dt_est = min(dt_est, dt_max)
     return int(t_max / max(dt_est, 1e-12)) + 1000
+
+
+def _build_numerical_limits(
+    x_centers, T_ambient, T_ceiling_arr, pressure_floor_pa, port_mach_cap,
+    counts, duration, abs_energy, first_t, last_t, floor_deficit,
+    mach_counts, mach_duration, mach_first_t, mach_last_t,
+):
+    """Assemble ``result['numerical_limits']`` from the loop's tally arrays
+    (copies; -1.0 first/last sentinels become NaN)."""
+    def _times(a):
+        return np.where(a >= 0.0, a, np.nan)
+
+    def _block(row):
+        return {
+            'activation_count_by_cell': counts[row].copy(),
+            'duration_s_by_cell': duration[row].copy(),
+            'first_activation_time_s_by_cell': _times(first_t[row]),
+            'last_activation_time_s_by_cell': _times(last_t[row]),
+        }
+
+    tf = _block(LIMIT_TEMPERATURE_FLOOR)
+    tf['threshold_k'] = max(1.0, float(T_ambient))
+    tf['absolute_correction_energy_j_by_cell'] = (
+        abs_energy[LIMIT_TEMPERATURE_FLOOR].copy())
+    tc = _block(LIMIT_TEMPERATURE_CEILING)
+    tc['final_threshold_k_by_cell'] = T_ceiling_arr.copy()
+    tc['absolute_correction_energy_j_by_cell'] = (
+        abs_energy[LIMIT_TEMPERATURE_CEILING].copy())
+    pf = _block(LIMIT_PRESSURE_FLOOR)
+    pf['threshold_pa'] = float(pressure_floor_pa)
+    pf['maximum_raw_deficit_pa_by_cell'] = floor_deficit.copy()
+    x_face = 0.5 * (x_centers[:-1] + x_centers[1:])
+    return {
+        'x_m': x_centers.copy(),
+        'temperature_floor': tf,
+        'temperature_ceiling': tc,
+        'pressure_floor': pf,
+        'port_mach_cap': {
+            'threshold_mach': float(port_mach_cap),
+            'x_m': x_face,
+            'activation_count_by_face': mach_counts.copy(),
+            'duration_s_by_face': mach_duration.copy(),
+            'first_activation_time_s_by_face': _times(mach_first_t),
+            'last_activation_time_s_by_face': _times(mach_last_t),
+        },
+    }
 
 
 def run_simulation(
@@ -2800,6 +2862,19 @@ def run_simulation(
     # by ``_compute_T_ceiling_arr`` from species_params; consumed by the
     # PISO energy equation's T_raw clip.
     T_ceiling_arr = np.empty(N)
+    # PB/P2: per-cell numerical-limit diagnostics (bookkeeping only; rows
+    # are LIMIT_TEMPERATURE_FLOOR / _CEILING / LIMIT_PRESSURE_FLOOR).
+    # First/last-time arrays use -1.0 as the "never active" sentinel.
+    limit_activation_counts = np.zeros((N_LIMIT_DIAGNOSTICS, N), dtype=np.int64)
+    limit_duration_s = np.zeros((N_LIMIT_DIAGNOSTICS, N))
+    limit_abs_energy_j = np.zeros((N_LIMIT_DIAGNOSTICS, N))
+    limit_first_time_s = np.full((N_LIMIT_DIAGNOSTICS, N), -1.0)
+    limit_last_time_s = np.full((N_LIMIT_DIAGNOSTICS, N), -1.0)
+    pressure_floor_max_deficit_pa = np.zeros(N)
+    mach_limit_activation_counts = np.zeros(max(N - 1, 0), dtype=np.int64)
+    mach_limit_duration_s = np.zeros(max(N - 1, 0))
+    mach_limit_first_time_s = np.full(max(N - 1, 0), -1.0)
+    mach_limit_last_time_s = np.full(max(N - 1, 0), -1.0)
 
     # Ignition state
     is_burning = np.zeros(N, dtype=np.bool_)
@@ -3130,6 +3205,12 @@ def run_simulation(
         Y_species, species_params_arr, mass_source_by_species,
         gamma_mix_arr, Cp_mix_arr, R_mix_arr, M_mix_arr,
         T_ceiling_arr,
+        # PB/P2: per-cell numerical-limit diagnostics
+        limit_activation_counts, limit_duration_s, limit_abs_energy_j,
+        limit_first_time_s, limit_last_time_s,
+        pressure_floor_max_deficit_pa,
+        mach_limit_activation_counts, mach_limit_duration_s,
+        mach_limit_first_time_s, mach_limit_last_time_s,
         # v0.7.2 Phase A: pyrogen axial distribution
         pyrogen_axial_weights,
         # v0.7.2 Phase B-v2: flame-front h_c augmentation
@@ -3605,6 +3686,17 @@ def run_simulation(
         'snapshots': snapshots, 'grains': grain_data,
         'summary': summary,
         'P_ambient': P_ambient,
+        # Per-cell numerical-limit activation maps (solver-verification
+        # PB/P2). Bookkeeping only. Times are step-START based: first =
+        # start of the first active step, last = END of the last active
+        # step; NaN = never active. Energies are sum(|clip energy|) [J].
+        'numerical_limits': _build_numerical_limits(
+            x_centers, T_ambient, T_ceiling_arr, pressure_floor_pa,
+            port_mach_cap, limit_activation_counts, limit_duration_s,
+            limit_abs_energy_j, limit_first_time_s, limit_last_time_s,
+            pressure_floor_max_deficit_pa, mach_limit_activation_counts,
+            mach_limit_duration_s, mach_limit_first_time_s,
+            mach_limit_last_time_s),
         # v0.7.1: N-species final state and species registry
         'Y_species_final': Y_species.copy(),
         'species_params': species_params_arr.copy(),

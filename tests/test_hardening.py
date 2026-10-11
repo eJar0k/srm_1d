@@ -32,7 +32,8 @@ def _floor_step(pressure, floor_pa=None):
     )
     if floor_pa is None:
         return _piso_step_with_energy_diagnostics(*args)
-    return _piso_step_with_energy_diagnostics(*args, 0.0, floor_pa)
+    return _piso_step_with_energy_diagnostics(
+        *args, pressure_floor_pa=floor_pa)
 
 
 class TestPressureFloorKwarg:
