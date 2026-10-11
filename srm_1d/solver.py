@@ -287,6 +287,9 @@ def _piso_step_with_energy_diagnostics(
     dx, dt, gamma_arr, R_arr, Cp_arr, T_ceiling_arr,
     A_throat, P_ambient, T_ambient, N,
     port_mach_cap=0.0,
+    energy_coupling_iters=0,
+    energy_coupling_tol=1.0e-6,
+    corr2_storage=False,
 ):
     """
     One complete PISO time step on a staggered grid.
@@ -408,6 +411,25 @@ def _piso_step_with_energy_diagnostics(
     floor_mass_added == sum(rho_new * A_port * dx)`` and the same for
     energy with ``* Cp_arr * T_new`` -- i.e. ledger storage + EOS jump +
     floor jump is exactly the carried storage.
+
+    P5 (opt-in energy-coupled iteration; ``energy_coupling_iters=0`` is the
+    original step, bit-identical).  ``energy_coupling_iters = K`` re-runs
+    pressure corrections 1 and 2 and the energy update up to K more times,
+    with the compressibility ``1/(R T)`` and the intermediate density
+    ``rho_new_1 = P/(R T)`` built from the previous pass's temperature
+    (pass 0: the start-of-step T), stopping early when
+    ``max|T_k+1 - T_k|/T_k < energy_coupling_tol``.  Pass k > 0 adds the
+    thermal-storage term ``-(A dx/dt) P/R (1/T_k - 1/T^n)`` to each
+    continuity residual (zero when T_k = T^n).  Three trailing outputs:
+
+    n_coupling_passes : int
+        Extra passes performed (0 .. K).
+    coupling_rel_dT : float
+        ``max_i |T_new - T_comp|/T_comp`` of the LAST pass (for K = 0 this is
+        just the step's own relative temperature change).
+    eos_mass_jump_p2 : float
+        Part of ``eos_mass_jump`` carried by the second pressure correction:
+        ``sum((P_raw - P_after_corr1)/(R T_new) A dx)`` [kg] (diagnostic).
     """
     # v0.7.1 Phase 3: nozzle boundary uses cell-N-1 mixture thermo
     gamma_bnd = gamma_arr[N - 1]
@@ -480,260 +502,314 @@ def _piso_step_with_energy_diagnostics(
 
     # Nozzle face: extrapolate for now (corrected by pressure step)
     u_star[N] = u_star[N - 1]
-
-    # -------------------------------------------------------
-    # STEP 2: PRESSURE CORRECTION 1
-    # -------------------------------------------------------
-    # Continuity at cell i:
-    #   (ρ_new - ρ_old)·A·dx/dt + (ṁ*[i+1] - ṁ*[i]) = S·dx
-    #
-    # With ρ_new = (P + P')/(R·T) and velocity correction
-    #   u'[j] = -dt/ρ_f[j] · (P'[j] - P'[j-1]) / dx
-    #
-    # This gives the tridiagonal system for P'.
-
-    # Momentum equation inverse diagonal coefficient at each face
+    # ---- P5 (opt-in): energy-coupled outer iteration -------------------
+    # Passes it = 0 .. energy_coupling_iters.  Pass 0 is exactly the original
+    # step (T_comp == T).  Each later pass re-does pressure corrections 1 & 2
+    # and the energy update with the compressibility / intermediate density
+    # rebuilt from the previous pass's T (T_comp = T_new).  See
+    # docs/solver_verification/worklog/P5.md for the algebra.
     d_face = np.zeros(N + 1)
-    for j in range(1, N):
-        rho_f = 0.5 * (rho[j - 1] + rho[j])
-        d_face[j] = dt / max(rho_f, 1e-6)
-
     a_sub = np.zeros(N)
     a_diag = np.zeros(N)
     a_sup = np.zeros(N)
     b_rhs = np.zeros(N)
-
+    T_comp = np.zeros(N)
     for i in range(N):
-        RT_local = R_arr[i] * T[i]
-        a_t = A_port[i] * dx / (RT_local * dt)  # Transient density term
-
-        # West face coefficient (face i)
-        if i > 0:
-            coeff_w = A_face[i] * A_face[i] * d_face[i] / dx
-        else:
-            coeff_w = 0.0  # Wall: no flux correction
-
-        # East face coefficient (face i+1)
-        if i < N - 1:
-            coeff_e = A_face[i + 1] * A_face[i + 1] * d_face[i + 1] / dx
-        else:
-            coeff_e = 0.0  # Nozzle: handled separately
-
-        a_sub[i] = -coeff_w
-        a_sup[i] = -coeff_e
-        a_diag[i] = a_t + coeff_w + coeff_e
-
-        # Nozzle BC: P' at last cell drives nozzle flow correction
-        if i == N - 1:
-            _mdot_bc, dmdp_bc, _T_bc, _state_bc = _nozzle_boundary_flow(
-                P[i], T[i], A_throat, gamma_bnd, R_bnd, P_ambient, T_ambient
-            )
-            a_diag[i] += dmdp_bc
-
-        # Continuity residual using u*
-        if i > 0:
-            rho_w = 0.5 * (rho[i - 1] + rho[i])
-            mdot_star_w = rho_w * u_star[i] * A_face[i]
-        else:
-            mdot_star_w = 0.0
-
-        if i < N - 1:
-            rho_e = 0.5 * (rho[i] + rho[i + 1])
-            mdot_star_e = rho_e * u_star[i + 1] * A_face[i + 1]
-        else:
-            mdot_star_e, _dmdp, _T_bc, _state = _nozzle_boundary_flow(
-                P[i], T[i], A_throat, gamma_bnd, R_bnd, P_ambient, T_ambient
-            )
-
-        b_rhs[i] = mass_source[i] * dx - (mdot_star_e - mdot_star_w)
-
-    P_prime = thomas_solve(a_sub, a_diag, a_sup, b_rhs, N)
-
-    # Update pressure
-    P_new = P + P_prime
-
-    # Correct face velocities: u = u* - d_face · (P'[j] - P'[j-1])/dx
-    u_new = np.copy(u_star)
-    for j in range(1, N):
-        u_new[j] = u_star[j] - d_face[j] * (P_prime[j] - P_prime[j - 1]) / dx
-    u_new[0] = 0.0
-
-    # -------------------------------------------------------
-    # STEP 3: PRESSURE CORRECTION 2
-    # -------------------------------------------------------
+        T_comp[i] = T[i]
+    u_new = np.zeros(N + 1)
+    P_new = np.zeros(N)
+    P_after1 = np.zeros(N)
     rho_new_1 = np.zeros(N)
-    for i in range(N):
-        rho_new_1[i] = P_new[i] / (R_arr[i] * T[i])
-
-    # Recompute d_face with updated density
-    for j in range(1, N):
-        rho_f = 0.5 * (rho_new_1[j - 1] + rho_new_1[j])
-        d_face[j] = dt / max(rho_f, 1e-6)
-
-    for i in range(N):
-        RT_local = R_arr[i] * T[i]
-        a_t = A_port[i] * dx / (RT_local * dt)
-
-        if i > 0:
-            coeff_w = A_face[i] * A_face[i] * d_face[i] / dx
-        else:
-            coeff_w = 0.0
-
-        if i < N - 1:
-            coeff_e = A_face[i + 1] * A_face[i + 1] * d_face[i + 1] / dx
-        else:
-            coeff_e = 0.0
-
-        a_sub[i] = -coeff_w
-        a_sup[i] = -coeff_e
-        a_diag[i] = a_t + coeff_w + coeff_e
-        if i == N - 1:
-            _mdot_bc, dmdp_bc, _T_bc, _state_bc = _nozzle_boundary_flow(
-                P_new[i], T[i], A_throat, gamma_bnd, R_bnd, P_ambient, T_ambient
-            )
-            a_diag[i] += dmdp_bc
-
-        if i > 0:
-            rho_w = 0.5 * (rho_new_1[i - 1] + rho_new_1[i])
-            mdot_w2 = rho_w * u_new[i] * A_face[i]
-        else:
-            mdot_w2 = 0.0
-
-        if i < N - 1:
-            rho_e = 0.5 * (rho_new_1[i] + rho_new_1[i + 1])
-            mdot_e2 = rho_e * u_new[i + 1] * A_face[i + 1]
-        else:
-            mdot_e2, _dmdp, _T_bc, _state = _nozzle_boundary_flow(
-                P_new[i], T[i], A_throat, gamma_bnd, R_bnd, P_ambient, T_ambient
-            )
-
-        b_rhs[i] = mass_source[i] * dx - (mdot_e2 - mdot_w2)
-
-    P_prime2 = thomas_solve(a_sub, a_diag, a_sup, b_rhs, N)
-
-    P_new = P_new + P_prime2
-    for j in range(1, N):
-        u_new[j] = u_new[j] - d_face[j] * (P_prime2[j] - P_prime2[j - 1]) / dx
-    u_new[0] = 0.0
-    mdot_boundary, _dmdp, T_boundary, _state = _nozzle_boundary_flow(
-        P_new[N - 1], T[N - 1], A_throat, gamma_bnd, R_bnd,
-        P_ambient, T_ambient,
-    )
-    if mdot_boundary >= 0.0:
-        rho_boundary = rho_new_1[N - 1]
-    else:
-        rho_boundary = P_ambient / (R_bnd * max(T_boundary, 1.0))
-    u_new[N] = mdot_boundary / max(rho_boundary * A_face[N], 1.0e-12)
-
-    # -------------------------------------------------------
-    # STEP 3c: AERODYNAMIC-CHOKING VELOCITY LIMITER
-    # -------------------------------------------------------
-    # The pressure-based PISO has no choking limit on the interior port
-    # (only the nozzle THROAT chokes via _nozzle_boundary_flow) and is not
-    # shock-capturing, so during the violent ignition fill the cold/hot
-    # contact velocity can blow up to grid-divergent supersonic values (max
-    # fill Mach 3.4 / 4.8 / 12 for 50 / 100 / 200 cells; see
-    # docs/v0_7_4/IGNITION_SPIKE_REOPENED.md §6). Physically a constant- or
-    # diverging-area port cannot exceed ~Mach 1 under distributed mass
-    # addition without a converging-diverging passage. When port_mach_cap > 0,
-    # clamp the interior face velocities |u[j]| to port_mach_cap times the
-    # local sound speed. No-op at the subsonic plateau (Mach ~0.36), so steady
-    # operation is untouched; applied BEFORE the energy advection below so the
-    # convective enthalpy flux is bounded too. The head wall (face 0) and the
-    # nozzle face (N, set by the choked BC) are left as-is.
-    if port_mach_cap > 0.0:
-        for j in range(1, N):
-            gamma_f = 0.5 * (gamma_arr[j - 1] + gamma_arr[j])
-            R_f = 0.5 * (R_arr[j - 1] + R_arr[j])
-            T_f = 0.5 * (T[j - 1] + T[j])
-            a_f = (gamma_f * R_f * max(T_f, 1.0)) ** 0.5
-            u_lim = port_mach_cap * a_f
-            if u_new[j] > u_lim:
-                u_new[j] = u_lim
-            elif u_new[j] < -u_lim:
-                u_new[j] = -u_lim
-
-    # -------------------------------------------------------
-    # STEP 3b: ENERGY EQUATION  (v0.7.1 Phase 3: sensible-enthalpy form)
-    # -------------------------------------------------------
-    # We advect h_i = Cp_arr[i] * T[i] (specific sensible enthalpy)
-    # rather than T directly. Across a face between cells with different
-    # Cp, the conserved scalar that matches the mass flux is h, not T —
-    # advecting T directly loses energy proportional to ΔCp / Cp. See
-    # docs/v0_7_1/DESIGN.md §7.
-    #
-    # Cell update (per mass-flow at faces, mass-conservative form):
-    #   m_new * h_new = m_old * h_old
-    #                 + dt * (flux_h_in - flux_h_out + thermal_source[i] * dx)
-    # T_new = h_new / Cp_arr[i] (Cp stays at its start-of-step value within
-    # the PISO step — species composition is updated by _advect_species
-    # after PISO returns, then Cp_arr is refreshed for the next step.)
+    T_new = np.zeros(N)
     gas_energy_before = 0.0
     gas_energy_after = 0.0
     convective_scalar_flux_power = 0.0
     nozzle_scalar_flux_power = 0.0
     thermal_source_power = 0.0
     clipping_correction_power = 0.0
-    T_new = np.zeros(N)
-    for i in range(N):
-        Cp_i = Cp_arr[i]
-        old_mass = rho[i] * A_port[i] * dx
-        new_mass = max(rho_new_1[i] * A_port[i] * dx, 1e-16)
-        h_old = Cp_i * T[i]
-        gas_energy_before += old_mass * h_old
+    n_coupling_passes = 0
+    coupling_rel_dT = 0.0
+    for it in range(energy_coupling_iters + 1):
 
-        # West face enthalpy flux (upwind using staggered face velocity)
-        if i == 0:
-            flux_h_w = 0.0
-        else:
-            rho_w = 0.5 * (rho_new_1[i - 1] + rho_new_1[i])
-            mdot_w = rho_w * u_new[i] * A_face[i]
-            if mdot_w >= 0:
-                flux_h_w = mdot_w * Cp_arr[i - 1] * T[i - 1]
-            else:
-                flux_h_w = mdot_w * Cp_i * T[i]
+        # -------------------------------------------------------
+        # STEP 2: PRESSURE CORRECTION 1
+        # -------------------------------------------------------
+        # Continuity at cell i:
+        #   (ρ_new - ρ_old)·A·dx/dt + (ṁ*[i+1] - ṁ*[i]) = S·dx
+        #
+        # With ρ_new = (P + P')/(R·T) and velocity correction
+        #   u'[j] = -dt/ρ_f[j] · (P'[j] - P'[j-1]) / dx
+        #
+        # This gives the tridiagonal system for P'.
 
-        # East face enthalpy flux
-        if i < N - 1:
-            rho_e = 0.5 * (rho_new_1[i] + rho_new_1[i + 1])
-            mdot_e = rho_e * u_new[i + 1] * A_face[i + 1]
-            if mdot_e >= 0:
-                flux_h_e = mdot_e * Cp_i * T[i]
+        # Momentum equation inverse diagonal coefficient at each face
+        for j in range(1, N):
+            rho_f = 0.5 * (rho[j - 1] + rho[j])
+            d_face[j] = dt / max(rho_f, 1e-6)
+
+
+        for i in range(N):
+            RT_local = R_arr[i] * T_comp[i]
+            a_t = A_port[i] * dx / (RT_local * dt)  # Transient density term
+
+            # West face coefficient (face i)
+            if i > 0:
+                coeff_w = A_face[i] * A_face[i] * d_face[i] / dx
             else:
-                flux_h_e = mdot_e * Cp_arr[i + 1] * T[i + 1]
+                coeff_w = 0.0  # Wall: no flux correction
+
+            # East face coefficient (face i+1)
+            if i < N - 1:
+                coeff_e = A_face[i + 1] * A_face[i + 1] * d_face[i + 1] / dx
+            else:
+                coeff_e = 0.0  # Nozzle: handled separately
+
+            a_sub[i] = -coeff_w
+            a_sup[i] = -coeff_e
+            a_diag[i] = a_t + coeff_w + coeff_e
+
+            # Nozzle BC: P' at last cell drives nozzle flow correction
+            if i == N - 1:
+                _mdot_bc, dmdp_bc, _T_bc, _state_bc = _nozzle_boundary_flow(
+                    P[i], T[i], A_throat, gamma_bnd, R_bnd, P_ambient, T_ambient
+                )
+                a_diag[i] += dmdp_bc
+
+            # Continuity residual using u*
+            if i > 0:
+                rho_w = 0.5 * (rho[i - 1] + rho[i])
+                mdot_star_w = rho_w * u_star[i] * A_face[i]
+            else:
+                mdot_star_w = 0.0
+
+            if i < N - 1:
+                rho_e = 0.5 * (rho[i] + rho[i + 1])
+                mdot_star_e = rho_e * u_star[i + 1] * A_face[i + 1]
+            else:
+                mdot_star_e, _dmdp, _T_bc, _state = _nozzle_boundary_flow(
+                    P[i], T[i], A_throat, gamma_bnd, R_bnd, P_ambient, T_ambient
+                )
+
+            b_rhs[i] = mass_source[i] * dx - (mdot_star_e - mdot_star_w)
+            if it > 0:
+                # P5: thermal storage of the re-evaluated compressibility,
+                #   -(A dx/dt) P^n/R (1/T_comp - 1/T^n)   (0 when T_comp = T^n)
+                b_rhs[i] -= (
+                    A_port[i] * dx / dt * P[i] / R_arr[i]
+                    * (1.0 / T_comp[i] - 1.0 / T[i])
+                )
+
+        P_prime = thomas_solve(a_sub, a_diag, a_sup, b_rhs, N)
+
+        # Update pressure
+        P_new = P + P_prime
+        for i in range(N):
+            P_after1[i] = P_new[i]
+
+        # Correct face velocities: u = u* - d_face · (P'[j] - P'[j-1])/dx
+        u_new = np.copy(u_star)
+        for j in range(1, N):
+            u_new[j] = u_star[j] - d_face[j] * (P_prime[j] - P_prime[j - 1]) / dx
+        u_new[0] = 0.0
+
+        # -------------------------------------------------------
+        # STEP 3: PRESSURE CORRECTION 2
+        # -------------------------------------------------------
+        rho_new_1 = np.zeros(N)
+        for i in range(N):
+            rho_new_1[i] = P_new[i] / (R_arr[i] * T_comp[i])
+
+        # Recompute d_face with updated density
+        for j in range(1, N):
+            rho_f = 0.5 * (rho_new_1[j - 1] + rho_new_1[j])
+            d_face[j] = dt / max(rho_f, 1e-6)
+
+        for i in range(N):
+            RT_local = R_arr[i] * T_comp[i]
+            a_t = A_port[i] * dx / (RT_local * dt)
+
+            if i > 0:
+                coeff_w = A_face[i] * A_face[i] * d_face[i] / dx
+            else:
+                coeff_w = 0.0
+
+            if i < N - 1:
+                coeff_e = A_face[i + 1] * A_face[i + 1] * d_face[i + 1] / dx
+            else:
+                coeff_e = 0.0
+
+            a_sub[i] = -coeff_w
+            a_sup[i] = -coeff_e
+            a_diag[i] = a_t + coeff_w + coeff_e
+            if i == N - 1:
+                _mdot_bc, dmdp_bc, _T_bc, _state_bc = _nozzle_boundary_flow(
+                    P_new[i], T[i], A_throat, gamma_bnd, R_bnd, P_ambient, T_ambient
+                )
+                a_diag[i] += dmdp_bc
+
+            if i > 0:
+                rho_w = 0.5 * (rho_new_1[i - 1] + rho_new_1[i])
+                mdot_w2 = rho_w * u_new[i] * A_face[i]
+            else:
+                mdot_w2 = 0.0
+
+            if i < N - 1:
+                rho_e = 0.5 * (rho_new_1[i] + rho_new_1[i + 1])
+                mdot_e2 = rho_e * u_new[i + 1] * A_face[i + 1]
+            else:
+                mdot_e2, _dmdp, _T_bc, _state = _nozzle_boundary_flow(
+                    P_new[i], T[i], A_throat, gamma_bnd, R_bnd, P_ambient, T_ambient
+                )
+
+            b_rhs[i] = mass_source[i] * dx - (mdot_e2 - mdot_w2)
+            if corr2_storage:
+                # P5 (opt-in): the storage the original second corrector
+                # omits.  Residual of the full continuity at the intermediate
+                # state: -(A dx/dt) (P_after1/(R T_comp) - P^n/(R T^n)).
+                b_rhs[i] -= (
+                    A_port[i] * dx / dt / R_arr[i]
+                    * (P_after1[i] / T_comp[i] - P[i] / T[i])
+                )
+
+        P_prime2 = thomas_solve(a_sub, a_diag, a_sup, b_rhs, N)
+
+        P_new = P_new + P_prime2
+        for j in range(1, N):
+            u_new[j] = u_new[j] - d_face[j] * (P_prime2[j] - P_prime2[j - 1]) / dx
+        u_new[0] = 0.0
+        mdot_boundary, _dmdp, T_boundary, _state = _nozzle_boundary_flow(
+            P_new[N - 1], T[N - 1], A_throat, gamma_bnd, R_bnd,
+            P_ambient, T_ambient,
+        )
+        if mdot_boundary >= 0.0:
+            rho_boundary = rho_new_1[N - 1]
         else:
-            mdot_e, _dmdp, T_upstream, _state = _nozzle_boundary_flow(
-                P_new[i], T[i], A_throat, gamma_bnd, R_bnd,
-                P_ambient, T_ambient,
+            rho_boundary = P_ambient / (R_bnd * max(T_boundary, 1.0))
+        u_new[N] = mdot_boundary / max(rho_boundary * A_face[N], 1.0e-12)
+
+        # -------------------------------------------------------
+        # STEP 3c: AERODYNAMIC-CHOKING VELOCITY LIMITER
+        # -------------------------------------------------------
+        # The pressure-based PISO has no choking limit on the interior port
+        # (only the nozzle THROAT chokes via _nozzle_boundary_flow) and is not
+        # shock-capturing, so during the violent ignition fill the cold/hot
+        # contact velocity can blow up to grid-divergent supersonic values (max
+        # fill Mach 3.4 / 4.8 / 12 for 50 / 100 / 200 cells; see
+        # docs/v0_7_4/IGNITION_SPIKE_REOPENED.md §6). Physically a constant- or
+        # diverging-area port cannot exceed ~Mach 1 under distributed mass
+        # addition without a converging-diverging passage. When port_mach_cap > 0,
+        # clamp the interior face velocities |u[j]| to port_mach_cap times the
+        # local sound speed. No-op at the subsonic plateau (Mach ~0.36), so steady
+        # operation is untouched; applied BEFORE the energy advection below so the
+        # convective enthalpy flux is bounded too. The head wall (face 0) and the
+        # nozzle face (N, set by the choked BC) are left as-is.
+        if port_mach_cap > 0.0:
+            for j in range(1, N):
+                gamma_f = 0.5 * (gamma_arr[j - 1] + gamma_arr[j])
+                R_f = 0.5 * (R_arr[j - 1] + R_arr[j])
+                T_f = 0.5 * (T[j - 1] + T[j])
+                a_f = (gamma_f * R_f * max(T_f, 1.0)) ** 0.5
+                u_lim = port_mach_cap * a_f
+                if u_new[j] > u_lim:
+                    u_new[j] = u_lim
+                elif u_new[j] < -u_lim:
+                    u_new[j] = -u_lim
+
+        # -------------------------------------------------------
+        # STEP 3b: ENERGY EQUATION  (v0.7.1 Phase 3: sensible-enthalpy form)
+        # -------------------------------------------------------
+        # We advect h_i = Cp_arr[i] * T[i] (specific sensible enthalpy)
+        # rather than T directly. Across a face between cells with different
+        # Cp, the conserved scalar that matches the mass flux is h, not T —
+        # advecting T directly loses energy proportional to ΔCp / Cp. See
+        # docs/v0_7_1/DESIGN.md §7.
+        #
+        # Cell update (per mass-flow at faces, mass-conservative form):
+        #   m_new * h_new = m_old * h_old
+        #                 + dt * (flux_h_in - flux_h_out + thermal_source[i] * dx)
+        # T_new = h_new / Cp_arr[i] (Cp stays at its start-of-step value within
+        # the PISO step — species composition is updated by _advect_species
+        # after PISO returns, then Cp_arr is refreshed for the next step.)
+        gas_energy_before = 0.0
+        gas_energy_after = 0.0
+        convective_scalar_flux_power = 0.0
+        nozzle_scalar_flux_power = 0.0
+        thermal_source_power = 0.0
+        clipping_correction_power = 0.0
+        T_new = np.zeros(N)
+        for i in range(N):
+            Cp_i = Cp_arr[i]
+            old_mass = rho[i] * A_port[i] * dx
+            new_mass = max(rho_new_1[i] * A_port[i] * dx, 1e-16)
+            h_old = Cp_i * T[i]
+            gas_energy_before += old_mass * h_old
+
+            # West face enthalpy flux (upwind using staggered face velocity)
+            if i == 0:
+                flux_h_w = 0.0
+            else:
+                rho_w = 0.5 * (rho_new_1[i - 1] + rho_new_1[i])
+                mdot_w = rho_w * u_new[i] * A_face[i]
+                if mdot_w >= 0:
+                    flux_h_w = mdot_w * Cp_arr[i - 1] * T[i - 1]
+                else:
+                    flux_h_w = mdot_w * Cp_i * T[i]
+
+            # East face enthalpy flux
+            if i < N - 1:
+                rho_e = 0.5 * (rho_new_1[i] + rho_new_1[i + 1])
+                mdot_e = rho_e * u_new[i + 1] * A_face[i + 1]
+                if mdot_e >= 0:
+                    flux_h_e = mdot_e * Cp_i * T[i]
+                else:
+                    flux_h_e = mdot_e * Cp_arr[i + 1] * T[i + 1]
+            else:
+                mdot_e, _dmdp, T_upstream, _state = _nozzle_boundary_flow(
+                    P_new[i], T[i], A_throat, gamma_bnd, R_bnd,
+                    P_ambient, T_ambient,
+                )
+                # Outflow carries cell-N-1's mixture Cp; inflow uses cell-N-1's
+                # Cp as a stand-in for ambient Cp (mdot_e is small in that
+                # regime so the choice is negligible).
+                flux_h_e = mdot_e * Cp_i * T_upstream
+                nozzle_scalar_flux_power = flux_h_e
+
+            convective_h_flux = flux_h_w - flux_h_e
+            convective_scalar_flux_power += convective_h_flux
+            # thermal_source is enthalpy injection [W/m] (Phase 3 step 1).
+            thermal_source_power += thermal_source[i] * dx
+
+            h_scalar = old_mass * h_old + dt * (
+                convective_h_flux + thermal_source[i] * dx
             )
-            # Outflow carries cell-N-1's mixture Cp; inflow uses cell-N-1's
-            # Cp as a stand-in for ambient Cp (mdot_e is small in that
-            # regime so the choice is negligible).
-            flux_h_e = mdot_e * Cp_i * T_upstream
-            nozzle_scalar_flux_power = flux_h_e
+            h_new = h_scalar / new_mass
+            T_raw = h_new / Cp_i if Cp_i > 0.0 else h_new
+            T_floor = max(1.0, T_ambient)
+            T_ceiling_i = T_ceiling_arr[i]
+            T_clipped = T_raw
+            if T_clipped < T_floor:
+                T_clipped = T_floor
+            if T_clipped > T_ceiling_i:
+                T_clipped = T_ceiling_i
+            clipping_correction_power += (
+                (T_clipped - T_raw) * new_mass * Cp_i / dt
+            )
+            T_new[i] = T_clipped
+            gas_energy_after += new_mass * Cp_i * T_new[i]
 
-        convective_h_flux = flux_h_w - flux_h_e
-        convective_scalar_flux_power += convective_h_flux
-        # thermal_source is enthalpy injection [W/m] (Phase 3 step 1).
-        thermal_source_power += thermal_source[i] * dx
-
-        h_scalar = old_mass * h_old + dt * (
-            convective_h_flux + thermal_source[i] * dx
-        )
-        h_new = h_scalar / new_mass
-        T_raw = h_new / Cp_i if Cp_i > 0.0 else h_new
-        T_floor = max(1.0, T_ambient)
-        T_ceiling_i = T_ceiling_arr[i]
-        T_clipped = T_raw
-        if T_clipped < T_floor:
-            T_clipped = T_floor
-        if T_clipped > T_ceiling_i:
-            T_clipped = T_ceiling_i
-        clipping_correction_power += (
-            (T_clipped - T_raw) * new_mass * Cp_i / dt
-        )
-        T_new[i] = T_clipped
-        gas_energy_after += new_mass * Cp_i * T_new[i]
+        # P5: convergence of the T fixed point T_comp -> T_new.
+        rel_dT = 0.0
+        for i in range(N):
+            d_rel = abs(T_new[i] - T_comp[i]) / max(T_comp[i], 1.0)
+            if d_rel > rel_dT:
+                rel_dT = d_rel
+        coupling_rel_dT = rel_dT
+        if it < energy_coupling_iters:
+            if rel_dT < energy_coupling_tol:
+                break
+            n_coupling_passes += 1
+            for i in range(N):
+                T_comp[i] = T_new[i]
 
     # -------------------------------------------------------
     # STEP 4: UPDATE DENSITY
@@ -761,6 +837,7 @@ def _piso_step_with_energy_diagnostics(
     gas_mass_after = 0.0
     eos_mass_jump = 0.0
     eos_energy_jump = 0.0
+    eos_mass_jump_p2 = 0.0
     for i in range(N):
         old_mass_acct = rho[i] * A_port[i] * dx
         new_mass_acct = max(rho_new_1[i] * A_port[i] * dx, 1e-16)
@@ -769,6 +846,11 @@ def _piso_step_with_energy_diagnostics(
         gas_mass_after += new_mass_acct
         eos_mass_jump += m_eos_acct - new_mass_acct
         eos_energy_jump += (m_eos_acct - new_mass_acct) * Cp_arr[i] * T_new[i]
+        # P5 diagnostic: the part of the EOS jump carried by the second
+        # pressure correction alone (P'2 is applied after rho_new_1 is built).
+        eos_mass_jump_p2 += (
+            (P_new[i] - P_after1[i]) / (R_arr[i] * T_new[i]) * A_port[i] * dx
+        )
     # The nozzle mass flow the energy loop used (identical call/arguments to
     # the i == N-1 branch there: pre-clamp P_new, start-of-step T).
     nozzle_mdot_piso, _dmdp_acct, _Tup_acct, _state_acct = _nozzle_boundary_flow(
@@ -813,7 +895,8 @@ def _piso_step_with_energy_diagnostics(
             n_floor_cells, floor_mass_added, floor_energy_added,
             floor_min_raw_P,
             gas_mass_before, gas_mass_after,
-            eos_mass_jump, eos_energy_jump, nozzle_mdot_piso)
+            eos_mass_jump, eos_energy_jump, nozzle_mdot_piso,
+            n_coupling_passes, coupling_rel_dT, eos_mass_jump_p2)
 
 
 @njit(cache=True, fastmath=True)
@@ -823,6 +906,9 @@ def piso_step(
     dx, dt, gamma_arr, R_arr, Cp_arr, T_ceiling_arr,
     A_throat, P_ambient, T_ambient, N,
     port_mach_cap=0.0,
+    energy_coupling_iters=0,
+    energy_coupling_tol=1.0e-6,
+    corr2_storage=False,
 ):
     """Public PISO step returning only the updated flow state.
 
@@ -844,7 +930,8 @@ def piso_step(
         mass_source, thermal_source, momentum_source, f_darcy,
         dx, dt, gamma_arr, R_arr, Cp_arr, T_ceiling_arr,
         A_throat, P_ambient, T_ambient, N,
-        port_mach_cap,
+        port_mach_cap, energy_coupling_iters, energy_coupling_tol,
+        corr2_storage,
     )
     return out[0], out[1], out[2], out[3]
 

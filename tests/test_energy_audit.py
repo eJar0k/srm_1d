@@ -56,7 +56,7 @@ class TestPisoAccountingIdentity:
 
     def test_tuple_length(self):
         out, *_ = _duct_step()
-        assert len(out) == 21
+        assert len(out) == 24
 
 
 @pytest.fixture(scope="module")

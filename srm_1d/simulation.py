@@ -1414,7 +1414,8 @@ def _run_time_loop(
         # --- Simulation parameters ---
     roughness, kappa,
     cfl_target, dt_max, burn_update_interval, geometry_update_interval,
-    source_cfl_factor, port_mach_cap,
+    source_cfl_factor, port_mach_cap, piso_energy_coupling_iters,
+    piso_corr2_storage,
     T_ignition, P_ambient, ambient_temperature,
     diagnostic_disable_erosive, diagnostic_disable_endfaces,
     diagnostic_disable_momentum, diagnostic_disable_pyrogen_surface_heating,
@@ -1458,6 +1459,7 @@ def _run_time_loop(
     jump_eos_J_hist, jump_mixture_J_hist, jump_geometry_J_hist,
     jump_eos_kg_hist, jump_mixture_kg_hist, jump_geometry_kg_hist,
     jump_total_kg_hist,
+    coupling_passes_hist, coupling_rel_dT_hist, eos_jump_p2_kg_hist,
     max_hist,
     # --- Output: snapshots (pre-allocated) ---
     snap_data, snap_times, max_snaps,
@@ -2131,12 +2133,15 @@ def _run_time_loop(
          floor_min_raw_P,
          gas_mass_before, gas_mass_after,
          eos_mass_jump, eos_energy_jump,
-         nozzle_mdot_piso) = _piso_step_with_energy_diagnostics(
+         nozzle_mdot_piso,
+         n_coupling_passes, coupling_rel_dT,
+         eos_mass_jump_p2) = _piso_step_with_energy_diagnostics(
             rho, u, P, T, A_port, D_hyd,
             mass_source, thermal_source, momentum_source, f_darcy,
             dx, dt, gamma_mix_arr, R_mix_arr, Cp_mix_arr, T_ceiling_arr,
             A_throat, P_ambient, ambient_temperature, N,
-            port_mach_cap,
+            port_mach_cap, piso_energy_coupling_iters, 1.0e-6,
+            piso_corr2_storage,
         )
 
         # T6 energy audit (bookkeeping only): the gap between the END of the
@@ -2311,6 +2316,9 @@ def _run_time_loop(
         fill_debit_power_hist[hist_idx] = fill_debit_power
         nozzle_enthalpy_power_post_hist[hist_idx] = nozzle_enthalpy_power_post
         nozzle_massflow_piso_hist[hist_idx] = nozzle_mdot_piso
+        coupling_passes_hist[hist_idx] = n_coupling_passes
+        coupling_rel_dT_hist[hist_idx] = coupling_rel_dT
+        eos_jump_p2_kg_hist[hist_idx] = eos_mass_jump_p2
         jump_eos_J_hist[hist_idx] = eos_energy_jump
         jump_mixture_J_hist[hist_idx] = mix_energy_post - mix_energy_pre
         jump_geometry_J_hist[hist_idx] = 0.0
@@ -2467,6 +2475,14 @@ def run_simulation(
     # behaviour). ~1.0 is the physical choking limit. No-op at the subsonic
     # plateau.
     port_mach_cap=0.0,
+    # P5 (opt-in experiment): energy-coupled PISO outer iteration. 0 = the
+    # original step (bit-identical). K > 0 = up to K extra pressure-
+    # correction + energy passes with T-updated compressibility
+    # (solver._piso_step_with_energy_diagnostics docstring).
+    piso_energy_coupling_iters=0,
+    # P5 ablation: add the omitted storage term to the 2nd pressure corrector
+    # (see solver docstring). Default False = original step.
+    piso_corr2_storage=False,
     burn_update_interval=None,
     geometry_update_interval=None,
     # --- Ignition ---
@@ -2968,6 +2984,9 @@ def run_simulation(
     fill_debit_power_hist = np.empty(max_hist)
     nozzle_enthalpy_power_post_hist = np.empty(max_hist)
     nozzle_massflow_piso_hist = np.empty(max_hist)
+    coupling_passes_hist = np.empty(max_hist)
+    coupling_rel_dT_hist = np.empty(max_hist)
+    eos_jump_p2_kg_hist = np.empty(max_hist)
     jump_eos_J_hist = np.empty(max_hist)
     jump_mixture_J_hist = np.empty(max_hist)
     jump_geometry_J_hist = np.empty(max_hist)
@@ -3055,6 +3074,7 @@ def run_simulation(
         roughness, kappa,
         cfl_target, dt_max, burn_update_interval, geometry_update_interval,
         source_cfl_factor, float(port_mach_cap),
+        int(piso_energy_coupling_iters), bool(piso_corr2_storage),
         T_ignition, P_ambient, T_ambient,
         bool(diagnostic_disable_erosive), bool(diagnostic_disable_endfaces),
         bool(diagnostic_disable_momentum),
@@ -3102,6 +3122,7 @@ def run_simulation(
         jump_eos_J_hist, jump_mixture_J_hist, jump_geometry_J_hist,
         jump_eos_kg_hist, jump_mixture_kg_hist, jump_geometry_kg_hist,
         jump_total_kg_hist,
+        coupling_passes_hist, coupling_rel_dT_hist, eos_jump_p2_kg_hist,
         max_hist,
         # Output: snapshots
         snap_data, snap_times, max_snaps,
@@ -3188,6 +3209,9 @@ def run_simulation(
     fill_debit_power_arr = fill_debit_power_hist[:n_steps].copy()
     nozzle_enthalpy_power_post_arr = nozzle_enthalpy_power_post_hist[:n_steps].copy()
     nozzle_massflow_piso_arr = nozzle_massflow_piso_hist[:n_steps].copy()
+    coupling_passes_arr = coupling_passes_hist[:n_steps].copy()
+    coupling_rel_dT_arr = coupling_rel_dT_hist[:n_steps].copy()
+    eos_jump_p2_kg_arr = eos_jump_p2_kg_hist[:n_steps].copy()
     jump_eos_J_arr = jump_eos_J_hist[:n_steps].copy()
     jump_mixture_J_arr = jump_mixture_J_hist[:n_steps].copy()
     jump_geometry_J_arr = jump_geometry_J_hist[:n_steps].copy()
@@ -3534,6 +3558,9 @@ def run_simulation(
         'regression_fill_debit_power': fill_debit_power_arr,
         'nozzle_enthalpy_power_post_piso': nozzle_enthalpy_power_post_arr,
         'nozzle_massflow_piso': nozzle_massflow_piso_arr,
+        'piso_coupling_passes': coupling_passes_arr,
+        'piso_coupling_rel_dT': coupling_rel_dT_arr,
+        'storage_jump_eos_p2_kg': eos_jump_p2_kg_arr,
         'source_ledger_mismatch_W': source_ledger_mismatch_arr,
         'nozzle_ledger_mismatch_W': nozzle_ledger_mismatch_arr,
         'nozzle_mass_mismatch_kg_s': nozzle_mass_mismatch_arr,
