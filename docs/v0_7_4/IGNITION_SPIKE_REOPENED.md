@@ -885,3 +885,58 @@ legacy 12.654 -> 12.443 = x0.9833).
 | Pressurization ~2.4x too fast, head port smaller than throat | not tested here | -- |
 | "v0.7.4 closeout tested only CFL and cadence, never grid" | stands | -- |
 | §6 runs used `pyrogen="bpnv"` (legacy values at the time) | stands, with attribution | see 12.2 |
+
+---
+
+## 13. Solver verification P5 -- energy-coupled PISO iteration (thread F) -- DRAFT -- for review
+
+**DRAFT -- for review.** Numbers only. Source: `docs/solver_verification/worklog/P5.md`, probe
+`docs/solver_verification/probes/p5_energy_coupling.py`, raw rows `docs/solver_verification/worklog/P5_results/`. Chunc
+(`machbusterNew.ric`), canonical knobs, library BPNV, post-T10 tree. Opt-in kwargs (defaults 0 / False = original step, B0
+bit-identical): `piso_energy_coupling_iters` K (re-run both pressure correctors + energy update with `1/(R T)` and
+`rho_new_1 = P/(R T)` rebuilt from the previous pass's T, plus the thermal-storage term in corrector 1; tolerance
+`max|dT|/T < 1e-6`) and the ablation `piso_corr2_storage` S (adds the storage term the original second corrector omits).
+Measured separately: in the original step the second corrector re-applies the storage already taken by the first (duct, no T
+change: carried-state mass rate 0.5380 vs ledger/expected 0.2690 kg/s); this P'2 part is a component of the EOS jump distinct from the T-lag.
+
+### 13.1 EOS jump and fill closure (106 cells, CFL 0.3, t_max 0.05)
+| S | K | EOS J Sum abs | EOS kg Sum abs | fill EOS J / fill source J | fill all jumps / source J |
+|---|---|---|---|---|---|
+| 0 | 0 | 10 429 | 2.20e-3 | 0.2688 | 0.3037 |
+| 0 | 1 / 3 / 10 | 9 464 / 9 460 / 9 460 | 1.86e-3 | 0.2534 / 0.2526 / 0.2526 | 0.3285 / 0.3272 / 0.3272 |
+| 1 | 0 | 868 | 5.39e-4 | -0.0250 | -0.0070 |
+| 1 | 1 / 3 / 10 | 29.3 / 19.2 / 19.2 | 5.1e-6 / 8.0e-7 / 7.8e-7 | 0.0013 / 0.0007 / 0.0007 | 0.0599 / 0.0591 / 0.0591 |
+
+### 13.2 Fill Mach / floor events (t_max 0.05; fill Mach / floor activations)
+| cells | CFL | S=0,K=0 | S=0,K=1 | S=0,K=3 | S=1,K=0 | S=1,K=3 |
+|---|---|---|---|---|---|---|
+| 106 | 0.3 | 3.94 / 0 | 1.86 / 0 | 1.86 / 0 | 3.27 / 0 | 2.59 / 0 |
+| 406 | 0.3 | 13.89 / 24 | 1.44 / 0 | 1.44 / 0 | 5.93 / 0 | 2.20 / 0 |
+| 806 | 0.3 | 16.94 / 192 | 1.51 / 0 | 1.50 / 0 | 7.91 / 0 | 2.21 / 0 |
+| 1606 | 0.3 | 49.25 / 193 | 1.53 / 0 | 1.52 / 0 | 10.57 / 0 | 2.38 / 0 |
+| 106 | 0.15 | 3.38 / 0 | 1.87 / 0 | 1.87 / 0 | 3.13 / 0 | 2.71 / 0 |
+| 406 | 0.15 | 4.91 / 0 | 1.53 / 0 | 1.53 / 0 | 4.75 / 0 | 2.30 / 0 |
+| 806 | 0.15 | 6.02 / 0 | 1.47 / 0 | 1.47 / 0 | 5.54 / 0 | 2.34 / 0 |
+| 1606 | 0.15 | 7.25 / 0 | 1.54 / 0 | 1.54 / 0 | 6.00 / 0 | 2.46 / 0 |
+Minimum pressure: baseline 20 462 Pa (106 cells), floor-clamped from 406 cells (raw -22 957 Pa at 1606, CFL 0.3); K>=1, S=0: 97.3-99.7 kPa on every row;
+S=1,K=3: 67.3-85.4 kPa.
+
+### 13.3 Startup spike (CFL 0.3, t_max 1.0 for 106/406; Richardson from the t_max 0.05 ladder 406/806/1606)
+| S,K | cells | peak MPa | t_peak ms | first ign. ms | t90 ms | plateau MPa | Richardson f_inf peak (CFL 0.3 / 0.15) |
+|---|---|---|---|---|---|---|---|
+| 0,0 | 106 | 11.2824 | 16.29 | 1.592 | 2.40 | 8.1509 | 12.569 / 12.552 |
+| 0,3 | 106 | 11.1899 | 16.36 | 1.875 | 2.81 | 8.1506 | 12.701 / 12.621 |
+| 1,3 | 106 | 10.0821 | 27.92 | 1.718 | 2.75 | 8.1466 | 11.258 / 11.177 |
+| 0,0 | 406 | 12.0574 | 12.30 | 0.874 | 1.79 | 8.1827 | |
+| 0,3 | 406 | 12.1114 | 12.07 | 0.788 | 2.03 | 8.1830 | |
+| 1,3 | 406 | 10.7560 | 19.51 | 0.828 | 2.30 | 8.1790 | |
+BALLSstick (106 cells): peak 8.3313 / 8.2851 / 7.2565 MPa, pk/trough 1.918 / 1.908 / 1.671, pk/mid 1.707 / 1.698 / 1.491, fill Mach
+2.93 / 1.98 / 2.21 for (S,K) = (0,0) / (0,3) / (1,3).
+Cost (Chunc 106 cells, t_max 1.0, steps/s): pre-P5 ~50.6k, P5 K=0 ~49.0k, K=1/3 (S=0) 47.8k / 47.6k, K=3 S=1 42.6k; mean extra passes per step over the run 0.12-0.25.
+
+### 13.4 Effect on the three fill/spike questions (numbers above)
+| question | S=0 (literal iteration), K>=1 | S=1 alone (K=0) | S=1, K>=1 |
+|---|---|---|---|
+| fill Mach bounded under refinement | 1.44-1.86 at 106-1606 cells, both CFL | 3.27 -> 10.57 (CFL 0.3), 3.13 -> 6.00 (CFL 0.15) | 2.19-2.71 |
+| floor events | 0 on all rows | 0 on all rows (min P 1 739 Pa at 1606, CFL 0.3) | 0 |
+| startup peak (106 / 406) | -0.8% / +0.5%; f_inf +1.0% (CFL 0.3) | -11.1% / -11.4% | -10.6% / -10.8% |
