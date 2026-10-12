@@ -150,6 +150,101 @@ def _bare_heat_transfer_coeff(
     return Nu * k_thermal / D_hyd
 
 
+# ---------------------------------------------------------------------------
+# IG2: opt-in ignition heat-transfer closures (docs/pyrogen_realism/IG2_REPORT.md).
+# They replace ONLY the h used to heat the UNIGNITED propellant surface in the
+# Goodman ignition kernel (and its matching convective wall-loss sink). The Ma
+# 2020 erosive path (burn_rate.py) is untouched.
+#   0 'gnielinski' (default) -- today's Gnielinski/Ma chain, bit-identical.
+#   1 'peretz'  -- Peretz, Caveny, Kuo & Summerfield, Princeton AMS Rep. 1100
+#                  (Apr 1973), Eq. III-22..III-26: bore heat transfer for the
+#                  starting transient of high-velocity-bore SRMs.
+#   2 'keller'  -- Keller, Baer & Ryan, AIAA J. 4(8):1358 (1966), Eq. 11,
+#                  extrapolated to the local bore diameter (see function doc).
+IGN_H_GNIELINSKI = 0
+IGN_H_PERETZ = 1
+IGN_H_KELLER = 2
+_IGN_H_MODES = {'gnielinski': IGN_H_GNIELINSKI, 'peretz': IGN_H_PERETZ,
+                'keller': IGN_H_KELLER}
+
+
+def _ignition_h_code(mode):
+    try:
+        return _IGN_H_MODES[mode]
+    except (KeyError, TypeError):
+        raise ValueError(
+            f"unknown ignition_heat_transfer: {mode!r} "
+            f"(expected one of {sorted(_IGN_H_MODES)})") from None
+
+
+@njit(cache=True, fastmath=True)
+def _peretz_heat_transfer_coeff(
+    P, u_cell, T_gas, T_wall, R_gas, Cp_gas, gamma_gas,
+    D_hyd, x_from_head, A_port, A_throat,
+):
+    """Peretz et al. (1973) bore heat-transfer coefficient [W/(m^2 K)].
+
+    Eq. III-22:  Nu = a6 (x_r/d_h)^-0.1 Re^0.8 Pr^0.4 (A_p/A_t)^0.4,
+    a6 = 2.56e-2 (Peretz's value; his h-form, Eq. III-31, carries the same
+    constant: (0.87e-6)^0.2 * a6 = 1.56e-3). All gas properties except the
+    velocity are evaluated at the film temperature T_af = (T_gas+T_wall)/2:
+      rho_af = P/(R T_af)                                     (Eq. III-26)
+      mu_af  = 0.87e-6 W^0.5 T_af^0.65 poise, W = molar mass  (Eq. III-24)
+      Pr     = gamma/(1.77 gamma - 0.45)                      (Eq. III-25)
+      k_af   = Cp mu_af / Pr
+    x_r is the distance from the igniter-jet reattachment point (Peretz:
+    ~one port diameter downstream of the igniter exit). Here
+    x_r = max(x_from_head, d_h): a 0.1-power factor, so the choice moves h
+    by <~ 10 %. Nu is floored at 3.66 (fully developed laminar limit, the
+    same floor the default Gnielinski chain carries); Peretz's correlation
+    is a turbulent one (Re ~ 1e4-1e5 in his motor).
+    """
+    if D_hyd <= 1e-10 or A_throat <= 0.0 or A_port <= 0.0 or R_gas <= 0.0:
+        return 0.0
+    T_af = 0.5 * (T_gas + T_wall)
+    if T_af <= 0.0 or P <= 0.0:
+        return 0.0
+    W_gmol = 8314.462618 / R_gas
+    mu = 0.87e-7 * W_gmol ** 0.5 * T_af ** 0.65
+    rho_af = P / (R_gas * T_af)
+    Re = rho_af * abs(u_cell) * D_hyd / mu
+    Pr = gamma_gas / (1.77 * gamma_gas - 0.45)
+    k_af = Cp_gas * mu / Pr
+    x_r = x_from_head if x_from_head > D_hyd else D_hyd
+    Nu = (2.56e-2 * (x_r / D_hyd) ** (-0.1) * Re ** 0.8 * Pr ** 0.4
+          * (A_port / A_throat) ** 0.4)
+    if Nu < 3.66:
+        Nu = 3.66
+    return Nu * k_af / D_hyd
+
+
+# Keller, Baer & Ryan test-section hydraulic diameter: 0.500 x 0.125 in
+# channel, D_h = 4A/P = 0.200 in.
+_KELLER_D_H = 5.08e-3
+
+
+@njit(cache=True, fastmath=True)
+def _keller_heat_transfer_coeff(rho, u_cell, T_gas, D_hyd):
+    """Keller-Baer-Ryan (1966) Eq. 11 [W/(m^2 K)], air/O2/N2 shock-tube channel.
+
+    h = 1.435e-4 Tg^0.3 G^0.905 cal/(cm^2 s K), Tg [K], G [g/(cm^2 s)] (6 %
+    average deviation; Tg 1000-2600 K, 14-25 atm, 50-800 m/s, in a 5.08 mm
+    hydraulic-diameter channel; G itself is not tabulated, ~9-680 g/cm^2 s).
+    Extrapolation to the bore: with Nu ~ Re^0.905 at fixed properties,
+    h ~ G^0.905 D^-0.095, so h is scaled by (D_h/D_Keller)^-0.095. The
+    property difference between Keller's N2/air and the bore gas is NOT
+    corrected (the paper gives no property data); Tg is the local static
+    gas temperature rather than Keller's stagnation temperature.
+    """
+    if D_hyd <= 1e-10 or T_gas <= 0.0:
+        return 0.0
+    G = rho * abs(u_cell) * 0.1          # kg/(m^2 s) -> g/(cm^2 s)
+    if G <= 0.0:
+        return 0.0
+    h = 1.435e-4 * T_gas ** 0.3 * G ** 0.905 * 41840.0
+    return h * (D_hyd / _KELLER_D_H) ** (-0.095)
+
+
 @njit(cache=True, fastmath=True)
 def _orifice_exit_velocity(P_ig, T_ig, P_main, gamma, M):
     """Ideal-gas pyrogen orifice exit velocity from plenum state."""
@@ -1071,6 +1166,9 @@ def _goodman_ignition_sources_and_mass(
     # the gas that fills the volume the regressing grain opens
     rho_gas,                 # [N] cell gas density [kg/m^3]
     Cp_mix_gas,              # [N] cell mixture Cp [J/(kg K)]
+    # IG2: opt-in ignition heat-transfer closure (0 = default Gnielinski)
+    ignition_h_code,         # 0 gnielinski, 1 peretz, 2 keller
+    u_cell, A_port, A_throat, R_mix_gas, gamma_mix_gas,
 ):
     """Goodman surface-temperature ignition and propellant source assembly.
 
@@ -1176,10 +1274,21 @@ def _goodman_ignition_sources_and_mass(
             else:
                 heat_cell = False
             if (not has_ignited[i]) and heat_cell:
-                h_c = _bare_heat_transfer_coeff(
-                    Re[i], D_hyd[i], x_centers[i], f_darcy[i],
-                    Pr, k_thermal, T[i], T_surf[i], kappa,
-                )
+                if ignition_h_code == 0:
+                    h_c = _bare_heat_transfer_coeff(
+                        Re[i], D_hyd[i], x_centers[i], f_darcy[i],
+                        Pr, k_thermal, T[i], T_surf[i], kappa,
+                    )
+                elif ignition_h_code == 1:
+                    h_c = _peretz_heat_transfer_coeff(
+                        P[i], u_cell[i], T[i], T_surf[i], R_mix_gas[i],
+                        Cp_mix_gas[i], gamma_mix_gas[i], D_hyd[i],
+                        x_centers[i], A_port[i], A_throat,
+                    )
+                else:
+                    h_c = _keller_heat_transfer_coeff(
+                        rho_gas[i], u_cell[i], T[i], D_hyd[i],
+                    )
                 # v0.7.2 Phase B-v2: flame-front augmentation. The
                 # caller pre-fills flame_spread_augment[i] = boost only
                 # when cell i is the immediate downstream neighbor of a
@@ -1508,6 +1617,8 @@ def _run_time_loop(
     # --- spike-reopen probe: Mukunda-Paul high-g erosive ceiling ---
     erosive_mp_cap,               # float — 0.0 off; else eta cap at value×MP Eq. 12
     erosive_model_code,           # int — registry code, 0=ma2020, 1=mukunda_paul, 2=saint_robert
+    # --- IG2: opt-in ignition heat-transfer closure (0 = default Gnielinski) ---
+    ignition_h_code,
     # --- v0.8.0 Phase 6: live progress / cooperative cancel ---
     progress_state,               # [2] float64: [0]=progress 0..1 (written),
                                   #              [1]=cancel flag (read; >0.5 aborts)
@@ -2016,6 +2127,9 @@ def _run_time_loop(
             flame_front_enabled, ignitable, topology_code,
             # Solver-verification T10: start-of-step gas state for the fill debit
             rho, Cp_mix_arr,
+            # IG2: opt-in ignition heat-transfer closure
+            ignition_h_code, u_cell, A_port, A_throat,
+            R_mix_arr, gamma_mix_arr,
         )
 
         # v0.7.1 Phase 3.5: pyrogen mass injection uses pyrogen Cp for the
@@ -2519,6 +2633,14 @@ def run_simulation(
     # = r0). Model choice is solver config, not propellant data. Never
     # "recommended" — an explicit user tradeoff, not a shipped default.
     erosive_model='ma2020',
+    # IG2 (docs/pyrogen_realism/IG2_REPORT.md): opt-in closure for the
+    # convective h that heats the UNIGNITED propellant surface in the Goodman
+    # ignition kernel. 'gnielinski' (default) = the Ma/Gnielinski chain used
+    # for erosive burning (bit-identical to before). 'peretz' = Peretz et al.
+    # (1973) bore correlation for starting transients. 'keller' = Keller-Baer-
+    # Ryan (1966) Eq. 11 extrapolated to the bore. The Ma erosive path is not
+    # affected by this switch.
+    ignition_heat_transfer='gnielinski',
     # --- Solver ---
     # v0.7.3.2 (2026-05-27): cfl_target tightened 0.5 → 0.3 and
     # source_cfl_factor tightened 0.10 → 0.05 to absorb Phase B.0
@@ -2622,6 +2744,14 @@ def run_simulation(
         ``ma2020``-only option; setting it nonzero with any other
         ``erosive_model`` raises ``ValueError``. See
         docs/erosive_model_registry/DESIGN.md.
+    ignition_heat_transfer : str
+        Opt-in (default ``'gnielinski'`` = unchanged) closure for the
+        convective heat-transfer coefficient that heats the unignited
+        propellant surface toward ``T_ignition`` (and the matching gas
+        wall-loss sink). ``'peretz'``: Peretz et al. 1973 Eq. III-22 (film-
+        temperature properties, A_p/A_t and entrance factors). ``'keller'``:
+        Keller-Baer-Ryan 1966 Eq. 11 with a (D/D_K)^-0.095 bore scaling.
+        The Ma 2020 erosive burn-rate path is never affected.
     cfl_target : float
         Target CFL number for time stepping. Default: 0.5.
     dt_max : float
@@ -2722,6 +2852,7 @@ def run_simulation(
     # ma2020-only option, so a nonzero cap under another model fails
     # loudly rather than being silently ignored.
     _ero_code = resolve_erosive_model(erosive_model)
+    _ign_h_code = _ignition_h_code(ignition_heat_transfer)
     if erosive_mp_cap > 0.0 and erosive_model != 'ma2020':
         raise ValueError(
             f"erosive_mp_cap={erosive_mp_cap} is a ma2020-only option; "
@@ -3252,6 +3383,8 @@ def run_simulation(
         # spike-reopen probe: Mukunda-Paul high-g erosive ceiling
         float(erosive_mp_cap),
         int(_ero_code),
+        # IG2: opt-in ignition heat-transfer closure
+        int(_ign_h_code),
         # v0.8.0 Phase 6: live progress / cooperative cancel
         progress_state,
     )
@@ -3520,6 +3653,7 @@ def run_simulation(
         # DESIGN.md §4) — traces, probes, and CSV exports are otherwise
         # unlabeled as to which erosive closure produced them.
         'erosive_model': erosive_model,
+        'ignition_heat_transfer': ignition_heat_transfer,
         'diagnostic_disable_erosive': bool(diagnostic_disable_erosive),
         'diagnostic_disable_endfaces': bool(diagnostic_disable_endfaces),
         'diagnostic_disable_momentum': bool(diagnostic_disable_momentum),
