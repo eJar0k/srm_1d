@@ -1,0 +1,26 @@
+
+th_hb_0.01: first 8 ignited cells, last snapshot with h_c>0 before ignition
+ cell  t_ign[ms]  Tgas[K]  G[kg/m2s]  h_sim[W/m2K]  h_Keller  ratio  q_sim[MW/m2]  q_Keller=hK*dT[MW/m2]
+    4     0.683     1891     524.0        10772      2077   5.19     12.27         2.36
+    3     0.690     1944     343.2         7805      1428   5.47      9.32         1.70
+    5     0.700     1867     556.4        10811      2185   4.95     12.02         2.44
+    6     0.712     1802     552.2        10440      2147   4.86     11.28         2.32
+    7     0.729     1811     590.9        10809      2286   4.73     11.53         2.45
+    8     0.740     1882     580.7        10512      2276   4.62     11.68         2.58
+    9     0.751     1734     598.5        10509      2283   4.60     10.67         2.34
+   10     0.762     1812     631.7        10860      2429   4.47     11.42         2.60
+ median h ratio sim/Keller = 4.80; median q_sim = 11.47 MW/m2 (Keller band ceiling 6.7)
+ all grain cells (at own peak pre-ignition q): h ratio median 3.70 range 3.30-5.47
+
+th_hb_0.001: first 8 ignited cells, last snapshot with h_c>0 before ignition
+ cell  t_ign[ms]  Tgas[K]  G[kg/m2s]  h_sim[W/m2K]  h_Keller  ratio  q_sim[MW/m2]  q_Keller=hK*dT[MW/m2]
+    4    28.473     2531      34.4         1067       193   5.54      1.89         0.34
+    5    28.517     2422      34.8         1035       192   5.38      1.76         0.33
+    6    28.574     2342      39.3         1088       212   5.12      1.76         0.34
+    7    28.904     3113      27.2          729       166   4.40      1.75         0.40
+    8    28.914     3136      27.0          707       165   4.28      1.72         0.40
+    9    28.921     3136      26.9          691       165   4.20      1.68         0.40
+   10    28.927     3136      26.5          655       163   4.03      1.60         0.40
+   11    28.935     3136      28.9          815       176   4.64      1.94         0.42
+ median h ratio sim/Keller = 4.52; median q_sim = 1.75 MW/m2 (Keller band ceiling 6.7)
+ all grain cells (at own peak pre-ignition q): h ratio median 3.44 range 3.05-6.67

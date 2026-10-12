@@ -1,0 +1,70 @@
+th_hb_0.001: N=106 dx=8.1mm  basket cells 0..0 (L_cart=2.6 mm)  m0=0.45 g
+pyrogen: peak mdot=0.0344 kg/s at 38.79 ms; mean mdot (first-to-90%)=0.0108 kg/s
+  t10/t50/t90/t99 of gas-solid consumption [ms]: 7.15 32.67 37.74 38.69
+  bore P at basket (vol-avg): peak=9.910 MPa @ 63.70 ms; head P peak 9.910 MPa
+first-ignited cells (cell: t_ign ms): 4:28.473, 5:28.517, 6:28.574, 7:28.904, 8:28.914, 9:28.921, 10:28.927, 11:28.935
+ignition cascade: first 28.473 ms, 50% 29.668, 90% 30.380, last 30.563
+
+cell 4 (x=37 mm, ign at 28.473 ms): snapshots before ignition
+  t[ms]   Tgas  Tsurf   u[m/s]  G[kg/m2s]  h_c[W/m2K]  q_conv[MW/m2]  q_pyro[MW/m2]  q_total/Keller_ceiling6.7
+   28.161   2529    750    147.4      33.9         1056       1.88       0.00     0.28
+   28.213   2530    751    147.7      34.0         1058       1.88       0.00     0.28
+   28.266   2530    752    148.2      34.1         1059       1.88       0.00     0.28
+   28.318   2530    753    148.6      34.1         1061       1.89       0.00     0.28
+   28.370   2530    754    149.1      34.2         1063       1.89       0.00     0.28
+   28.421   2531    755    149.6      34.3         1065       1.89       0.00     0.28
+   28.473   2531    756    150.1      34.4         1067       1.89       0.00     0.28
+
+cell 5 (x=45 mm, ign at 28.517 ms): snapshots before ignition
+  t[ms]   Tgas  Tsurf   u[m/s]  G[kg/m2s]  h_c[W/m2K]  q_conv[MW/m2]  q_pyro[MW/m2]  q_total/Keller_ceiling6.7
+   28.213   2420    717    143.1      34.4         1026       1.75       0.00     0.26
+   28.266   2420    718    143.5      34.5         1028       1.75       0.00     0.26
+   28.318   2420    719    144.0      34.6         1030       1.75       0.00     0.26
+   28.370   2421    721    144.5      34.7         1032       1.75       0.00     0.26
+   28.421   2421    722    145.0      34.7         1033       1.76       0.00     0.26
+   28.473   2422    723    145.5      34.8         1035       1.76       0.00     0.26
+   28.525   2540    758    164.0      38.7            0       0.00       0.00     0.00
+
+cell 6 (x=53 mm, ign at 28.574 ms): snapshots before ignition
+  t[ms]   Tgas  Tsurf   u[m/s]  G[kg/m2s]  h_c[W/m2K]  q_conv[MW/m2]  q_pyro[MW/m2]  q_total/Keller_ceiling6.7
+   28.266   2318    688    137.5      34.5          996       1.62       0.00     0.24
+   28.318   2318    689    137.9      34.6          998       1.63       0.00     0.24
+   28.370   2319    690    138.4      34.7         1000       1.63       0.00     0.24
+   28.421   2319    691    139.0      34.8         1002       1.63       0.00     0.24
+   28.473   2320    692    139.4      34.9         1004       1.63       0.00     0.24
+   28.525   2342    722    155.3      39.3         1088       1.76       0.00     0.26
+   28.577   2692    760    154.9      34.2            0       0.00       0.00     0.00
+
+cell 7 (x=61 mm, ign at 28.904 ms): snapshots before ignition
+  t[ms]   Tgas  Tsurf   u[m/s]  G[kg/m2s]  h_c[W/m2K]  q_conv[MW/m2]  q_pyro[MW/m2]  q_total/Keller_ceiling6.7
+   28.628   2868    738    141.1      28.4          867       1.82       0.00     0.27
+   28.679   3136    616    147.3      23.5          524       1.32       0.00     0.20
+   28.730   3136    611    169.2      23.5          514       1.30       0.00     0.19
+   28.781   3136    647    196.0      24.9          581       1.45       0.00     0.22
+   28.831   3136    681    213.2      25.9          644       1.58       0.00     0.24
+   28.883   3113    721    224.8      27.2          729       1.75       0.00     0.26
+   28.935   3061    757    220.0      28.3            0       0.00       0.00     0.00
+
+over all grain cells (pre-ignition): peak q_conv median 1.5 MW/m2, max 2.7; peak h_c median 4420, max 11976
+
+hot-gas front (max x with T>350 K) vs t:
+  t=   0.11 ms  front x=    0.0 mm  Tgas_head=296  P_head=0.10 MPa  n_ign(cum)=0
+  t=   0.33 ms  front x=    4.1 mm  Tgas_head=390  P_head=0.11 MPa  n_ign(cum)=0
+  t=   0.55 ms  front x=    4.1 mm  Tgas_head=574  P_head=0.12 MPa  n_ign(cum)=0
+  t=   1.01 ms  front x=   12.2 mm  Tgas_head=1061  P_head=0.14 MPa  n_ign(cum)=0
+  t=   2.04 ms  front x=   61.0 mm  Tgas_head=1901  P_head=0.17 MPa  n_ign(cum)=0
+  t=   3.02 ms  front x=  182.9 mm  Tgas_head=2292  P_head=0.18 MPa  n_ign(cum)=0
+  t=   5.01 ms  front x=  369.8 mm  Tgas_head=2628  P_head=0.13 MPa  n_ign(cum)=0
+  t=  10.02 ms  front x=  499.9 mm  Tgas_head=2718  P_head=0.10 MPa  n_ign(cum)=0
+  t=  20.00 ms  front x=  564.9 mm  Tgas_head=2719  P_head=0.11 MPa  n_ign(cum)=0
+  t=  30.00 ms  front x=  686.8 mm  Tgas_head=2879  P_head=0.46 MPa  n_ign(cum)=70
+  t=  50.03 ms  front x=  857.5 mm  Tgas_head=2975  P_head=9.38 MPa  n_ign(cum)=100
+
+near P_head peak (snapshot t=63.70 ms, P_head 9.91 MPa):
+  cell   0 x=     4mm  P=  9.91  u=    0.0  G=     0.0 kg/m2s  r_tot=  0.00 mm/s  r_ero=  0.00  ero_frac=0.00
+  cell  26 x=   215mm  P=  9.83  u=   79.5  G=   756.8 kg/m2s  r_tot= 11.66 mm/s  r_ero=  1.82  ero_frac=0.16
+  cell  53 x=   435mm  P=  9.57  u=  166.4  G=  1540.6 kg/m2s  r_tot= 15.70 mm/s  r_ero=  5.97  ero_frac=0.38
+  cell  79 x=   646mm  P=  9.09  u=  256.2  G=  2254.2 kg/m2s  r_tot= 19.25 mm/s  r_ero=  9.72  ero_frac=0.50
+  cell 100 x=   817mm  P=  8.51  u=  340.0  G=  2800.4 kg/m2s  r_tot= 21.79 mm/s  r_ero= 12.51  ero_frac=0.57
+  cell 103 x=   841mm  P=  8.82  u=  111.4  G=   950.7 kg/m2s  r_tot=  0.00 mm/s  r_ero=  0.00  ero_frac=0.00
+plateau ref (t=95.0 ms): aft cell G=2466, ero_frac=0.53, P_head=9.43

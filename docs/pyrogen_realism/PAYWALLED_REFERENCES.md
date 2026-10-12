@@ -1,0 +1,17 @@
+# IG1 -- references needed but not obtainable (abstract-only / paywalled)
+
+Rule (user, 2026-10-11): nothing below is paraphrased from secondary sources in
+`IG1_REPORT.md`; every conclusion that would need these is marked
+"pending reference". DOIs are given only where verified; "DOI not verified" means
+the identifier was NOT guessed -- the user/maintainer should confirm it.
+Please drop PDFs into `docs/references/`.
+
+| # | Citation | DOI / URL | Why IG1 needs it | Quantity / figure to extract |
+|---|---|---|---|---|
+| R1 | Zhu M.-S. et al., "Investigation on Burning Rate of B/KNO3 Pellet in Closed Bomb Test", Chinese Journal of Energetic Materials (Hanneng Cailiao) 16(2):204-206, 2008 (only the abstract was seen: step-wise rate, ~proportional to P below 7 MPa, ~flat 7-50 MPa) | DOI not verified; https://energetic-materials.org.cn/hnclen/article/abstract/20080222 | H3 / fix option B: is the BPNV pellet pressure exponent n=0.5 (a=2e-5) valid at the 7-25 MPa the head-basket pellets see? | Burning rate vs pressure curve (1-50 MPa): numeric r at 1, 3, 7, 10, 20 MPa; pellet diameter, density, composition (B:KNO3:binder) |
+| R2 | Mizushima et al. (2016), "Burning Rate Measurements of 3.2-mm-dia. BKNO3 Pellets in Low Pressures", J. Japan Soc. Aeronaut. Space Sci. 64(2) (abstract-only; repo YAML cites r = 71.1 P^0.589 mm/s, 5 kPa-7 MPa, B:KNO3:NC 28:70:2) | DOI not verified; https://www.jstage.jst.go.jp/browse/jjsass/64/2/_contents | H3: the YAML comment's a, n; whether it holds up to 7 MPa and at what binder content | Fitted a, n and their stated validity range; r at 0.1 and 7 MPa; effect of binder (Viton 15% in BPNV vs 2%) |
+| R3 | MIL-P-46994B, "Pellets, Boron/Potassium Nitrate" (BPN), min burn rate 31.75 mm/s (seen only as a secondary mention in a thesis abstract, https://tezara.org/theses/587705) | DOI n/a (military spec) | H3 / fix B: absolute rate anchor for BKNO3 pellets | Test pressure and conditions of the 31.75 mm/s minimum (1000 psi?), pellet geometry |
+| R4 | Peretz, Kuo, Caveny, Summerfield, "Starting transient of solid-propellant rocket motors with high internal gas velocities", AIAA J. 11(12), 1973 (flame spreading + convective ignition in high-velocity bores; the foundation for fix option A) | DOI not verified | H1/H2/H4: measured convective heat-transfer coefficient and ignition delay in high-G bores; flame-spread speed vs port velocity | h (or Nu) correlation vs G and Tg in bores; ignition delay vs flux; flame-spread rate |
+| R5 | A published measurement or model of flame spread through a loose BKNO3 pellet bed / basket (tau_bed = 5-10 ms is a repo memory-level number with no cited source) | not identified | H3(a): bed-spread-limited pyrogen output estimate | Bed flame-spread speed vs pellet size / packing / pressure |
+| R6 | Keller, Baer, Ryan, AIAA J. 4(8):1358-1364, 1966 -- ALREADY in `docs/references/keller1966.pdf` (Eq. 11 read from the page image). Only needed in full: the G and Tg range over which Eq. 11 was fitted | DOI not verified for this file | H1: our G = 3-60 g/cm2 s lies at/below the edge of Keller's data; need the fitted range to bound the extrapolation | Range of G [g/cm2 s] and Tg [K] covered by the Eq. 11 data |
+| R7 | The user's own Chunc igniter details/pressure data (BKNO3 4.5 g, head basket): pellet size, basket geometry, and the first ~100 ms of the pressure trace (the committed CSV starts at plateau, see report 5) | user data | validation of every fix option | Raw trace from electrical fire signal; basket drawing |

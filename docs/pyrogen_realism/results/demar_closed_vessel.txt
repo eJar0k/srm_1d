@@ -1,0 +1,4 @@
+V=0.560 L
+3.2mm pellet cyl (sim default)   A=   7.9 cm2 sim a=2e-5 n=0.5: burn-out    49.6 ms, P_peak   68.3 psi gauge (DeMar: 105 psi in 67 ms)
+1mm grains                       A=  25.4 cm2 sim a=2e-5 n=0.5: burn-out    15.5 ms, P_peak   68.3 psi gauge (DeMar: 105 psi in 67 ms)
+0.3mm powder                     A=  84.7 cm2 sim a=2e-5 n=0.5: burn-out     4.7 ms, P_peak   68.3 psi gauge (DeMar: 105 psi in 67 ms)
