@@ -217,3 +217,24 @@ def test_run_shrinking_conserves_pyrogen_mass_and_changes_the_burn(_runs):
     assert mp[0] > 0.99 * 4.5e-3 and mp[-1] == 0.0 and np.all(np.diff(mp) <= 1e-18)   # monotone depletion
     # the area law lengthens the burn compared with the constant-area default
     assert s['pyrogen_duration'] > 1.5 * _runs['default']['summary']['pyrogen_duration']
+
+
+# ---------------------------------------------------------------- data round trips
+def test_p_plateau_round_trips_through_yaml_and_igniter_block(tmp_path):
+    import yaml
+    from srm_1d.openmotor_adapter import (
+        _block_to_pyrogen, _pyrogen_to_block, default_igniter_block, load_igniter,
+    )
+    p = _pyro(P_plateau=7.0e6)
+    assert _block_to_pyrogen(_pyrogen_to_block(p)).P_plateau == 7.0e6
+    f = tmp_path / 'zhu.yaml'
+    f.write_text(yaml.safe_dump({'name': 'Z', 'a': 6.07375e-9, 'n': 1.0, 'rho': 1700.0, 'T_flame': 2719.0,
+                                 'M': 0.0482, 'gamma': 1.17, 'P_plateau': 7.0e6}))
+    q = load_pyrogen(str(f))
+    assert q.P_plateau == 7.0e6 and q.n == 1.0
+    # the motor-file igniter block carries the chamber option through to the sizing kwargs
+    block = default_igniter_block('bpnv')
+    assert block['basket_area_law'] == 'constant'
+    block['basket_area_law'] = 'shrinking'
+    _, sizing = load_igniter({'igniter': block})
+    assert sizing['basket_area_law'] == 'shrinking'

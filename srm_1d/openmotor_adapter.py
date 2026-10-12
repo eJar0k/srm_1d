@@ -486,6 +486,8 @@ def _pyrogen_from_mapping(d):
         # form-archetype A_burn multipliers).
         particle_diameter_m=float(d.get('particle_diameter_m', 5.0e-3)),
         particle_LD_ratio=float(d.get('particle_LD_ratio', 3.0)),
+        # OB1: opt-in rate plateau pressure [Pa]; 0 = off.
+        P_plateau=float(d.get('P_plateau', 0.0)),
     )
 
 
