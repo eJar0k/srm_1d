@@ -323,6 +323,18 @@ you're changing):**
    a/n-vs-closure degeneracy is unbroken (Zerox proved unfit; Chunc a/n
    provenance unobtainable); next discriminator = Hasegawa B/C traces
    (digitization pending). Start at `docs/v0_7_4/SPIKE_REOPEN_BRIEF.md`.
+   **2026-10-11 solver verification (`docs/solver_verification/`, REOPENED
+   §12–13) CHANGED THE DEFAULTS:** a PISO second-corrector bug (it omitted
+   the storage the first corrector took, so every transient pressure
+   increment was applied ~twice) is fixed (`piso_corr2_storage=True`) and the
+   step now iterates energy/pressure once (`piso_energy_coupling_iters=1`).
+   Startup spike −11% on every grid, fill Mach bounded (was grid-divergent),
+   plateau unchanged; canonical Chunc peak 10.08 MPa, ratio 1.24 at 100 cells
+   (exp 1.027), grid-converged peak ≈ 11.27 MPa (the 100-cell grid
+   under-resolves the spike ~10%). Also T10: regression mass source is now
+   (ρ_p − ρ_g)·r·A. The v0.7.5 knobs were fit WITH the PISO bug — re-fitting
+   is a pending user decision; the §10 Ma-vs-MP table predates the fix
+   (re-measured in `worklog/T11.md`).
 2. **Core-loop performance (held).** `fastmath` shipped (+~30%,
    result-identical). Lever B (IMEX acoustic-CFL escape) and `A2` bisection
    warm-start are no longer the only candidates — the user has other new
