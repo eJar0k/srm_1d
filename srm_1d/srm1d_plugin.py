@@ -29,7 +29,7 @@ import time as _time
 import numpy as np
 
 from .fmm_grain import _setup_openmotor_path
-from .igniter_plenum import _VALID_TOPOLOGIES
+from .igniter_plenum import _VALID_TOPOLOGIES, _VALID_AREA_LAWS
 
 SOLVER_NAME = 'srm_1d-transient'
 ROUGHNESS_KEY = 'roughness'   # edited in um in the GUI; run_simulation wants m
@@ -159,6 +159,7 @@ def upgrade_solver_config(values):
 _PYROGEN_FORMS = ('pellets', 'powder', 'chunks')
 _HEAT_DELIVERY_MODES = ('demar', 'radiation', 'none')
 _BURN_LAWS = ('0d', 'end_burning')
+_BASKET_AREA_LAWS = _VALID_AREA_LAWS
 
 # Per ``Pyrogen`` init field -> GUI metadata. Kinds are implied by the keys:
 # ``choices`` -> EnumProperty, ``min``/``max`` -> FloatProperty, else a
@@ -196,6 +197,8 @@ _PYROGEN_FIELD_META = {
     'radiation_absorption_length_m': {
         'label': 'Radiation Absorption Length', 'unit': 'm',
         'min': 0, 'max': 1000},
+    'P_plateau': {'label': 'Burn Rate Plateau Pressure', 'unit': 'Pa',
+                  'min': 0, 'max': 1e10},
 }
 
 # ``Pyrogen`` fields the GUI schema deliberately does NOT carry. They still
@@ -224,6 +227,8 @@ _IGNITER_CHAMBER_META = {
                              'min': 0, 'max': 1},
     'pellet_packing_fraction': {'label': 'Pellet Packing Fraction', 'unit': '',
                                 'min': 0, 'max': 1},
+    'basket_area_law': {'label': 'Basket Burn Area Law',
+                        'choices': _BASKET_AREA_LAWS},
 }
 
 

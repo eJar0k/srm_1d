@@ -500,6 +500,8 @@ def build_pyrogen_chamber(
     cartridge_length_m=-1.0,
     basket_fill_fraction=0.5,
     pellet_packing_fraction=0.60,
+    basket_area_law='constant',
+    bed_flame_speed_m_s=0.0,
 ):
     """
     Build a PyrogenChamber using v0.7.0 default sizing rules.
@@ -576,6 +578,8 @@ def build_pyrogen_chamber(
         cartridge_length_m=cartridge_length_m,
         basket_fill_fraction=basket_fill_fraction,
         pellet_packing_fraction=pellet_packing_fraction,
+        basket_area_law=basket_area_law,
+        bed_flame_speed_m_s=bed_flame_speed_m_s,
     )
 
 
@@ -601,6 +605,7 @@ _IGNITER_SIZING_DEFAULTS = {
     'cartridge_length_m': -1.0,   # -1 => derive at sim init
     'basket_fill_fraction': 0.5,
     'pellet_packing_fraction': 0.60,
+    'basket_area_law': 'constant',     # OB1 opt-in: 'shrinking'
 }
 
 
@@ -835,6 +840,7 @@ def load_igniter(motor):
         'cartridge_length_m': ig.get('cartridge_length_m', -1.0),
         'basket_fill_fraction': ig.get('basket_fill_fraction', 0.5),
         'pellet_packing_fraction': ig.get('pellet_packing_fraction', 0.60),
+        'basket_area_law': ig.get('basket_area_law', 'constant'),
     }
     return pyro, sizing
 
@@ -1220,6 +1226,8 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
                  cartridge_length_m=-1.0,
                  basket_fill_fraction=0.5,
                  pellet_packing_fraction=0.60,
+                 basket_area_law='constant',
+                 bed_flame_speed_m_s=0.0,
                  particle_diameter_m=None,
                  particle_LD_ratio=None,
                  T_ignition=756.0, k_solid=None,  # T_ign: v0.7.5 re-LHS (was 850)
@@ -1352,6 +1360,8 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
             cartridge_length_m=cartridge_length_m,
             basket_fill_fraction=basket_fill_fraction,
             pellet_packing_fraction=pellet_packing_fraction,
+            basket_area_law=basket_area_law,
+            bed_flame_speed_m_s=bed_flame_speed_m_s,
         )
     args['pyrogen_chamber'] = build_pyrogen_chamber(
         pyrogen_obj, geo, nozzle, **chamber_kwargs)

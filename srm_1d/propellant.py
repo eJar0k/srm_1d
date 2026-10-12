@@ -197,6 +197,18 @@ class Pyrogen:
     # pellet pyrogens (BKNO3, MTV without metal).
     radiation_absorption_length_m: float = 1.0
 
+    # OB1 (opt-in, default 0.0 = OFF): pressure above which the burn RATE stops
+    # rising. When > 0 the Saint-Robert law is evaluated at min(P, P_plateau):
+    #     r = a * min(P, P_plateau)^n          [P_plateau in Pa]
+    # i.e. the rate is flat above P_plateau. Source: Zhu et al., Chinese J.
+    # Energetic Materials 16(2):204-206 (2008), closed-bomb B/KNO3 pellets:
+    # r = r0*P for 2.8-7 MPa and r = 7*r0 for 7-50 MPa (r0 = 5.27e-3..6.85e-3
+    # m/s/MPa across four loadings). In this parameterisation: a = r0/1e6
+    # [m/s/Pa], n = 1, P_plateau = 7e6. Used by the forward plenum (at P_ig)
+    # and the uncontained baskets (at the host-cell bore P). See
+    # docs/pyrogen_realism/OB1_REPORT.md.
+    P_plateau: float = 0.0
+
     @property
     def species(self) -> "GasSpecies":
         """

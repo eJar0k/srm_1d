@@ -532,9 +532,64 @@ def _compute_pyrogen_axial_weights(x_centers, dx, L_jet, N):
 
 
 @njit(cache=True, fastmath=True)
+def _compute_uncontained_pyrogen_mdot_cells(
+    P_bore, a, n, rho_p, A_cell0, m_cell, m_cell0, t, dt,
+    i_start, i_end, N, mdot_arr, gas_mass_fraction, P_plateau, t_light,
+):
+    """OB1 (opt-in) — per-cell uncontained pyrogen mdot with the burning
+    area following the pellet web consumption.
+
+    Each cartridge cell i keeps its own unburnt mass ``m_cell[i]`` (initially
+    ``m_cell0``) and burns it at its host-cell bore pressure:
+
+        A_i     = A_cell0 * (m_cell[i] / m_cell0)^(2/3)     [m^2]
+        r_b[i]  = a * min(P_bore[i], P_plateau)^n           [m/s]  (cap if P_plateau > 0)
+        mdot[i] = rho_p * r_b[i] * A_i                      [kg/s, SOLID]
+
+    ``A ~ m^(2/3)`` is exact for particles that regress uniformly on every
+    face and keep their shape (spheres, cubes, L/D = 1 cylinders). A cell that
+    has not yet lit (``t < t_light[i]``) is inert. The last step of a cell is
+    capped so it consumes exactly its remaining mass. Returns the total unburnt
+    mass after the step (the caller stores it in ``plenum_state[0]``).
+    ``mdot_arr`` receives the GAS mass rate (solid rate * gas_mass_fraction),
+    exactly as in the pooled function.
+    """
+    for i in range(N):
+        mdot_arr[i] = 0.0
+    lo = i_start if i_start >= 0 else 0
+    hi = i_end if i_end < N else N - 1
+    total_remaining = 0.0
+    if lo > hi or dt <= 0.0 or A_cell0 <= 0.0 or m_cell0 <= 0.0:
+        for i in range(N):
+            total_remaining += m_cell[i]
+        return total_remaining
+    for i in range(lo, hi + 1):
+        mi = m_cell[i]
+        if mi <= 0.0 or t < t_light[i]:
+            total_remaining += mi if mi > 0.0 else 0.0
+            continue
+        P = P_bore[i]
+        if P < 0.0:
+            P = 0.0
+        if P_plateau > 0.0 and P > P_plateau:
+            P = P_plateau
+        frac = mi / m_cell0
+        A_i = A_cell0 * frac ** (2.0 / 3.0)
+        mdot_solid = rho_p * a * (P ** n) * A_i
+        if mdot_solid * dt >= mi:
+            mdot_solid = mi / dt
+            m_cell[i] = 0.0
+        else:
+            m_cell[i] = mi - mdot_solid * dt
+        total_remaining += m_cell[i]
+        mdot_arr[i] = mdot_solid * gas_mass_fraction
+    return total_remaining
+
+
+@njit(cache=True, fastmath=True)
 def _compute_uncontained_pyrogen_mdot(
     P_bore, a, n, rho_p, A_burn_per_cell, m_pyrogen_remaining, dt,
-    i_start, i_end, N, mdot_arr, gas_mass_fraction=1.0,
+    i_start, i_end, N, mdot_arr, gas_mass_fraction=1.0, P_plateau=0.0,
 ):
     """v0.7.3 Phase A — per-cell pyrogen mdot for uncontained
     submerged-igniter topologies (head_basket, aft_basket).
@@ -596,6 +651,8 @@ def _compute_uncontained_pyrogen_mdot(
         P = P_bore[i]
         if P < 0.0:
             P = 0.0
+        if P_plateau > 0.0 and P > P_plateau:
+            P = P_plateau
         r_b = a * (P ** n)
         m = rho_p * r_b * A_burn_per_cell
         mdot_arr[i] = m
@@ -1752,6 +1809,32 @@ def _run_time_loop(
     D_throat = D_throat_init
     A_throat = A_throat_init
     pyrogen_initial_mass = plenum_state[0]
+    # OB1: opt-in per-cell basket bookkeeping (area follows web consumption,
+    # optional sequential bed lighting). Off by default: the pooled
+    # constant-area path below is then bit-identical to pre-OB1.
+    use_basket_cells = (
+        topology_code != 0 and
+        (chamber_params_arr[5] > 0.5 or chamber_params_arr[6] > 0.0)
+    )
+    m_cell_basket = np.zeros(N)
+    t_light_basket = np.zeros(N)
+    m_cell0_basket = 0.0
+    A_cell0_basket = A_burn_per_cell
+    if use_basket_cells:
+        lo_b = cart_i_start if cart_i_start >= 0 else 0
+        hi_b = cart_i_end if cart_i_end < N else N - 1
+        n_b = hi_b - lo_b + 1
+        if n_b < 1:
+            n_b = 1
+        m_cell0_basket = pyrogen_initial_mass / n_b
+        v_bed = chamber_params_arr[6]
+        for i in range(lo_b, hi_b + 1):
+            m_cell_basket[i] = m_cell0_basket
+            if v_bed > 0.0:
+                if topology_code == 2:
+                    t_light_basket[i] = (hi_b - i) * dx / v_bed
+                else:
+                    t_light_basket[i] = (i - lo_b) * dx / v_bed
     pyrogen_done = False
     pyrogen_peak_P = 0.0
     pyrogen_duration = 0.0
@@ -2033,11 +2116,21 @@ def _run_time_loop(
             n_pyro = pyrogen_params_arr[1]
             rho_pyro = pyrogen_params_arr[2]
             T_flame_pyro = pyrogen_params_arr[3]
-            new_remaining = _compute_uncontained_pyrogen_mdot(
-                P, a_pyro, n_pyro, rho_pyro, A_burn_per_cell,
-                plenum_state[0], dt, cart_i_start, cart_i_end, N,
-                mdot_uncontained_arr, pyrogen_params_arr[6],
-            )
+            if use_basket_cells:
+                new_remaining = _compute_uncontained_pyrogen_mdot_cells(
+                    P, a_pyro, n_pyro, rho_pyro, A_cell0_basket,
+                    m_cell_basket, m_cell0_basket, t, dt,
+                    cart_i_start, cart_i_end, N,
+                    mdot_uncontained_arr, pyrogen_params_arr[6],
+                    pyrogen_params_arr[7], t_light_basket,
+                )
+            else:
+                new_remaining = _compute_uncontained_pyrogen_mdot(
+                    P, a_pyro, n_pyro, rho_pyro, A_burn_per_cell,
+                    plenum_state[0], dt, cart_i_start, cart_i_end, N,
+                    mdot_uncontained_arr, pyrogen_params_arr[6],
+                    pyrogen_params_arr[7],
+                )
             plenum_state[0] = new_remaining
             # Diagnostics: aggregate per-cell mdot for the existing
             # mdot_igniter / pyrogen_enthalpy_power channels.

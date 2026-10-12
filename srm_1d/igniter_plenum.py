@@ -27,6 +27,11 @@ BURN_LAW_0D = 0
 BURN_LAW_END_BURNING = 1
 
 
+# OB1: area-evolution law for the uncontained (head/aft basket) pellets.
+BASKET_AREA_CONSTANT = 0
+BASKET_AREA_SHRINKING = 1
+_VALID_AREA_LAWS = ('constant', 'shrinking')
+
 _VALID_TOPOLOGIES = (
     'forward_plenum',     # v0.7.0+ default: plenum upstream of bore, choked vent
     'head_basket',        # uncontained pyrogen in head-end bore cells [0, i_end]
@@ -148,6 +153,27 @@ class PyrogenChamber:
     #   L_cart = m / ( (pellet_packing_fraction·ρ) · (basket_fill_fraction·A_port) )
     basket_fill_fraction: float = 0.5      # basket cross-section ÷ bore cross-section
     pellet_packing_fraction: float = 0.60  # bulk(tap) density ÷ solid density
+    # OB1 (opt-in; the defaults below reproduce the pre-OB1 behaviour bit-for-bit)
+    # --- basket_area_law --------------------------------------------------
+    # 'constant' (default): the burning area of every basket cell stays
+    #     A_burn_initial/n_cells until the pooled charge is exhausted (the
+    #     v0.7.3 model).
+    # 'shrinking': per-cell mass bookkeeping with the burning area following
+    #     the pellet web consumption, A_cell = A_cell0 * (m_cell/m_cell0)^(2/3).
+    #     This is the EXACT geometric form function for particles that regress
+    #     uniformly on every face and keep their shape under that regression
+    #     (spheres, cubes, L/D = 1 right cylinders: A ~ s^2, m ~ s^3). It is the
+    #     same law the forward plenum already uses (burn_law '0d'). For
+    #     L/D != 1 particles it is an approximation. Each cell now depletes on
+    #     its own host-cell pressure instead of from one shared pool.
+    basket_area_law: str = 'constant'
+    # --- bed_flame_speed_m_s ----------------------------------------------
+    # DIAGNOSTIC ONLY, default 0.0 = every pellet lit at t = 0 (as before). If
+    # > 0 the basket cells light in sequence from the igniter end (cell
+    # i lights at |i - i_seed|*dx / v). NO sourced value exists in the repo
+    # (PAYWALLED_REFERENCES R5); it is provided to measure sensitivity, not as a
+    # model. Requires basket_area_law='shrinking' (per-cell bookkeeping).
+    bed_flame_speed_m_s: float = 0.0
     #   Packing is shape-dependent and ~size-INDEPENDENT for monodisperse
     #   convex particles (random loose packing ≈ 0.60 for spheres / L≈D
     #   cylinders; size enters only weakly via wall effects). The strong
@@ -181,6 +207,20 @@ class PyrogenChamber:
                 "pellet_packing_fraction must be in (0, 1]; "
                 f"got {self.pellet_packing_fraction}"
             )
+        if self.basket_area_law not in _VALID_AREA_LAWS:
+            raise ValueError(
+                f"basket_area_law must be one of {_VALID_AREA_LAWS}; "
+                f"got '{self.basket_area_law}'"
+            )
+        if self.bed_flame_speed_m_s < 0.0:
+            raise ValueError("bed_flame_speed_m_s must be nonnegative")
+        if self.bed_flame_speed_m_s > 0.0 and self.basket_area_law != 'shrinking':
+            raise ValueError(
+                "bed_flame_speed_m_s > 0 needs basket_area_law='shrinking' "
+                "(per-cell mass bookkeeping)"
+            )
+        if self.pyrogen.P_plateau < 0.0:
+            raise ValueError("Pyrogen.P_plateau must be nonnegative")
 
     def resolve_cartridge_length(self, A_port_avg):
         """Return cartridge length in meters, deriving from pyrogen mass
@@ -258,6 +298,7 @@ def pyrogen_params(pyrogen):
         pyrogen.M,
         pyrogen.gamma,
         pyrogen.gas_mass_fraction,
+        pyrogen.P_plateau,       # index 7 (OB1; 0 = no rate plateau)
     ], dtype=np.float64)
 
 
@@ -269,6 +310,8 @@ def chamber_params(chamber):
         chamber.A_throat,
         chamber.V_plenum,
         float(_burn_law_code(chamber.burn_law)),
+        float(_VALID_AREA_LAWS.index(chamber.basket_area_law)),  # 5 (OB1)
+        float(chamber.bed_flame_speed_m_s),                      # 6 (OB1)
     ], dtype=np.float64)
 
 
@@ -387,7 +430,7 @@ def _plenum_rates(
     m_pyrogen, m_gas, T_gas,
     a, n, rho_pyrogen, T_flame, M, gamma,
     m_pyrogen_initial, A_burn_initial, A_throat, V_plenum, burn_law_code,
-    P_main,
+    P_main, P_plateau=0.0,
 ):
     P_ig = _plenum_pressure(m_gas, T_gas, M, V_plenum)
     A_burn = _burn_area(
@@ -396,7 +439,10 @@ def _plenum_rates(
     if A_burn <= 0.0 or a <= 0.0 or rho_pyrogen <= 0.0:
         mdot_generated = 0.0
     else:
-        mdot_generated = rho_pyrogen * A_burn * a * max(P_ig, 0.0) ** n
+        P_rate = P_ig
+        if P_plateau > 0.0 and P_rate > P_plateau:
+            P_rate = P_plateau
+        mdot_generated = rho_pyrogen * A_burn * a * max(P_rate, 0.0) ** n
     mdot_out = _choked_orifice_mdot(
         P_ig, T_gas, A_throat, gamma, R_UNIVERSAL, M, P_main
     )
@@ -408,7 +454,7 @@ def _plenum_rhs(
     m_pyrogen, m_gas, T_gas,
     a, n, rho_pyrogen, T_flame, M, gamma,
     m_pyrogen_initial, A_burn_initial, A_throat, V_plenum, burn_law_code,
-    dt_limit, P_main, gas_mass_fraction,
+    dt_limit, P_main, gas_mass_fraction, P_plateau=0.0,
 ):
     if m_pyrogen < 0.0:
         m_pyrogen = 0.0
@@ -421,7 +467,7 @@ def _plenum_rhs(
         m_pyrogen, m_gas, T_gas,
         a, n, rho_pyrogen, T_flame, M, gamma,
         m_pyrogen_initial, A_burn_initial, A_throat, V_plenum,
-        burn_law_code, P_main,
+        burn_law_code, P_main, P_plateau,
     )
     if dt_limit > 0.0 and mdot_generated * dt_limit > m_pyrogen:
         mdot_generated = m_pyrogen / dt_limit
@@ -463,6 +509,7 @@ def _step_plenum_ode(state, pyrogen_params_arr, chamber_params_arr, dt, P_main):
     M = pyrogen_params_arr[4]
     gamma = pyrogen_params_arr[5]
     gas_mass_fraction = pyrogen_params_arr[6]
+    P_plateau = pyrogen_params_arr[7]
 
     m_pyrogen_initial = chamber_params_arr[0]
     A_burn_initial = chamber_params_arr[1]
@@ -483,7 +530,7 @@ def _step_plenum_ode(state, pyrogen_params_arr, chamber_params_arr, dt, P_main):
             new_state[0], new_state[1], new_state[2],
             a, n, rho_pyrogen, T_flame, M, gamma,
             m_pyrogen_initial, A_burn_initial, A_throat, V_plenum,
-            burn_law_code, P_main,
+            burn_law_code, P_main, P_plateau,
         )
         return new_state, mdot_out, mdot_generated, P_ig
 
@@ -491,7 +538,7 @@ def _step_plenum_ode(state, pyrogen_params_arr, chamber_params_arr, dt, P_main):
         m0, g0, T0,
         a, n, rho_pyrogen, T_flame, M, gamma,
         m_pyrogen_initial, A_burn_initial, A_throat, V_plenum,
-        burn_law_code, dt, P_main, gas_mass_fraction,
+        burn_law_code, dt, P_main, gas_mass_fraction, P_plateau,
     )
     k2_m, k2_g, k2_T = _plenum_rhs(
         m0 + 0.5 * dt * k1_m,
@@ -499,7 +546,7 @@ def _step_plenum_ode(state, pyrogen_params_arr, chamber_params_arr, dt, P_main):
         T0 + 0.5 * dt * k1_T,
         a, n, rho_pyrogen, T_flame, M, gamma,
         m_pyrogen_initial, A_burn_initial, A_throat, V_plenum,
-        burn_law_code, dt, P_main, gas_mass_fraction,
+        burn_law_code, dt, P_main, gas_mass_fraction, P_plateau,
     )
     k3_m, k3_g, k3_T = _plenum_rhs(
         m0 + 0.5 * dt * k2_m,
@@ -507,7 +554,7 @@ def _step_plenum_ode(state, pyrogen_params_arr, chamber_params_arr, dt, P_main):
         T0 + 0.5 * dt * k2_T,
         a, n, rho_pyrogen, T_flame, M, gamma,
         m_pyrogen_initial, A_burn_initial, A_throat, V_plenum,
-        burn_law_code, dt, P_main, gas_mass_fraction,
+        burn_law_code, dt, P_main, gas_mass_fraction, P_plateau,
     )
     k4_m, k4_g, k4_T = _plenum_rhs(
         m0 + dt * k3_m,
@@ -515,7 +562,7 @@ def _step_plenum_ode(state, pyrogen_params_arr, chamber_params_arr, dt, P_main):
         T0 + dt * k3_T,
         a, n, rho_pyrogen, T_flame, M, gamma,
         m_pyrogen_initial, A_burn_initial, A_throat, V_plenum,
-        burn_law_code, dt, P_main, gas_mass_fraction,
+        burn_law_code, dt, P_main, gas_mass_fraction, P_plateau,
     )
 
     new_m = m0 + (dt / 6.0) * (k1_m + 2.0 * k2_m + 2.0 * k3_m + k4_m)
@@ -539,6 +586,6 @@ def _step_plenum_ode(state, pyrogen_params_arr, chamber_params_arr, dt, P_main):
         new_m, new_g, new_T,
         a, n, rho_pyrogen, T_flame, M, gamma,
         m_pyrogen_initial, A_burn_initial, A_throat, V_plenum,
-        burn_law_code, P_main,
+        burn_law_code, P_main, P_plateau,
     )
     return new_state, mdot_out, mdot_generated, P_ig
