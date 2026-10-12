@@ -33,6 +33,10 @@ from .igniter_plenum import _VALID_TOPOLOGIES
 
 SOLVER_NAME = 'srm_1d-transient'
 ROUGHNESS_KEY = 'roughness'   # edited in um in the GUI; run_simulation wants m
+IGN_H_KEY = 'ignition_heat_transfer'   # choice field; default read from run_simulation
+# Allowed values of ``ignition_heat_transfer`` (srm_1d.simulation._IGN_H_MODES;
+# pinned by tests/test_solver_config_upgrade.py). Default first = the GUI default.
+_IGNITION_H_CHOICES = ('peretz', 'gnielinski', 'keller')
 
 # The transient solver emits one sample per solver step (10^5+ for a typical
 # burn). openMotor's graph widget re-converts (per-point, in Python) and
@@ -62,7 +66,7 @@ def _transient_config_schema():
     the shared global config (the adapter reads it from the motor)."""
     _setup_openmotor_path()
     from motorlib.properties import (  # type: ignore
-        PropertyCollection, FloatProperty,
+        PropertyCollection, FloatProperty, EnumProperty,
     )
     schema = PropertyCollection()
     schema.props['t_max'] = FloatProperty('Max Simulation Time', 's', 0.01, 600.0)
@@ -76,6 +80,11 @@ def _transient_config_schema():
     # for heated gas. It is NOT an erosive-burning coefficient.
     schema.props['kappa'] = FloatProperty('Gnielinski Temp-Ratio Exponent', '', 0.0, 2.0)
     schema.props['T_ignition'] = FloatProperty('Ignition Temperature', 'K', 300.0, 2000.0)
+    # IG3: closure for the convective h that heats the UNIGNITED propellant
+    # surface (choice field; run_simulation validates the value). The Ma 2020
+    # erosive burn-rate path is unaffected by this choice.
+    schema.props[IGN_H_KEY] = EnumProperty(
+        'Ignition Heat Transfer', list(_IGNITION_H_CHOICES))
     # Seed defaults: DERIVED from run_simulation's signature (so they cannot
     # drift from the solver again -- they once did, 50 um / 0.45 / 850 K were
     # the pre-v0.7.5 values), roughness converted m -> um at this boundary.
@@ -107,6 +116,7 @@ def _solver_config_defaults():
     keys = ('t_max', 'P_cutoff', 'cfl_target', 'roughness', 'kappa', 'T_ignition')
     out = {k: float(params[k].default) for k in keys}
     out[ROUGHNESS_KEY] = round(out[ROUGHNESS_KEY] * 1.0e6, 9)   # m -> um
+    out[IGN_H_KEY] = str(params[IGN_H_KEY].default)             # IG3 choice field
     return out
 
 

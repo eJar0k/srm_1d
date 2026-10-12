@@ -177,6 +177,29 @@ def _ignition_h_code(mode):
             f"(expected one of {sorted(_IGN_H_MODES)})") from None
 
 
+# IG3: which port area the Peretz (A_p/A_t)^0.4 factor uses. The sources
+# (Rocketdyne duct data, Peretz's own motor) only had uniform-port geometry, so
+# 'local', 'head' and 'aft' coincide there and none is stated for a non-uniform
+# bore (docs/pyrogen_realism/R9_SOURCES.md). Only read in 'peretz' mode.
+#   0 'local' (default) -- the cell's own port area (IG2's choice).
+#   1 'head'  -- port area of the fore-most grain cell (instantaneous).
+#   2 'aft'   -- port area of the aft-most grain cell (instantaneous).
+PERETZ_AP_LOCAL = 0
+PERETZ_AP_HEAD = 1
+PERETZ_AP_AFT = 2
+_PERETZ_AP_MODES = {'local': PERETZ_AP_LOCAL, 'head': PERETZ_AP_HEAD,
+                    'aft': PERETZ_AP_AFT}
+
+
+def _peretz_ap_code(mode):
+    try:
+        return _PERETZ_AP_MODES[mode]
+    except (KeyError, TypeError):
+        raise ValueError(
+            f"unknown peretz_ap_reference: {mode!r} "
+            f"(expected one of {sorted(_PERETZ_AP_MODES)})") from None
+
+
 @njit(cache=True, fastmath=True)
 def _peretz_heat_transfer_coeff(
     P, u_cell, T_gas, T_wall, R_gas, Cp_gas, gamma_gas,
@@ -1170,6 +1193,8 @@ def _goodman_ignition_sources_and_mass(
     # IG2: opt-in ignition heat-transfer closure (0 = default Gnielinski)
     ignition_h_code,         # 0 gnielinski, 1 peretz, 2 keller
     u_cell, A_port, A_throat, R_mix_gas, gamma_mix_gas,
+    # IG3: which port area Peretz's (A_p/A_t)^0.4 uses (0 local, 1 head, 2 aft)
+    peretz_ap_code,
 ):
     """Goodman surface-temperature ignition and propellant source assembly.
 
@@ -1222,6 +1247,19 @@ def _goodman_ignition_sources_and_mass(
     # pyrogen_heat_flux_arr_in), replacing the head_grain_cell /
     # pyrogen_heat_target single-cell special case.
     Y_emit_threshold = 0.5
+    # IG3: fixed reference port area for the Peretz A_p/A_t factor (head / aft
+    # grain cell, instantaneous); 'local' (code 0) uses the cell's own area.
+    ap_ref_idx = -1
+    if peretz_ap_code == 1:
+        for i in range(N):
+            if is_grain[i]:
+                ap_ref_idx = i
+                break
+    elif peretz_ap_code == 2:
+        for i in range(N - 1, -1, -1):
+            if is_grain[i]:
+                ap_ref_idx = i
+                break
     for i in range(N):
         pyrogen_surface_heat_flux[i] = 0.0
         radiation_heat_flux[i] = 0.0
@@ -1281,10 +1319,14 @@ def _goodman_ignition_sources_and_mass(
                         Pr, k_thermal, T[i], T_surf[i], kappa,
                     )
                 elif ignition_h_code == 1:
+                    if ap_ref_idx >= 0:
+                        A_ap = A_port[ap_ref_idx]
+                    else:
+                        A_ap = A_port[i]
                     h_c = _peretz_heat_transfer_coeff(
                         P[i], u_cell[i], T[i], T_surf[i], R_mix_gas[i],
                         Cp_mix_gas[i], gamma_mix_gas[i], D_hyd[i],
-                        x_centers[i], A_port[i], A_throat,
+                        x_centers[i], A_ap, A_throat,
                     )
                 else:
                     h_c = _keller_heat_transfer_coeff(
@@ -1620,6 +1662,7 @@ def _run_time_loop(
     erosive_model_code,           # int — registry code, 0=ma2020, 1=mukunda_paul, 2=saint_robert
     # --- IG2: opt-in ignition heat-transfer closure (0 = default Gnielinski) ---
     ignition_h_code,
+    peretz_ap_code,               # IG3: 0 local, 1 head, 2 aft (peretz mode only)
     # --- v0.8.0 Phase 6: live progress / cooperative cancel ---
     progress_state,               # [2] float64: [0]=progress 0..1 (written),
                                   #              [1]=cancel flag (read; >0.5 aborts)
@@ -2130,7 +2173,7 @@ def _run_time_loop(
             rho, Cp_mix_arr,
             # IG2: opt-in ignition heat-transfer closure
             ignition_h_code, u_cell, A_port, A_throat,
-            R_mix_arr, gamma_mix_arr,
+            R_mix_arr, gamma_mix_arr, peretz_ap_code,
         )
 
         # v0.7.1 Phase 3.5: pyrogen mass injection uses pyrogen Cp for the
@@ -2634,14 +2677,18 @@ def run_simulation(
     # = r0). Model choice is solver config, not propellant data. Never
     # "recommended" — an explicit user tradeoff, not a shipped default.
     erosive_model='ma2020',
-    # IG2 (docs/pyrogen_realism/IG2_REPORT.md): opt-in closure for the
-    # convective h that heats the UNIGNITED propellant surface in the Goodman
-    # ignition kernel. 'gnielinski' (default) = the Ma/Gnielinski chain used
-    # for erosive burning (bit-identical to before). 'peretz' = Peretz et al.
-    # (1973) bore correlation for starting transients. 'keller' = Keller-Baer-
-    # Ryan (1966) Eq. 11 extrapolated to the bore. The Ma erosive path is not
-    # affected by this switch.
-    ignition_heat_transfer='gnielinski',
+    # IG2/IG3 (docs/pyrogen_realism/IG2_REPORT.md, IG3_TASK.md): closure for
+    # the convective h that heats the UNIGNITED propellant surface in the
+    # Goodman ignition kernel. 'peretz' (default since IG3) = Peretz et al.
+    # (1973) bore correlation for starting transients. 'gnielinski' = the
+    # Ma/Gnielinski chain used for erosive burning (the pre-IG3 default).
+    # 'keller' = Keller-Baer-Ryan (1966) Eq. 11 extrapolated to the bore. The
+    # Ma erosive path is not affected by this switch.
+    ignition_heat_transfer='peretz',
+    # IG3: port area used in Peretz's (A_p/A_t)^0.4 factor ('peretz' mode
+    # only): 'local' (default, the cell's own port area), 'head' (fore-most
+    # grain cell) or 'aft' (aft-most grain cell); instantaneous values.
+    peretz_ap_reference='local',
     # --- Solver ---
     # v0.7.3.2 (2026-05-27): cfl_target tightened 0.5 → 0.3 and
     # source_cfl_factor tightened 0.10 → 0.05 to absorb Phase B.0
@@ -2746,13 +2793,21 @@ def run_simulation(
         ``erosive_model`` raises ``ValueError``. See
         docs/erosive_model_registry/DESIGN.md.
     ignition_heat_transfer : str
-        Opt-in (default ``'gnielinski'`` = unchanged) closure for the
-        convective heat-transfer coefficient that heats the unignited
-        propellant surface toward ``T_ignition`` (and the matching gas
-        wall-loss sink). ``'peretz'``: Peretz et al. 1973 Eq. III-22 (film-
-        temperature properties, A_p/A_t and entrance factors). ``'keller'``:
-        Keller-Baer-Ryan 1966 Eq. 11 with a (D/D_K)^-0.095 bore scaling.
-        The Ma 2020 erosive burn-rate path is never affected.
+        Closure for the convective heat-transfer coefficient that heats the
+        unignited propellant surface toward ``T_ignition`` (and the matching
+        gas wall-loss sink). Default ``'peretz'`` (IG3; was ``'gnielinski'``
+        before): Peretz et al. 1973 Eq. III-22 (film-temperature properties,
+        A_p/A_t and entrance factors). ``'gnielinski'``: the Ma/Gnielinski
+        erosive-burning chain. ``'keller'``: Keller-Baer-Ryan 1966 Eq. 11 with
+        a (D/D_K)^-0.095 bore scaling. The Ma 2020 erosive burn-rate path is
+        never affected.
+    peretz_ap_reference : str
+        Port area in Peretz's (A_p/A_t)^0.4 factor, ``'peretz'`` mode only:
+        ``'local'`` (default; the cell's own port area, bit-identical to IG2),
+        ``'head'`` (port area of the fore-most grain cell / throat area) or
+        ``'aft'`` (aft-most grain cell). Instantaneous values (they follow the
+        burnback and the throat). The sources only had uniform ports, so none
+        of the three is stated for a non-uniform bore (R9_SOURCES.md).
     cfl_target : float
         Target CFL number for time stepping. Default: 0.5.
     dt_max : float
@@ -2854,6 +2909,7 @@ def run_simulation(
     # loudly rather than being silently ignored.
     _ero_code = resolve_erosive_model(erosive_model)
     _ign_h_code = _ignition_h_code(ignition_heat_transfer)
+    _ap_code = _peretz_ap_code(peretz_ap_reference)
     if erosive_mp_cap > 0.0 and erosive_model != 'ma2020':
         raise ValueError(
             f"erosive_mp_cap={erosive_mp_cap} is a ma2020-only option; "
@@ -3386,6 +3442,7 @@ def run_simulation(
         int(_ero_code),
         # IG2: opt-in ignition heat-transfer closure
         int(_ign_h_code),
+        int(_ap_code),
         # v0.8.0 Phase 6: live progress / cooperative cancel
         progress_state,
     )
@@ -3655,6 +3712,7 @@ def run_simulation(
         # unlabeled as to which erosive closure produced them.
         'erosive_model': erosive_model,
         'ignition_heat_transfer': ignition_heat_transfer,
+        'peretz_ap_reference': peretz_ap_reference,
         'diagnostic_disable_erosive': bool(diagnostic_disable_erosive),
         'diagnostic_disable_endfaces': bool(diagnostic_disable_endfaces),
         'diagnostic_disable_momentum': bool(diagnostic_disable_momentum),

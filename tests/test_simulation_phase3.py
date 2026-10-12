@@ -159,7 +159,7 @@ def test_adjacent_radiation_heats_only_neighbors_and_conserves_sink():
         False, np.ones(N, dtype=np.bool_), 0,  # v0.7.4 Phase F: gate off, fwd_plenum
         np.full(N, 5.0), np.full(N, 1500.0),  # T10: start-of-step rho_gas, Cp_mix
         0, np.zeros(N), np.full(N, 7.0e-4), 1.0e-4,   # IG2: default h closure, u_cell, A_port, A_throat
-        np.full(N, 300.0), np.full(N, 1.25),          # IG2: R_mix, gamma_mix
+        np.full(N, 300.0), np.full(N, 1.25), 0,            # IG2: R_mix, gamma_mix; IG3: Ap reference (0 = local)
     )
 
     radiation_heat_power = out[4]
@@ -229,7 +229,7 @@ def test_adjacent_radiation_sink_can_be_disabled_for_diagnostics():
         False, np.ones(N, dtype=np.bool_), 0,  # v0.7.4 Phase F: gate off, fwd_plenum
         np.full(N, 5.0), np.full(N, 1500.0),  # T10: start-of-step rho_gas, Cp_mix
         0, np.zeros(N), np.full(N, 7.0e-4), 1.0e-4,   # IG2: default h closure, u_cell, A_port, A_throat
-        np.full(N, 300.0), np.full(N, 1.25),          # IG2: R_mix, gamma_mix
+        np.full(N, 300.0), np.full(N, 1.25), 0,            # IG2: R_mix, gamma_mix; IG3: Ap reference (0 = local)
     )
 
     assert out[4] > 0.0

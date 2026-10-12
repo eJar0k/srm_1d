@@ -105,7 +105,7 @@ def test_solver_config_schema(om):
     assert schema is not None
     keys = set(schema.props.keys())
     assert {'t_max', 'P_cutoff', 'cfl_target', 'roughness', 'kappa',
-            'T_ignition'} <= keys
+            'T_ignition', 'ignition_heat_transfer'} <= keys
     # Every key is a valid run_simulation override; defaults mirror the solver.
     defaults = schema.getProperties()
     assert defaults['t_max'] == 10.0
