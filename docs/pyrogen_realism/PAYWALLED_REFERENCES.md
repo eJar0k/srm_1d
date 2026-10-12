@@ -69,3 +69,19 @@ Now in `docs/references/` (read them there; conclusions above marked "pending" c
 Still open: **R5** (pellet-bed flame spread; not found), **R7** (raw Chunc ignition trace; unavailable),
 **R9** (Rocketdyne igniter-duct data; see `R9_SOURCES.md`: AIAA J. 5(7) 1967 DOI 10.2514/3.4183 is
 verified and fetchable; the two AFRPL reports and Cohen-Derr-Price are not online).
+
+**R9** (Rocketdyne igniter-duct data; NTRS search for AFRPL-TR-67-267 found nothing, DTIC down --
+candidate-source search delegated).
+
+## OB1 additions (2026-10-11)
+
+R1, R2, R3 were READ for OB1 (page images; the text layers are unusable for R1/R2). What they do and do not
+support is in `OB1_REPORT.md` section 1. Remaining / new needs:
+
+| # | Citation | DOI / URL | Why OB1 needs it | Quantity to extract | Conclusions pending |
+|---|---|---|---|---|---|
+| R5 | Pellet-bed / porous-charge flame spread. Search candidates (NONE read, NONE verified, none in repo): Kuo K.K., Vichnevetsky R., Summerfield M., "Theory of flame front propagation in porous propellant charges under confinement", AIAA J. 11(4):444-451 (1973); Gough P.S. & Zwarts F.J., "Modeling heterogeneous two-phase reacting flow", AIAA J. 17(1):17-25 (1979); Baer M.R. & Nunziato J.W., "A two-phase mixture theory for the deflagration-to-detonation transition in reactive granular materials", Int. J. Multiphase Flow 12(6):861-889 (1986); any measurement of flame spread through a loose BKNO3 / MTV pellet basket | DOIs not verified | Option (c): a sourced bed flame-spread speed (the repo's tau_bed = 5-10 ms is memory-level only). OB1 probes show a 3-30 m/s sequential lighting changes the 4.5 g peak by <2 %, so this is lower priority than it looked | Flame-spread speed vs pellet size / packing / pressure for BKNO3 or MTV beds | Whether a sourced bed model can reduce the spike: pending (diagnostic result only) |
+| R13 | MIL-STD-286, Method 801.1 (closed-bomb burning rate) | DOI n/a (military std) | MIL-P-46994B 4.6.2 defines the 1.25-1.75 in/s (31.8-44.5 mm/s) minimum as R = h/(2t) from a 10 g closed-bomb run, t = first pressure indication to stabilised maximum, with NO pressure stated | Bomb volume, loading, and the pressure range the average rate refers to | Whether the MIL rate is evidence for the Zhu plateau (they agree numerically: 36.9-47.9 vs 31.8-44.5 mm/s) is pending; stated only as consistent |
+| R14 | Mizushima et al., "Measurements of Burning Rates of BKNO3 Pellets with a Diameter of 3.2 mm under Vacuum Conditions", Trans. JSASS Aerospace Tech. Japan 22 (2024) (cited in `docs/v0_7_3/references/pyrogen_physical_params_lit_dive.md`; J-STAGE open access, https://www.jstage.jst.go.jp/article/tastj/22/0/22_22.25/_pdf) -- NOT read | URL not verified | Possible second low-pressure data set / the binder identity | Rate vs pressure, binder, pellet length | The 0.2-2.8 MPa gap between Nakano (<= 0.2 MPa) and Zhu (>= 2.8 MPa) stays unbridged: pending |
+| R15 | Zhu M.-S., Long X.-P., Jiang X.-H., et al., "B/KNO3 burning performance parameter calculation", Acta Armamentarii (Bingong Xuebao) 26(3):320-322 (2005) and Jiang X.-H., He B., Chen L., "Study on burning characteristics of boron potassium", Proc. Symposium on Propellants, Explosives and Insensitive Munitions, Zhuhai (2002) (refs [2], [3] of Zhu 2008) | DOIs not verified | Zhu 2008 does not state the B/KNO3 composition or binder (it cites MIL-STD-1901A); the earlier papers may | Composition, binder, density | Whether Zhu's r0 applies to BPNV (25:60:15 B/KNO3/Viton) or MIL-type (24:71:5): pending |
+| R16 | MTV (Mg/Teflon/Viton) burn rate ABOVE 7 MPa | Kubota & Serizawa 1987 (in repo, 0.3-7 MPa only) | OB1's plateau option has a sourced law only for B/KNO3; MTV has none | Strand or closed-bomb MTV rate 7-50 MPa | Any MTV plateau: pending (not implemented) |

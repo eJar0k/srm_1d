@@ -4,17 +4,23 @@
 # Saint-Robert values: seed `a=2.0e-5, n=0.50` PRESERVED in this
 # YAML pending v0.7.4 Phase C re-LHS calibration.
 #
-# **Literature target (NOT YET ADOPTED — calibration debt)**:
-# Mizushima et al. 2016, "Burning Rate Measurements of 3.2-mm-dia.
-# BKNO3 Pellets in Low Pressures," J. Japan Soc. Aeron. Sp. Sci.
-# 64(2). Measured r = 71.1 · P^0.589 (mm/s, MPa), valid 5 kPa -
-# 7 MPa. SI conversion: a = 3.50e-5 m/(s·Pa^n), n = 0.589. With
-# the BPNV binder correction (Mizushima used B:KNO3:NC=28:70:2 at
-# 2% binder; BPNV is 25:60:15 with 15% Viton): expected band
-# a ∈ (2.8e-5, 3.5e-5), n = 0.589.
+# **Literature target (NOT YET ADOPTED — calibration debt)** -- CORRECTED by OB1
+# (2026-10-11; the earlier text of this comment was wrong on four points):
+# Nakano & Kakami 2016 (NOT "Mizushima"), "Burning Rate Measurements of
+# 3.2-mm-dia. BKNO3 Pellets in Low Pressures", J. Japan Soc. Aeronaut. Space
+# Sci. 64(2):139-143 (docs/references/nakano2016.pdf). Measured r = 71.1 * P^0.589
+# (mm/s, MPa) over 5 kPa - 200 kPa ONLY (not 7 MPa; r = 3.0 +/- 0.5 mm/s below
+# 5 kPa). SI conversion: a = 71.1e-3 * (1e-6)^0.589 = 2.08e-5 m/(s*Pa^n), n = 0.589
+# (the earlier 3.50e-5 was 1.68x too high). Composition B:KNO3:binder = 28:70:2 by
+# mass, binder component NOT disclosed (not stated to be NC); BPNV is 25:60:15
+# with 15% Viton. Pellets 3.2 mm dia, lengths 2.0-10 mm (not L/D = 1).
+# Extrapolating this law to MPa pressures is outside its tested range;
+# for the high-pressure regime Zhu et al. 2008 (docs/references/zhu2008.pdf,
+# closed-bomb B/KNO3, 2.8-50 MPa) report r = r0*P up to 7 MPa and a FLAT
+# r = 7*r0 above, r0 = 5.27e-3..6.85e-3 m/s/MPa (opt-in via Pyrogen.P_plateau).
 #
 # Why deferred: v0.7.4 Phase C.1 (2026-05-25) verified that swapping
-# the seed → literature values triggers numerical collapse on the
+# the seed -> literature values triggers numerical collapse on the
 # Hasegawa A example at default v0.7.0 calibration knobs. The new
 # n=0.589 amplifies pressure-feedback transients enough that other
 # knobs (roughness, kappa, T_ignition) need re-tuning before the
@@ -63,7 +69,7 @@ radiation_absorption_length_m: 1.0
 # pellets multiplier. Lit-cited via pyrogen physical params dive
 # (srm_1d/docs/v0_7_3/references/pyrogen_physical_params_lit_dive.md §1).
 # Industry-standard NASA/JAXA BKNO3 igniter pellet is 3.2 mm × 3.2 mm
-# right cylinder (L/D = 1.0), measured by Mizushima 2016.
+# right cylinder (L/D = 1.0). (Nakano & Kakami 2016 measured 3.2 mm dia pellets, 2.0-10 mm long; the L/D = 1 convention is not from that paper -- OB1 audit.)
 # Amateur HPR practice (QuickBurst/Apogee ProCast straw-cast) is
 # wider: 1.5-5 mm diameter, L/D 1-3. We default to the industry-
 # standard 3.2 mm × L/D=1.0 as the highest-confidence value;

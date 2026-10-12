@@ -361,6 +361,27 @@ in geometry/burn rate/ignition (called every step or every N steps).
 - Tests: `tests/test_ignition_heat_transfer.py` (default pins, Ap-reference kernel + run tests, 1972-vs-thesis constant
   check); `test_solver_config_upgrade.py` / `test_srm1d_plugin.py` (the new config key).
 
+### OB1 (unreleased, 2026-10-11) -- opt-in pyrogen burn-model options (head/aft basket + plenum rate plateau)
+
+- **No default changes** (B0 PASS; all options OFF). New, all opt-in:
+  `Pyrogen.P_plateau` [Pa, default 0.0 = off]: the burn RATE is evaluated at `min(P, P_plateau)` in the
+  forward plenum (at `P_ig`) and the uncontained baskets (host-cell bore P). Zhu et al. 2008 closed-bomb B/KNO3
+  law = `a = r0/1e6, n = 1, P_plateau = 7e6` (r0 5.27e-3..6.85e-3 m/s/MPa).
+  `PyrogenChamber.basket_area_law` (`'constant'` default | `'shrinking'`): per-cell mass bookkeeping with the
+  burning area `A0 (m/m0)^(2/3)` (exact for cubes / spheres / L/D = 1 cylinders). Also a `run_from_ric` /
+  `build_pyrogen_chamber` kwarg and a `data.igniter` sizing key (`basket_area_law`).
+  `PyrogenChamber.bed_flame_speed_m_s` (default 0.0): DIAGNOSTIC sequential basket lighting, no sourced value
+  (PAYWALLED_REFERENCES R5); kwarg only, not in the .ric block / GUI.
+- Internal signature changes (hard breaks, internal only): `pyrogen_params()` returns 8 entries (index 7 =
+  `P_plateau`), `chamber_params()` returns 7 (5 = area-law code, 6 = bed flame speed); `_plenum_rates` /
+  `_plenum_rhs` take a trailing `P_plateau=0.0`; `_compute_uncontained_pyrogen_mdot` takes a trailing
+  `P_plateau=0.0`; new kernel helper `_compute_uncontained_pyrogen_mdot_cells`. GUI metadata: `P_plateau`
+  (material) and `basket_area_law` (chamber) added to `srm1d_plugin` so the schema-coverage tests stay exact;
+  the openMotor fork's generated igniter defs need a regeneration to show them.
+- `pyrogens/bpnv.yaml` comment CORRECTED (no value change): the BKNO3 burn-rate source is Nakano & Kakami 2016
+  (not "Mizushima"), valid 5-200 kPa (not 7 MPa), SI `a = 2.08e-5` for `n = 0.589` (not 3.50e-5).
+- Report: `docs/pyrogen_realism/OB1_REPORT.md`. Tests: `tests/test_ob1_pyrogen_bed.py`.
+
 ### Solver verification T11 (unreleased, 2026-10-11) -- P5 PISO corrections are the defaults
 
 - **BEHAVIOUR CHANGE (all transient results shift):** `run_simulation(piso_corr2_storage=True,
