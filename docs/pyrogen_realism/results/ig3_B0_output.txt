@@ -1,0 +1,35 @@
+C:\tmp\sv\ig3\srm_1d\grain_geometry.py:1138: UserWarning: Integer-snapping altered total motor length by more than 10mm. Check segment proportions.
+  warnings.warn(f"Integer-snapping altered total motor length by more than 10mm. Check segment proportions.")
+C:\tmp\sv\ig3\srm_1d\grain_geometry.py:1138: UserWarning: Integer-snapping altered total motor length by more than 10mm. Check segment proportions.
+  warnings.warn(f"Integer-snapping altered total motor length by more than 10mm. Check segment proportions.")
+[provenance] srm_1d imported from C:\tmp\sv\ig3\srm_1d
+[provenance] git HEAD 9790459f19fb03981ddba80df5d763af295f75a2  dirty=True
+[provenance] numpy 2.2.6  numba 0.63.1  python 3.10.5
+[ric-source] motors/machbusterNew.ric: unmodified -> using working-tree copy
+[provenance] machbusterNew.ric sha256 a234a1dcf054dfb337e508360170e504228e9be85dfbd984940ea8326819df0e  (C:\tmp\sv\ig3\motors\machbusterNew.ric)
+[ric-source] motors/BALLSstick.ric: unmodified -> using working-tree copy
+[provenance] BALLSstick.ric sha256 7fd189d62aabcdc5a5a788611d7b2c3cd94b91fbcc3e111f15e89423074cbd73  (C:\tmp\sv\ig3\motors\BALLSstick.ric)
+[ric-source] motors/hasegawa_a.ric: unmodified -> using working-tree copy
+[provenance] hasegawa_a.ric sha256 ccb7fccc972fd6074beff0b0099d1fdd2f731549d4628ea0eccbef97ca69185d  (C:\tmp\sv\ig3\motors\hasegawa_a.ric)
+[ric-source] motors/machbusterNew.ric: unmodified -> using working-tree copy
+
+[chunc] wall 16.0 s, termination='t_max reached'
+  peak     got        9.950855636512404  ref        9.950855636512404  rel 0.000e+00  OK
+  t_peak   got     0.036735041862973064  ref     0.036735041862973064  rel 0.000e+00  OK
+  plateau  got        8.141968067255977  ref        8.141968067255977  rel 0.000e+00  OK
+  n_steps  got                   532381  ref                   532381  rel 0.000e+00  OK
+[ric-source] motors/BALLSstick.ric: unmodified -> using working-tree copy
+
+[balls] wall 32.3 s, termination='t_max reached'
+  peak     got        7.020318627616664  ref        7.020318627616664  rel 0.000e+00  OK
+  trough   got        4.343390826697384  ref        4.343390826697384  rel 0.000e+00  OK
+  mid      got        4.855316005870968  ref        4.855316005870968  rel 0.000e+00  OK
+  n_steps  got                   843726  ref                   843726  rel 0.000e+00  OK
+[ric-source] motors/hasegawa_a.ric: unmodified -> using working-tree copy
+
+[haseg] wall 56.3 s, termination='t_max reached'
+  peak     got        6.107268310023869  ref        6.107268310023869  rel 0.000e+00  OK
+  t_peak   got        2.411042627819566  ref        2.411042627819566  rel 0.000e+00  OK
+  n_steps  got                  2336271  ref                  2336271  rel 0.000e+00  OK
+
+B0 RESULT: PASS (floats within rtol 1e-05, n_steps within 0.0005)

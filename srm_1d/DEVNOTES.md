@@ -104,6 +104,10 @@ defaults (T11), the same knobs give Chunc peak 10.08 MPa (plateau 8.147), BALLSs
 Hasegawa A peak 6.107 MPa; the plateau is unchanged (<0.1%) but the startup spike is ~11-13% lower.
 Re-fitting the knobs against the corrected step is a later user decision.
 
+**IG3 note (2026-10-11):** the knobs were also fit with the Gnielinski ignition h; the default is now
+Peretz (see the API log). Chunc peak 9.951 MPa (plateau 8.142), BALLSstick peak 7.020, Hasegawa A 6.107 MPa.
+`T_ignition` / `k_solid` re-fit against the Peretz h is a pending user decision.
+
 As-shipped re-validation (embedded `.ric` transport, F+Z off — the user
 path, NOT the LHS basis): Hasegawa A 6.14 MPa (0.95× exp 6.44); Zerox
 7.07 (1.77×); Chunc 12.65 (1.42×, down from ~1.9× pre-recal). The
@@ -326,6 +330,32 @@ in geometry/burn rate/ignition (called every step or every N steps).
 - Micro-steps in pressure trace converge to zero with increasing N
 
 ## API Breaking Changes Log
+
+### IG3 stage 1 (unreleased, 2026-10-11) -- Peretz ignition heat transfer is the default; Ap reading option
+
+- **BEHAVIOUR CHANGE (default; every transient run shifts):** `run_simulation(ignition_heat_transfer='peretz')`
+  (was `'gnielinski'`). The convective h that heats the UNIGNITED propellant surface (and its matching gas
+  wall-loss sink) is now Peretz et al. 1973 Eq. III-22 (`_peretz_heat_transfer_coeff`; IG2, `docs/pyrogen_realism/
+  IG2_REPORT.md`). `'gnielinski'` (the old chain) and `'keller'` stay selectable. The Ma 2020 erosive path
+  (`burn_rate.py`) is untouched. Canonical-motor effect (library BPNV, DeMar step, `local`): first light
+  1.7-2.8 ms -> 5.8-7.7 ms, plateau unchanged, startup peak -1.3 % (Chunc), -3.3 % (BALLSstick), ~0 (Hasegawa A).
+  `ignition_heat_transfer='gnielinski'` reproduces the pre-IG3 trajectories (the old B0 values are in the
+  `baseline_gate.py` comment). B0 `BASELINE` re-recorded.
+- **New kwarg** `peretz_ap_reference='local'|'head'|'aft'` (default `'local'`, bit-identical to IG2): the port area in
+  Peretz's `(A_p/A_t)^0.4` factor (cell's own / fore-most grain cell / aft-most grain cell, instantaneous; the
+  sources only had uniform ports, `docs/pyrogen_realism/R9_SOURCES.md`). Reported in `summary['peretz_ap_reference']`.
+- **Hard API breaks:** `_run_time_loop` gained `peretz_ap_code` (right after `ignition_h_code`);
+  `_goodman_ignition_sources_and_mass` gained a trailing `peretz_ap_code` (internal; the two direct calls in
+  `tests/test_simulation_phase3.py` were extended).
+- **Plugin:** the openMotor solver config gains a choice field `ignition_heat_transfer` (`peretz` / `gnielinski` /
+  `keller`); its default is generated from `inspect.signature(run_simulation)` like the other keys
+  (`srm1d_plugin._solver_config_defaults` now returns a string for it). `peretz_ap_reference` is not exposed in the GUI.
+- **Calibration note:** the v0.7.5 knobs (roughness 32 um / kappa 0.44 / T_ignition 756 K / k_solid 0.271) were fit
+  with the Gnielinski ignition h (and the PISO bug before T11). The ignition h sets the first-light delay and the
+  ignition-front speed, so `T_ignition` and `k_solid` (which enter the same Goodman kernel) were tuned against an h 2.5-3.4x
+  larger (first-lit cells, IG2 Part 1) than the one now used. Re-fitting them is a pending user decision; the plateau and Hasegawa A peak are insensitive.
+- Tests: `tests/test_ignition_heat_transfer.py` (default pins, Ap-reference kernel + run tests, 1972-vs-thesis constant
+  check); `test_solver_config_upgrade.py` / `test_srm1d_plugin.py` (the new config key).
 
 ### Solver verification T11 (unreleased, 2026-10-11) -- P5 PISO corrections are the defaults
 

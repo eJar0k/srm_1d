@@ -55,7 +55,22 @@ _spec = importlib.util.spec_from_file_location(
 _probe = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_probe)
 
-# RE-RECORDED 2026-10-11 by solver-verification T11: the PISO second
+# RE-RECORDED 2026-10-11 by pyrogen-realism IG3 (stage 1): the default ignition
+# heat-transfer closure became 'peretz' (Peretz et al. 1973, Eq. III-22, local
+# port area) instead of the Ma/Gnielinski chain (ignition_heat_transfer='gnielinski').
+# Only the first-light delay changes (Chunc 1.72 -> 5.81 ms, BALLSstick 1.75 -> 7.22,
+# Hasegawa A 2.77 -> 7.69); the plateau is unchanged and the startup peak moves
+# -1.3 % (Chunc) / -3.3 % (BALLSstick) / ~0 (Hasegawa A). Values below are the IG3
+# results (docs/pyrogen_realism/results/ig3_B0_*.txt). The T11 values (the previous
+# BASELINE; reproduce them with ignition_heat_transfer='gnielinski') were:
+#   chunc: peak 10.08270103870215, t_peak 0.02791011521855539,
+#          plateau 8.146643086031123, n_steps 531701
+#   balls: peak 7.257654400712118, trough 4.343098504353659,
+#          mid 4.868134347450266, n_steps 843077
+#   haseg: peak 6.1072529740207635, t_peak 2.405585530808029,
+#          n_steps 2336674
+#
+# (earlier) RE-RECORDED 2026-10-11 by solver-verification T11: the PISO second
 # corrector now includes the storage the first corrector took
 # (piso_corr2_storage=True; without it every transient pressure increment
 # was applied ~twice) and the step iterates energy/pressure once
@@ -77,12 +92,12 @@ _spec.loader.exec_module(_probe)
 #          mid 4.913378178011638, n_steps 842922
 #   haseg: peak 6.143912554793205, t_peak 2.3816074267208034, n_steps 2335770
 BASELINE = {
-    'chunc': dict(peak=10.08270103870215, t_peak=0.02791011521855539,
-                  plateau=8.146643086031123, n_steps=531701),
-    'balls': dict(peak=7.257654400712118, trough=4.343098504353659,
-                  mid=4.868134347450266, n_steps=843077),
-    'haseg': dict(peak=6.1072529740207635, t_peak=2.405585530808029,
-                  n_steps=2336674),
+    'chunc': dict(peak=9.950855636512404, t_peak=0.036735041862973064,
+                  plateau=8.141968067255977, n_steps=532381),
+    'balls': dict(peak=7.020318627616664, trough=4.343390826697384,
+                  mid=4.855316005870968, n_steps=843726),
+    'haseg': dict(peak=6.107268310023869, t_peak=2.411042627819566,
+                  n_steps=2336271),
 }
 RIC_FILE = {'chunc': 'machbusterNew.ric', 'balls': 'BALLSstick.ric',
             'haseg': 'hasegawa_a.ric'}

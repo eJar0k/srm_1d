@@ -155,8 +155,8 @@ def _bare_heat_transfer_coeff(
 # They replace ONLY the h used to heat the UNIGNITED propellant surface in the
 # Goodman ignition kernel (and its matching convective wall-loss sink). The Ma
 # 2020 erosive path (burn_rate.py) is untouched.
-#   0 'gnielinski' (default) -- today's Gnielinski/Ma chain, bit-identical.
-#   1 'peretz'  -- Peretz, Caveny, Kuo & Summerfield, Princeton AMS Rep. 1100
+#   0 'gnielinski' (pre-IG3 default) -- the Gnielinski/Ma chain.
+#   1 'peretz' (DEFAULT since IG3) -- Peretz, Caveny, Kuo & Summerfield, Princeton AMS Rep. 1100
 #                  (Apr 1973), Eq. III-22..III-26: bore heat transfer for the
 #                  starting transient of high-velocity-bore SRMs.
 #   2 'keller'  -- Keller, Baer & Ryan, AIAA J. 4(8):1358 (1966), Eq. 11,
