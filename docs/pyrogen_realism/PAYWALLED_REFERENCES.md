@@ -67,5 +67,5 @@ Now in `docs/references/` (read them there; conclusions above marked "pending" c
 | R12 | `dipprey1963.pdf`, `owen1963.pdf`, `gowen1968.pdf` | |
 
 Still open: **R5** (pellet-bed flame spread; not found), **R7** (raw Chunc ignition trace; unavailable),
-**R9** (Rocketdyne igniter-duct data; NTRS search for AFRPL-TR-67-267 found nothing, DTIC down --
-candidate-source search delegated).
+**R9** (Rocketdyne igniter-duct data; see `R9_SOURCES.md`: AIAA J. 5(7) 1967 DOI 10.2514/3.4183 is
+verified and fetchable; the two AFRPL reports and Cohen-Derr-Price are not online).
