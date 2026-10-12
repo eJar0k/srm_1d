@@ -38,9 +38,9 @@ Please drop PDFs into `docs/references/`.
 ## IG2 additions (2026-10-11) -- needed, not obtainable here
 
 Resolved/available for IG2 (no action): R4 Peretz et al. is in the repo as
-`docs/references/19740005393.pdf` (byte-identical to the untracked `peretz1974.pdf` in the main
-checkout; NASA CR / Princeton AMS Rep. 1100, Apr 1973, = Peretz's Ph.D. thesis; the AIAA J.
-11(12) 1973 paper cited as R4 is the journal version, which is NOT in the repo and was not read).
+`docs/references/peretz1974.pdf` (NTRS 19740005393; NASA CR / Princeton AMS Rep. 1100, Apr 1973,
+= Peretz's Ph.D. thesis; the AIAA J. 11(12) 1973 paper cited as R4 is the journal version, which
+was not read for IG2).
 Eq. III-22..III-31 were read from page images of the PDF (the text layer drops the equations).
 
 | # | Citation | DOI / URL | Why IG2 needs it | Quantity to extract | Conclusions pending |
@@ -50,3 +50,22 @@ Eq. III-22..III-31 were read from page images of the PDF (the text layer drops t
 | R10 | Peretz et al., AIAA J. 11(12), 1973 (journal version of R4) | DOI not verified | Whether the journal version states the correlation's tested range (G, Re) more precisely than the thesis | tested Re / G / pressure range for Eq. III-31 | The "validated range" of the Peretz closure is taken from the thesis text only |
 | R11 | DeMar J.S., full TRATECH 2021 paper / data (not the slides) | https://www.linkedin.com/in/jsdemar/ (author contact) | Part 3: the slides give q = kE W M / tA / (2 pi R L) but not R, L (the "effective igniter length" and thermocouple distance) or any time record | R, L per igniter; the raw pressure and thermocouple traces | "No time-resolved flux exists" is established for the slides only |
 | R12 | Rough-wall heat-transfer: Dipprey & Sabersky, Int. J. Heat Mass Transf. 6:329-353 (1963); Owen & Thomson, J. Fluid Mech. 15:321-334 (1963); Gowen & Smith, Int. J. Heat Mass Transf. 11 (1968) | DOIs not verified | Part 1(c): quantify how much of the Haaland-friction roughness factor (x1.4-1.5 at 32 um, Re 5e4-9e4) survives when the Reynolds analogy is invalid for rough walls (Peretz Ch. III-D states it is invalid and worsens with Re) | St_rough / St_smooth vs k_s+ and Re | The size of the roughness over-statement is not quantified |
+
+## Status after the user's fetch (2026-10-11, later)
+
+Now in `docs/references/` (read them there; conclusions above marked "pending" can be revisited):
+
+| # | File | Note |
+|---|---|---|
+| R1 | `zhu2008.pdf` | Chinese |
+| R2 | `nakano2016.pdf` | Japanese |
+| R3 | `MIL-P-46994B.pdf` | military spec |
+| R4 | `peretz1974.pdf` | Princeton AMS Rept 1100 (was `19740005393.pdf`) |
+| R8 | `gnielinski2013.pdf` | |
+| R10 | `peretz1972.pdf` | AIAA Paper 72-1119 (the conference paper that preceded AIAA J. 11(12) 1973; DOI 10.2514/3.50676 is cited for the journal version in `docs/core_loop_opt/LITERATURE_ALLSPEED_PISO.md`, unverified). Its Eq. 14 prints a constant of 1.78e-3 where the thesis Eq. III-31 has 1.56e-3 -- to be checked from the page image |
+| R11 | `STARTING YOUR UP-GOERS_pub (1).pdf` | The slides are the whole DeMar source: no R, L or time record exists beyond them |
+| R12 | `dipprey1963.pdf`, `owen1963.pdf`, `gowen1968.pdf` | |
+
+Still open: **R5** (pellet-bed flame spread; not found), **R7** (raw Chunc ignition trace; unavailable),
+**R9** (Rocketdyne igniter-duct data; NTRS search for AFRPL-TR-67-267 found nothing, DTIC down --
+candidate-source search delegated).

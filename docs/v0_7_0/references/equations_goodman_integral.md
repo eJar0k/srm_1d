@@ -349,6 +349,6 @@ swap to backward Euler.
   "The Starting Transient of Solid-Propellant Rocket Motors with High
   Internal Gas Velocities." Princeton AMS Report 1100. §III.G,
   Eqs. III-44 to III-50, pp. 43-47.
-  PDF: `19740005393.pdf` in repo root.
+  PDF: `docs/references/peretz1974.pdf`.
 - Carslaw, H. S. & Jaeger, J. C. (1959). "Conduction of Heat in Solids,"
   2nd ed. Oxford. — for the exact analytical comparison solution.

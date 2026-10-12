@@ -66,7 +66,7 @@ sources, size pending R12); (b) the developed-flow entrance factor for a jet-fed
 
 **Peretz et al., "The Starting Transient of Solid-Propellant Rocket Motors with High Internal Gas Velocities",
 Princeton AMS Report 1100, NASA Grant NGL 31-001-109, April 1973** (A. Peretz Ph.D. thesis;
-`docs/references/19740005393.pdf`, byte-identical to the main checkout's `peretz1974.pdf`; the AIAA J. 11(12)
+`docs/references/peretz1974.pdf`, NTRS 19740005393; the AIAA J. 11(12)
 journal version is not in the repo, R10). Read from the page images (the text layer drops the equations):
 
 - Eq. III-22 (p. 38): `Nu_d,af = a6 (x_r/d_h)^-0.1 Re_d,af^0.8 Pr_af^0.4 (A_p/A_t)^0.4`, with a6 = 2.56e-2 (p. 40).
@@ -128,7 +128,7 @@ average only for DeMar's exact configuration (0.72 g, 67 ms, his geometry); any 
 basket would be an assumed shape fitted to an average, which the user's condition excludes. **Recommendation:
 drop the DeMar flux** and let ignition come from the modelled convective channel (Part-2 h) plus
 radiation where already modelled. No new code: `Pyrogen.heat_delivery_mode='none'` (this is what the 'off'
-rows use). Pending R11 (R, L, raw traces) only for the statement that no time record exists beyond the slides.
+rows use). R11 resolved (user, 2026-10-11): the slides are the whole DeMar source; no time record exists.
 
 ## 4. Part 4 -- measurements (all opt-in; chunc geometry unless stated)
 

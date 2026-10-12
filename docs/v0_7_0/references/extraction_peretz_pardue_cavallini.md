@@ -3,7 +3,7 @@
 Three foundational SRM ignition transient documents extracted: Peretz et al. 1973 (the foundational 1D HVT model), Pardue & Han 1992 (two-phase Shuttle SRM extension), and Cavallini 2009 (SPINBALL/SPIT — Vega-program internal ballistics).
 
 PDFs in repo:
-- `19740005393.pdf` — Peretz 1973 (Princeton AMS Report 1100)
+- `peretz1974.pdf` — Peretz 1973 (Princeton AMS Report 1100)
 - `pardue1992.pdf` — Pardue & Han 1992 (AIAA 92-3277)
 - `74323997.pdf` — Cavallini 2009 (Sapienza PhD thesis)
 

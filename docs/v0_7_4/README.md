@@ -126,7 +126,7 @@ the numerical-tuning trap to avoid (`feedback_no_unfounded_smoothing`).
   transient** (induction → **flame spreading** → chamber filling). Our
   model collapses the flame-spreading interval to ~0.
 - Established transient codes (SPP's IGT module, SPINBALL, the foundational
-  **Peretz-Kuo-Caveny-Summerfield 1973**, [`19740005393.pdf`](../references/19740005393.pdf))
+  **Peretz-Kuo-Caveny-Summerfield 1973**, [`peretz1974.pdf`](../references/peretz1974.pdf))
   do **not** let bulk gas temperature trip ignition everywhere. They
   compute a **flame-spread front** by **successive heating-to-ignition**
   (Peretz: "the flame spreading rate is calculated by local successive
@@ -215,7 +215,7 @@ gives closed-form Z-N closures if a non-ODE form is later preferred.)
 | `strand1974.pdf` | Strand microwave-Doppler | experimental transient-r deviates from r_qs on ms scale |
 | `aerospace-10-00767-v2.pdf` | MDPI Aerospace 2023 | closed-form Z-N closures |
 | `ADA143573.pdf` | (De Luca-adjacent report) | extinction/transient validation surrogate |
-| `19740005393.pdf` | Peretz-Kuo-Caveny-Summerfield 1973, AIAA J 11(12) | foundational bottom-up flame-spread (successive heating-to-ignition) |
+| `peretz1974.pdf` | Peretz-Kuo-Caveny-Summerfield 1973, Princeton AMS Rept 1100 (thesis; journal version AIAA J 11(12)) | foundational bottom-up flame-spread (successive heating-to-ignition) |
 | `cavallini2009.pdf`, `digiacinto2008.pdf` | SPINBALL | bottom-up ignition architecture; quasi-steady burn rate |
 | `ma2020...Heat.pdf` | Ma 2020 erosive | our steady erosive closure (no transient term) |
 | `hasegawa2006.pdf` | Hasegawa 2006 | motor geometry (Table 3) + propellant data (Table 1) |

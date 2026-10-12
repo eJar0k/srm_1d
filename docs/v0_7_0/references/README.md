@@ -32,7 +32,7 @@ All in `c:/Users/ejarocki/Documents/Rocketry/Code Stuff/Erosive Burning Solver/s
 | `salita2001.pdf` | Salita 2001 (AIAA 2001-3443) |
 | `wang2001.pdf` | Wang 2001 (AIAA 2001-3447) |
 | `10.2514@6.2001-3449.pdf` | d'Agostino, Biagioni, Lamberti 2001 (AIAA 2001-3449) |
-| `19740005393.pdf` | Peretz, Caveny, Kuo, Summerfield 1973 (Princeton AMS-1100) |
+| `peretz1974.pdf` | Peretz, Caveny, Kuo, Summerfield 1973 (Princeton AMS-1100) |
 | `pardue1992.pdf` | Pardue & Han 1992 (AIAA 92-3277) |
 | `74323997.pdf` | Cavallini 2009 (Sapienza PhD thesis) |
 | `International Journal of Aerospace Engineering - 2020 - Ma - A New Erosive Burning Model of Solid Propellant Based on Heat.pdf` | Ma 2020 (the erosive paper srm_1d already uses, NOT the igniter paper) |
