@@ -18,15 +18,19 @@ Delete `srm_1d/__pycache__/` after any change to `@njit` functions.
 Numba's `.nbi`/`.nbc` cache files persist even when `.pyc` files are
 removed. Stale compiled code is the #1 cause of "the fix didn't work."
 
-### Results are reproducible to ~1e-10, not bitwise (fastmath)
+### Results are reproducible to ~1e-7, not bitwise (fastmath)
 With `fastmath=True` the compiled code depends on the Numba compile state
 (warm on-disk cache vs a clean recompile), so IDENTICAL source gives slightly
-different floats — deterministically per state, with identical step counts.
-Measured 1.5e-16..1.3e-15 relative before T10 (2026-10-05); after T10's extra
-source terms the difference accumulates to up to 1.6e-10 (Chunc plateau) /
-7e-12 (Hasegawa A peak) (2026-10-06). When comparing runs ("did my change
-perturb the default?"), require exact step counts and compare floats with
-rtol ~1e-9, never `==`. Gate: `docs/solver_verification/probes/baseline_gate.py`.
+different results — deterministically per state (a warm cache reproduces a
+recorded run exactly). Measured: 1.5e-16..1.3e-15 relative before T10; up to
+1.6e-10 after T10 (exact step counts); since T11 (energy-coupled PISO
+iteration, default K=1) up to 2.4e-7 with step counts differing by up to
+~5e-5 relative, because the iteration's `max|dT|/T < 1e-6` exit test flips on
+marginal steps and the adaptive dt carries the flip forward (2026-10-11).
+When comparing runs ("did my change perturb the default?"), compare floats
+with rtol ~1e-5 and step counts with ~5e-4 relative, never `==`; for an A/B
+in ONE compile state use rtol 1e-9 + exact steps. Gate:
+`docs/solver_verification/probes/baseline_gate.py`.
 
 ### End-face injection uses a partition-of-unity hat function (v0.6.0+)
 `update_cell_geometry` distributes each end-face's mass over the two

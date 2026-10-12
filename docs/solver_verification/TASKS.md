@@ -44,11 +44,12 @@ is given in your launch prompt; `cd` there first and stay there.
 - **Gate B0** (when a task requires it): from the worktree root,
   `"<python>" docs/solver_verification/probes/baseline_gate.py`
   (≈2–4 min warm; it fixes its own import path and prints provenance). It
-  must print `B0 RESULT: PASS`: step counts EXACT and floats within the
-  default rtol 1e-9. (Differences ≤ ~2e-10 with identical step
-  counts are Numba fastmath compile-state noise — see the script docstring —
-  not a trajectory change.) A FAIL is a finding: report the full output, do
-  not loosen tolerances or "adjust" the baseline.
+  must print `B0 RESULT: PASS`: floats within the default rtol 1e-5 and step
+  counts within 5e-4 relative (since T11, compile-state noise reaches ~2e-7
+  with step counts varying ~5e-5 — see the script docstring; it is not a
+  trajectory change). For an A/B inside ONE compile state use
+  `--rtol 1e-9 --steps-rtol 0`. A FAIL is a finding: report the full output,
+  do not loosen tolerances or "adjust" the baseline.
 - **Commits:** commit your work to your worktree branch (one or a few
   focused commits, conventional style e.g. `fix(burn_rate): ...`), each
   message ending with the line
@@ -566,7 +567,7 @@ optional `pressure_floor_pa` kwarg (default 1e3, bit-identical). P2: per-cell
 T-floor / T-ceiling / pressure-floor activation counts, durations, first/last
 times, |energy| for the T limits, per-cell max floor deficit, optional
 port-Mach-cap face counts; summary view `numerical_limits` + a
-`tools/ignition_diagnostics` helper. Gates: B0 (rtol 1e-9,
+`tools/ignition_diagnostics` helper. Gates: B0 (default tolerances,
 exact steps); byte-identical trajectory A/B at 106/406/806 cells
 (`worklog/T3_scripts/trajectory_ab.py`); steps/s cost < 10%; full suite.
 

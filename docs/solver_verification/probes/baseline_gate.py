@@ -5,20 +5,28 @@ Re-runs the three canonical ``ma2020`` / ``erosive_mp_cap=0`` rows of
 committed .ric files, canonical knobs, library BPNV igniter) and compares
 them to the recorded values (see the BASELINE comment: re-recorded by T10) at FULL float precision plus exact step counts.
 
-A task whose spec says "default behaviour unchanged" passes B0 only if the
-step counts match EXACTLY and every float matches within ``--rtol`` (default
-1e-9). Why not bitwise: with ``fastmath=True`` the Numba machine code depends
-on the compile state (which functions were compiled in-process vs loaded from
-the on-disk cache), so IDENTICAL source gives slightly different floats
-between a warm cache and a clean recompile, deterministically per state and
-with identical step counts. Measured: 1.5e-16..1.3e-15 relative before T10
-(T2 review, 2026-10-05); after T10's extra source terms the difference
-accumulates over the run to up to 1.6e-10 (Chunc plateau) / 7e-12 (Hasegawa
-peak) (2026-10-06, reproduced on two independent fresh compiles). 1e-9 is
-~6x that and still ~1e6x below the smallest real perturbation seen (T10:
--0.5%), which also shifts the step count. Anything beyond it means the
-change perturbed the default trajectory -- report it, do not loosen the
-tolerance to make it pass.
+A task whose spec says "default behaviour unchanged" passes B0 only if every
+float matches within ``--rtol`` (default 1e-5) and every step count within
+``--steps-rtol`` (default 5e-4 relative). Why not bitwise: with
+``fastmath=True`` the Numba machine code depends on the compile state (which
+functions were compiled in-process vs loaded from the on-disk cache), so
+IDENTICAL source gives slightly different results between a warm cache and a
+clean recompile -- deterministically per state. History of the measured
+noise floor:
+  * before T10: 1.5e-16..1.3e-15 relative, exact step counts (2026-10-05);
+  * after T10: up to 1.6e-10 (Chunc plateau), exact step counts (2026-10-06);
+  * after T11 (energy-coupled iteration, default K=1): up to 2.4e-7 (Chunc
+    peak) and step counts differing by up to 4.9e-5 relative (Hasegawa A,
+    115 of 2.3M steps) (2026-10-11). The iteration's convergence test
+    (max|dT|/T < 1e-6) decides whether the extra pass runs; last-digit
+    differences flip that decision on marginal steps, and the adaptive time
+    step carries the flip into the trajectory. A warm cache reproduces the
+    recorded values exactly.
+1e-5 / 5e-4 keep ~40x / ~10x margin over that floor and stay far below the
+smallest real perturbation seen (T10: -0.5% peak; T11: -11%). Anything beyond
+them means the change perturbed the default trajectory -- report it, do not
+loosen the tolerance to make it pass. Use ``--rtol 1e-9 --steps-rtol 0`` for a
+same-compile-state A/B.
 
 This script puts ITS OWN checkout first on ``sys.path`` so that, run from a
 git worktree, it imports the worktree's ``srm_1d`` (not the editable install
@@ -112,8 +120,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--only', default='chunc,balls,haseg',
                     help='comma-separated subset of chunc,balls,haseg')
-    ap.add_argument('--rtol', type=float, default=1e-9,
-                    help='float tolerance; n_steps is always compared exactly')
+    ap.add_argument('--rtol', type=float, default=1e-5,
+                    help='float tolerance (relative)')
+    ap.add_argument('--steps-rtol', type=float, default=5e-4,
+                    help='relative tolerance on n_steps (0 = exact)')
     args = ap.parse_args()
 
     print(f"[provenance] srm_1d imported from {Path(srm_1d.__file__).parent}")
@@ -128,8 +138,8 @@ def main():
         for key, ref in BASELINE[name].items():
             got = row[key]
             if key == 'n_steps':
-                same = int(got) == int(ref)
-                rel = 0.0 if same else abs(int(got) - int(ref)) / ref
+                rel = abs(int(got) - int(ref)) / ref
+                same = rel <= args.steps_rtol
             else:
                 rel = abs(got - ref) / abs(ref)
                 same = rel <= args.rtol
@@ -137,7 +147,8 @@ def main():
             print(f"  {key:8s} got {got!r:>24}  ref {ref!r:>24}  "
                   f"rel {rel:.3e}  {'OK' if same else 'MISMATCH'}")
     print("\nB0 RESULT:",
-          f"PASS (n_steps exact, floats within rtol {args.rtol:g})" if ok
+          f"PASS (floats within rtol {args.rtol:g}, n_steps within "
+          f"{args.steps_rtol:g})" if ok
           else "FAIL")
     sys.exit(0 if ok else 1)
 
