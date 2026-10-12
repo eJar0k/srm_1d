@@ -47,22 +47,34 @@ _spec = importlib.util.spec_from_file_location(
 _probe = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_probe)
 
-# RE-RECORDED 2026-10-05 by solver-verification T10 (regression mass source
-# now net of the gas filling the opened volume, (rho_p - rho_g)*r*C_burn).
-# Values below are the T10 results; the pre-T10 values (recorded 2026-08-08,
-# erosive_model_registry WORKLOG T2) were:
+# RE-RECORDED 2026-10-11 by solver-verification T11: the PISO second
+# corrector now includes the storage the first corrector took
+# (piso_corr2_storage=True; without it every transient pressure increment
+# was applied ~twice) and the step iterates energy/pressure once
+# (piso_energy_coupling_iters=1). Values below are the T11 results
+# (C:/tmp/sv_t11/core_*.jsonl, worklog/T11.md). Chunc t_peak moving
+# 16.3 -> 27.9 ms tripped T11's 15% startup-metric STOP rule; the reviewer
+# ruled it expected (P5 measured the same shift before adoption: the
+# doubled increments had made the startup pressurise too fast).
+# Pre-T11 (T10, 2026-10-05) values:
+#   chunc: peak 11.28243546264288, t_peak 0.016286760473606336,
+#          plateau 8.150933877646011, n_steps 531883
+#   balls: peak 8.331331016878805, trough 4.343222420159596,
+#          mid 4.879629094113075, n_steps 843274
+#   haseg: peak 6.108574454139173, t_peak 2.391606230911318, n_steps 2336140
+# Pre-T10 (2026-08-08, erosive_model_registry WORKLOG T2) values:
 #   chunc: peak 11.472831280605046, t_peak 0.016454109339050758,
 #          plateau 8.222465813350324, n_steps 531651
 #   balls: peak 8.42348927652058, trough 4.366702806070186,
 #          mid 4.913378178011638, n_steps 842922
 #   haseg: peak 6.143912554793205, t_peak 2.3816074267208034, n_steps 2335770
 BASELINE = {
-    'chunc': dict(peak=11.28243546264288, t_peak=0.016286760473606336,
-                  plateau=8.150933877646011, n_steps=531883),
-    'balls': dict(peak=8.331331016878805, trough=4.343222420159596,
-                  mid=4.879629094113075, n_steps=843274),
-    'haseg': dict(peak=6.108574454139173, t_peak=2.391606230911318,
-                  n_steps=2336140),
+    'chunc': dict(peak=10.08270103870215, t_peak=0.02791011521855539,
+                  plateau=8.146643086031123, n_steps=531701),
+    'balls': dict(peak=7.257654400712118, trough=4.343098504353659,
+                  mid=4.868134347450266, n_steps=843077),
+    'haseg': dict(peak=6.1072529740207635, t_peak=2.405585530808029,
+                  n_steps=2336674),
 }
 RIC_FILE = {'chunc': 'machbusterNew.ric', 'balls': 'BALLSstick.ric',
             'haseg': 'hasegawa_a.ric'}
