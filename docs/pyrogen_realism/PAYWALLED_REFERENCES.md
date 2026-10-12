@@ -15,3 +15,22 @@ Please drop PDFs into `docs/references/`.
 | R5 | A published measurement or model of flame spread through a loose BKNO3 pellet bed / basket (tau_bed = 5-10 ms is a repo memory-level number with no cited source) | not identified | H3(a): bed-spread-limited pyrogen output estimate | Bed flame-spread speed vs pellet size / packing / pressure |
 | R6 | Keller, Baer, Ryan, AIAA J. 4(8):1358-1364, 1966 -- ALREADY in `docs/references/keller1966.pdf` (Eq. 11 read from the page image). Only needed in full: the G and Tg range over which Eq. 11 was fitted | DOI not verified for this file | H1: our G = 3-60 g/cm2 s lies at/below the edge of Keller's data; need the fitted range to bound the extrapolation | Range of G [g/cm2 s] and Tg [K] covered by the Eq. 11 data |
 | R7 | The user's own Chunc igniter details/pressure data (BKNO3 4.5 g, head basket): pellet size, basket geometry, and the first ~100 ms of the pressure trace (the committed CSV starts at plateau, see report 5) | user data | validation of every fix option | Raw trace from electrical fire signal; basket drawing |
+
+## R6 — RESOLVED by the reviewer (2026-10-11) from `docs/references/keller1966.pdf`
+
+- DOI **10.2514/3.3678** (printed on every page of the PDF) — verified.
+- Test ranges (p. 1361): heat flux ~20–160 cal/cm²·s; gas velocity 50–800 m/s
+  (Mach 0.07–1.0); gas stagnation temperature 1000–2600 K; pressure 14–25 atm.
+  G is not tabulated; from those ranges (N₂, ρ ≈ 1.8–8.5 kg/m³) G spans roughly
+  9–680 g/cm²·s, so the sim's low-G cells (~3 g/cm²·s) are an extrapolation.
+- Eq. 11 (air/O₂/N₂): h = 1.435e-4 · Tg^0.3 · G^0.905 cal/cm²·s·K (Tg in K,
+  G in g/cm²·s), average deviation 6%.
+- **Caveat for fix option A:** Eq. 11 was fitted for Keller's own test
+  section — a 0.500 × 0.125 in channel (D_h ≈ 5.1 mm) — and the paper
+  attributes its strong G-dependence to early laminar→turbulent transition
+  from the shock tube's freestream turbulence. It is not a geometry-general
+  correlation: transferring it to a ~25 mm motor bore needs a dimensionless
+  (Nu–Re) form and should be treated as an extrapolation.
+- Also in the PDF: Eq. 17, thermal-ignition temperature
+  T_si = 300 K + 286.1·F^0.08 (F in cal/cm²·s), the basis of the 756 K
+  check in REOPENED §9.2.
