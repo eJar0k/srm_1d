@@ -34,3 +34,19 @@ Please drop PDFs into `docs/references/`.
 - Also in the PDF: Eq. 17, thermal-ignition temperature
   T_si = 300 K + 286.1·F^0.08 (F in cal/cm²·s), the basis of the 756 K
   check in REOPENED §9.2.
+
+## IG2 additions (2026-10-11) -- needed, not obtainable here
+
+Resolved/available for IG2 (no action): R4 Peretz et al. is in the repo as
+`docs/references/19740005393.pdf` (byte-identical to the untracked `peretz1974.pdf` in the main
+checkout; NASA CR / Princeton AMS Rep. 1100, Apr 1973, = Peretz's Ph.D. thesis; the AIAA J.
+11(12) 1973 paper cited as R4 is the journal version, which is NOT in the repo and was not read).
+Eq. III-22..III-31 were read from page images of the PDF (the text layer drops the equations).
+
+| # | Citation | DOI / URL | Why IG2 needs it | Quantity to extract | Conclusions pending |
+|---|---|---|---|---|---|
+| R8 | Gnielinski V., "On heat transfer in tubes", Int. J. Heat Mass Transf. 63:134-140 (2013) (the correlation Ma 2020 and srm_1d use) | DOI not verified | Part 1(a): the validity range of the property-ratio correction (T_gas/T_wall)^kappa for gases; Ma 2020 only says "kappa = 0.45 for air" with no range | Stated range of T_gas/T_wall (and Re, Pr, L/D) for the K factor and for the entrance term `1+(D/L)^(2/3)` | "ratio 6.5-10.7 at the cold wall is outside Gnielinski's validated range" -- pending. Only the in-repo comparison (Ma's own validation: T_flame 1667-3041 K vs the 1000 K surface, ratio ~1.7-3) is stated |
+| R9 | Cohen N.S., Derr R.L., Price C.F., (Peretz ref. 158) correlation of the Rocketdyne igniter-duct data; Carlson & Seader AIAA J. 5(7):1272-1279 (1967); Wrubel & Carlson AFRPL-TR-67-267 (1967); Carlson & Seader AFRPL-TR-65-158 (1965) | Peretz refs 50-53, 158 (DOI not verified) | Peretz fixed a6 = 2.56e-2 and the (A_p/A_t)^0.4 factor from these duct data (A_p/A_t 1.1-3, x/d <= 10, nitrogen and pyrogen gas, 570-620 psig) | Their measured h range (G, Tg, pressure) and the exact A_p/A_t dependence | The Ap/At exponent and a6 validity range (Chunc sim A_p/A_t = 0.56 is below the 1.06-3 tested range) -- pending |
+| R10 | Peretz et al., AIAA J. 11(12), 1973 (journal version of R4) | DOI not verified | Whether the journal version states the correlation's tested range (G, Re) more precisely than the thesis | tested Re / G / pressure range for Eq. III-31 | The "validated range" of the Peretz closure is taken from the thesis text only |
+| R11 | DeMar J.S., full TRATECH 2021 paper / data (not the slides) | https://www.linkedin.com/in/jsdemar/ (author contact) | Part 3: the slides give q = kE W M / tA / (2 pi R L) but not R, L (the "effective igniter length" and thermocouple distance) or any time record | R, L per igniter; the raw pressure and thermocouple traces | "No time-resolved flux exists" is established for the slides only |
+| R12 | Rough-wall heat-transfer: Dipprey & Sabersky, Int. J. Heat Mass Transf. 6:329-353 (1963); Owen & Thomson, J. Fluid Mech. 15:321-334 (1963); Gowen & Smith, Int. J. Heat Mass Transf. 11 (1968) | DOIs not verified | Part 1(c): quantify how much of the Haaland-friction roughness factor (x1.4-1.5 at 32 um, Re 5e4-9e4) survives when the Reynolds analogy is invalid for rough walls (Peretz Ch. III-D states it is invalid and worsens with Re) | St_rough / St_smooth vs k_s+ and Re | The size of the roughness over-statement is not quantified |

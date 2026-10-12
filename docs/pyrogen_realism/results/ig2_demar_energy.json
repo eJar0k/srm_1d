@@ -1,0 +1,20 @@
+{
+ "forward_plenum_4.5g": {
+  "E_demar_J": 1.6171151638128476,
+  "E_pyro_gas_enthalpy_J": 10122.28197838823,
+  "ratio": 0.00015975796438643975,
+  "impetus_energy_J": 2542.5
+ },
+ "forward_plenum_0.5g": {
+  "E_demar_J": 3.8783714475461313,
+  "E_pyro_gas_enthalpy_J": 1124.697997598692,
+  "ratio": 0.0034483669890288085,
+  "impetus_energy_J": 282.5
+ },
+ "head_basket_4.5g": {
+  "E_demar_J": 0.6556637474247087,
+  "E_pyro_gas_enthalpy_J": 10122.28197838823,
+  "ratio": 6.477430176560938e-05,
+  "impetus_energy_J": 2542.5
+ }
+}

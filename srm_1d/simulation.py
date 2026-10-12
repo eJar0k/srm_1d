@@ -197,7 +197,8 @@ def _peretz_heat_transfer_coeff(
     x_r = max(x_from_head, d_h): a 0.1-power factor, so the choice moves h
     by <~ 10 %. Nu is floored at 3.66 (fully developed laminar limit, the
     same floor the default Gnielinski chain carries); Peretz's correlation
-    is a turbulent one (Re ~ 1e4-1e5 in his motor).
+    is a turbulent one (his Table 4: Re_d 1.1e4-2.1e4 during induction, up
+    to 4.5e5 during chamber filling; A_p/A_t 1.06-2.0).
     """
     if D_hyd <= 1e-10 or A_throat <= 0.0 or A_port <= 0.0 or R_gas <= 0.0:
         return 0.0
