@@ -940,3 +940,24 @@ Cost (Chunc 106 cells, t_max 1.0, steps/s): pre-P5 ~50.6k, P5 K=0 ~49.0k, K=1/3 
 | fill Mach bounded under refinement | 1.44-1.86 at 106-1606 cells, both CFL | 3.27 -> 10.57 (CFL 0.3), 3.13 -> 6.00 (CFL 0.15) | 2.19-2.71 |
 | floor events | 0 on all rows | 0 on all rows (min P 1 739 Pa at 1606, CFL 0.3) | 0 |
 | startup peak (106 / 406) | -0.8% / +0.5%; f_inf +1.0% (CFL 0.3) | -11.1% / -11.4% | -10.6% / -10.8% |
+
+### 13.5 Adopted as default (T11, 2026-10-11)
+
+Both P5 corrections (S: `piso_corr2_storage=True`, K: `piso_energy_coupling_iters=1`) are now the defaults (user decision after P5). Source:
+`docs/solver_verification/worklog/T11.md`. Chunc/BALLS/Hasegawa, canonical knobs, library BPNV, old = (K0,S0), new = (K1,S1), both re-run on the same tree:
+
+| quantity | old | new |
+|---|---|---|
+| Chunc peak MPa / t_peak ms / plateau MPa / peak:plateau | 11.282 / 16.3 / 8.151 / 1.384 | 10.083 / 27.9 / 8.147 / 1.238 |
+| BALLSstick peak MPa / pk:trough / pk:mid | 8.331 / 1.918 / 1.707 | 7.258 / 1.671 / 1.491 |
+| Hasegawa A peak MPa @ s | 6.109 @ 2.392 | 6.107 @ 2.406 |
+| Chunc peak, 406 / 806 cells (MPa) | 12.057 / 12.265 | 10.755 / 10.934 |
+| Chunc fill Mach, 106 / 406 / 806 cells | 3.94 / 13.89 / 16.94 | 2.59 / 2.19 / 2.21 |
+| Chunc floor activations, 106 / 406 / 806 cells | 0 / 24 / 192 | 0 / 0 / 0 |
+| Richardson f_inf of the peak (MPa; 106/406/806 fit) | 12.66 | 11.27 |
+| Chunc ma2020 : MP peak ratio (cap 0 vs `mukunda_paul`) | 1.450 | 1.297 |
+| BALLS ma2020 : MP pk:trough ratio | 1.266 | 1.217 |
+| cost (Chunc steps/s) | ~46.9k | ~44.2k (-6%) |
+
+The section 10 "spike = Ma-vs-MP excess" table was measured with the pre-T11 step; the excess shrinks but does not vanish under the new defaults
+(the cap / MP / Saint-Robert rows move < 1.5% on Chunc, ~9% on BALLS cap rows). The 100-cell B0 constants are not yet re-recorded (Chunc t_peak +71% tripped the T11 STOP rule).

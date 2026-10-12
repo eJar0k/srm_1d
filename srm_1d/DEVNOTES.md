@@ -94,6 +94,12 @@ canonical validation values (library BPNV, B0 probes) are: Chunc peak 11.282 MPa
 plateau 8.151; BALLSstick peak 8.331, trough 4.343, mid 4.880; Hasegawa A
 peak 6.109 MPa (0.95x exp). The as-shipped numbers below pre-date T10.
 
+**T11 note (2026-10-11):** the canonical knobs above (and the T10 values) were fit/validated WITH the
+double-applied second-corrector pressure storage in the step. Since the PISO corrections became the
+defaults (T11), the same knobs give Chunc peak 10.08 MPa (plateau 8.147), BALLSstick peak 7.258 (pk/trough 1.67),
+Hasegawa A peak 6.107 MPa; the plateau is unchanged (<0.1%) but the startup spike is ~11-13% lower.
+Re-fitting the knobs against the corrected step is a later user decision.
+
 As-shipped re-validation (embedded `.ric` transport, F+Z off — the user
 path, NOT the LHS basis): Hasegawa A 6.14 MPa (0.95× exp 6.44); Zerox
 7.07 (1.77×); Chunc 12.65 (1.42×, down from ~1.9× pre-recal). The
@@ -316,6 +322,26 @@ in geometry/burn rate/ignition (called every step or every N steps).
 - Micro-steps in pressure trace converge to zero with increasing N
 
 ## API Breaking Changes Log
+
+### Solver verification T11 (unreleased, 2026-10-11) -- P5 PISO corrections are the defaults
+
+- **BEHAVIOUR CHANGE (all transient results shift):** `run_simulation(piso_corr2_storage=True,
+  piso_energy_coupling_iters=1)` (also the defaults of `piso_step` and the kernel
+  `_piso_step_with_energy_diagnostics`, `corr2_storage` / `energy_coupling_iters`). The pre-T11
+  second pressure corrector omitted the storage term `a_t*P'` the first corrector already took, so every
+  transient pressure increment was applied ~twice (P'' ~ 0.93 P' at CFL 0.3); `K=1` rebuilds the
+  compressibility / intermediate density with the updated T. `piso_energy_coupling_iters=0,
+  piso_corr2_storage=False` reproduces the old step exactly (pass them explicitly for A/B work).
+  Effects (Chunc, CFL 0.3, 106/406/806 cells): fill Mach bounded (2.6/2.2/2.2 vs 3.9/13.9/16.9), zero
+  pressure-floor events (old: 24 at 406, 192 at 806), startup peak -10.6% (11.28 -> 10.08 MPa, t_peak
+  16.3 -> 27.9 ms), plateau -0.05%; BALLSstick peak -12.9% (pk/trough 1.92 -> 1.67); Hasegawa A -0.02%.
+  Cost about -6% steps/s. Worklog: `docs/solver_verification/worklog/T11.md`, `P5.md`.
+- Includes the merged PB diagnostics: the T-clip and Mach-cap tallies observe the FINAL pass.
+  `piso_step` passes the P5 args by keyword; the kernel's P5 args come AFTER PB's tally args.
+- **B0 `BASELINE` not yet re-recorded** (Chunc t_peak moved +71% > the 15% STOP threshold; user/reviewer
+  decision) -- B0 fails against the pre-T11 constants until it is.
+- Tests: three updated to pin the legacy step explicitly or follow the new default (`test_energy_coupling`,
+  `test_pressure_floor`, `test_numerical_limits`).
 
 ### Solver verification PB (unreleased, 2026-10-11) -- hardening + per-cell numerical-limit diagnostics (ports of Codex review P1/P2)
 
