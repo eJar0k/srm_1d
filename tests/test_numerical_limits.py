@@ -268,7 +268,10 @@ class TestChuncLimits:
             # T11: the new PISO defaults (K=1, S=True) remove the floor
             # events in this regime (P5/T11); this test needs them to tie the
             # per-cell map to the T3 counters, so it runs the pre-T11 step.
-            piso_energy_coupling_iters=0, piso_corr2_storage=False)[0]
+            piso_energy_coupling_iters=0, piso_corr2_storage=False,
+            # IG3: the Peretz default ignition h also removes the floor events here
+            # (first light 1.7 -> ~5.8 ms); the test needs them, so pin the pre-IG3 h.
+            ignition_heat_transfer='gnielinski')[0]
         return res
 
     def test_pressure_floor_map_ties_to_t3_counters(self, run):

@@ -1,0 +1,130 @@
+........................................................................ [  9%]
+..........F............................................................. [ 19%]
+........................................................................ [ 28%]
+.......................................................................F [ 38%]
+........................................................................ [ 48%]
+........................................................................ [ 57%]
+........................................................................ [ 67%]
+........................................................................ [ 77%]
+........................................................................ [ 86%]
+.................................................................
+[T4 mode invariants] motor=hlbltest.ric
+  ma2020        term='pressure cutoff' m=0.72206kg (+0.0000%) I=1486.25Ns (+0.0000%) t_burn(5%F)=0.6041s (+0.0000%) t_end=0.6228s (+0.0000%) Ppk=11.240MPa (+0.0000%)
+  mukunda_paul  term='pressure cutoff' m=0.72210kg (+0.0057%) I=1486.89Ns (+0.0427%) t_burn(5%F)=0.6114s (+1.2168%) t_end=0.6286s (+0.9350%) Ppk=10.627MPa (-5.4539%)
+  saint_robert  term='pressure cutoff' m=0.72211kg (+0.0070%) I=1487.24Ns (+0.0664%) t_burn(5%F)=0.6140s (+1.6381%) t_end=0.6300s (+1.1655%) Ppk=10.193MPa (-9.3210%)
+....... [ 96%]
+...........................                                              [100%]
+================================== FAILURES ===================================
+___________________ test_canonical_chunc_does_not_collapse ____________________
+
+    def test_canonical_chunc_does_not_collapse():
+        """Canonical Chunc (machbusterNew, head_basket + mtv radiation, frozen
+        transport) must run to completion without numerical collapse. Chunc is
+        the v0.7.4 ignition-spike diagnostic; this gates that the default
+        (flame-front + Z-N OFF) path stays healthy as those features land.
+        """
+        pytest.importorskip("numba")
+        from srm_1d.openmotor_adapter import run_from_ric, load_pyrogen
+    
+        pyro = load_pyrogen('mtv')
+        pyro.heat_delivery_mode = 'radiation'
+        result, _perf, _nz, _geo, _prop = run_from_ric(
+            'motors/machbusterNew.ric',
+            transport_path='motors/machbusterNew.frozen.transport.yaml',
+            pyrogen=pyro,
+            injection_topology='head_basket',
+            roughness=37.1e-6, kappa=0.45, T_ignition=850.0,
+            P_cutoff=0.05e6, cfl_target=0.3, t_max=3.0,
+            snapshot_interval=0.5, print_interval=20.0, verbose=False,
+        )
+    
+        summary = result['summary']
+        term_code = summary['termination_code']
+        t_burn = float(summary['t_burn'])
+        p_peak = float(summary.get('P_peak', 0.0)) / 1e6
+    
+        assert term_code != 4, (
+            f"Canonical Chunc collapsed (termination_code=4); "
+            f"t_burn={t_burn:.4f}s, P_peak={p_peak:.2f} MPa."
+        )
+        assert t_burn > 0.5, (
+            f"Canonical Chunc produced suspiciously short burn "
+            f"(t_burn={t_burn:.4f}s); P_peak={p_peak:.2f} MPa."
+        )
+        # Chunc plateau is ~8.8 MPa; the (uncorrected) baseline spike reaches
+        # ~16-17 MPa, so a wide sanity band catches only collapse/degeneracy.
+>       assert 4.0 < p_peak < 40.0, (
+            f"Canonical Chunc P_peak={p_peak:.2f} MPa outside the (4, 40) MPa "
+            f"sanity band — likely degenerate."
+        )
+E       AssertionError: Canonical Chunc P_peak=0.22 MPa outside the (4, 40) MPa sanity band — likely degenerate.
+E       assert 4.0 < 0.22273091805546022
+
+tests\test_canonical_examples.py:120: AssertionError
+_________ TestChuncLimits.test_pressure_floor_map_ties_to_t3_counters _________
+
+self = <tests.test_numerical_limits.TestChuncLimits object at 0x000001E14BEF9510>
+run = SimulationChannels(45 channels, 17 axial fields)
+
+    def test_pressure_floor_map_ties_to_t3_counters(self, run):
+        lim = run['numerical_limits']['pressure_floor']
+        summ = run['summary']
+>       assert summ['pressure_floor_activations'] > 0
+E       assert 0 > 0
+
+tests\test_numerical_limits.py:277: AssertionError
+============================== warnings summary ===============================
+tests/test_adapter.py: 11 warnings
+tests/test_canonical_examples.py: 2 warnings
+tests/test_channels.py: 1 warning
+tests/test_endface_conservation.py: 3 warnings
+tests/test_energy_audit.py: 2 warnings
+tests/test_energy_coupling.py: 1 warning
+tests/test_flame_front_gate.py: 1 warning
+tests/test_geometry.py: 12 warnings
+tests/test_hardening.py: 8 warnings
+tests/test_history_capacity.py: 4 warnings
+tests/test_ignition_diagnostics.py: 7 warnings
+tests/test_ignition_heat_transfer.py: 5 warnings
+tests/test_numerical_limits.py: 5 warnings
+tests/test_plotting_channels.py: 1 warning
+tests/test_pressure_floor.py: 1 warning
+tests/test_pyrogen_axial_distribution.py: 5 warnings
+tests/test_refresh_cadence.py: 10 warnings
+tests/test_ric_igniter.py: 1 warning
+tests/test_simulation_phase3.py: 3 warnings
+tests/test_spatial_ignition_coupling.py: 4 warnings
+tests/test_srm1d_plugin.py: 7 warnings
+tests/test_station_viz.py: 1 warning
+tests/test_submerged_topology.py: 7 warnings
+tests/test_taper.py: 17 warnings
+tests/test_verification_limits.py: 1 warning
+tests/test_yns_mixture.py: 1 warning
+tests/test_yns_phase4_validation.py: 6 warnings
+tests/test_yns_transport.py: 1 warning
+tests/test_zn_burn_rate.py: 1 warning
+  C:\tmp\sv\ig3\srm_1d\grain_geometry.py:1138: UserWarning: Integer-snapping altered total motor length by more than 10mm. Check segment proportions.
+    warnings.warn(f"Integer-snapping altered total motor length by more than 10mm. Check segment proportions.")
+
+tests/test_srm1d_plugin.py::test_quasi_steady_solver_preserved
+  C:\Users\ejarocki\Documents\Rocketry\Code Stuff\Erosive Burning Solver\openMotor\openMotor\motorlib\nozzle.py:47: RuntimeWarning: invalid value encountered in divide
+    return fsolve(lambda x: (1/self.calcExpansion()) - eRatioFromPRatio(k, x / inputPressure), 0)[0]
+
+tests/test_srm1d_plugin.py::test_quasi_steady_solver_preserved
+  C:\Users\ejarocki\Documents\Rocketry\Code Stuff\Erosive Burning Solver\openMotor\openMotor\motorlib\nozzle.py:47: RuntimeWarning: divide by zero encountered in divide
+    return fsolve(lambda x: (1/self.calcExpansion()) - eRatioFromPRatio(k, x / inputPressure), 0)[0]
+
+tests/test_srm1d_plugin.py::test_quasi_steady_solver_preserved
+  C:\Users\ejarocki\Documents\Rocketry\Code Stuff\Erosive Burning Solver\openMotor\openMotor\motorlib\nozzle.py:13: RuntimeWarning: invalid value encountered in sqrt
+    return (((k+1)/2)**(1/(k-1))) * (pRatio ** (1/k)) * ((((k+1)/(k-1))*(1-(pRatio**((k-1)/k))))**0.5)
+
+tests/test_srm1d_plugin.py::test_quasi_steady_solver_preserved
+  C:\Users\ejarocki\Documents\Rocketry\Code Stuff\Erosive Burning Solver\openMotor\openMotor\motorlib\nozzle.py:47: RuntimeWarning: The iteration is not making good progress, as measured by the 
+   improvement from the last ten iterations.
+    return fsolve(lambda x: (1/self.calcExpansion()) - eRatioFromPRatio(k, x / inputPressure), 0)[0]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_canonical_examples.py::test_canonical_chunc_does_not_collapse
+FAILED tests/test_numerical_limits.py::TestChuncLimits::test_pressure_floor_map_ties_to_t3_counters
+2 failed, 745 passed, 133 warnings in 554.42s (0:09:14)

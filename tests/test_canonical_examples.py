@@ -100,6 +100,12 @@ def test_canonical_chunc_does_not_collapse():
         roughness=37.1e-6, kappa=0.45, T_ignition=850.0,
         P_cutoff=0.05e6, cfl_target=0.3, t_max=3.0,
         snapshot_interval=0.5, print_interval=20.0, verbose=False,
+        # IG3: Peretz is the default ignition h; the Sutton-sized (0.9 g) MTV head-basket
+        # charge of this config is below the Peretz threshold (Chunc head basket ~1.4 g) and
+        # does not light (P_peak 0.22 MPa, not a collapse). This gate tests numerical
+        # collapse of the lit path, so it pins the pre-IG3 ignition h. Pending IG3 stage 2
+        # (DeMar-sized charge + auto-upsize fallback).
+        ignition_heat_transfer='gnielinski',
     )
 
     summary = result['summary']

@@ -62,7 +62,7 @@ Now in `docs/references/` (read them there; conclusions above marked "pending" c
 | R3 | `MIL-P-46994B.pdf` | military spec |
 | R4 | `peretz1974.pdf` | Princeton AMS Rept 1100 (was `19740005393.pdf`) |
 | R8 | `gnielinski2013.pdf` | |
-| R10 | `peretz1972.pdf` | AIAA Paper 72-1119 (the conference paper that preceded AIAA J. 11(12) 1973; DOI 10.2514/3.50676 is cited for the journal version in `docs/core_loop_opt/LITERATURE_ALLSPEED_PISO.md`, unverified). Its Eq. 14 prints a constant of 1.78e-3 where the thesis Eq. III-31 has 1.56e-3 -- to be checked from the page image |
+| R10 | `peretz1972.pdf` | AIAA Paper 72-1119 (the conference paper that preceded AIAA J. 11(12) 1973; DOI 10.2514/3.50676 is cited for the journal version in `docs/core_loop_opt/LITERATURE_ALLSPEED_PISO.md`, unverified). Its Eq. 14 prints a constant of 1.78e-3 where the thesis Eq. III-31 has 1.56e-3 -- CHECKED in IG3 stage 1 from the page images (paper p. 6, thesis p. 40): the SAME law (same variables, exponents, CGS units: h = a Pr^-0.6 cp (pu/R)^0.8 W^0.1 T_af^-0.67 (x_r d_h)^-0.1 (A_p/A_t)^0.4), with a different numerical constant -- 1.78e-3 (paper; no derivation given, equivalent to a6 = 2.92e-2) vs 1.56e-3 (thesis, a6 = 2.56e-2 set to match the Rocketdyne duct data to x/d = 10). The thesis later varies the constant (1.56e-3 -> 1.704e-3, +9.2 %) as a sensitivity study. The code carries the thesis constant, unchanged. The paper's constant gives h 1.141x higher. Pending: R9 / R10 (journal version) to see which calibration the authors finally endorsed |
 | R11 | `STARTING YOUR UP-GOERS_pub (1).pdf` | The slides are the whole DeMar source: no R, L or time record exists beyond them |
 | R12 | `dipprey1963.pdf`, `owen1963.pdf`, `gowen1968.pdf` | |
 

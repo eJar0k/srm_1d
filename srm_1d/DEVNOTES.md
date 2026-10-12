@@ -354,6 +354,10 @@ in geometry/burn rate/ignition (called every step or every N steps).
   with the Gnielinski ignition h (and the PISO bug before T11). The ignition h sets the first-light delay and the
   ignition-front speed, so `T_ignition` and `k_solid` (which enter the same Goodman kernel) were tuned against an h 2.5-3.4x
   larger (first-lit cells, IG2 Part 1) than the one now used. Re-fitting them is a pending user decision; the plateau and Hasegawa A peak are insensitive.
+- Two existing tests pin `ignition_heat_transfer='gnielinski'` (reason in each): `test_canonical_examples.py::
+  test_canonical_chunc_does_not_collapse` (its Sutton 0.9 g MTV head-basket charge no longer lights under Peretz:
+  P_peak 0.22 MPa; a sub-threshold charge, not a collapse) and `test_numerical_limits.py::TestChuncLimits` (needs the
+  pressure-floor events that the later first light removes).
 - Tests: `tests/test_ignition_heat_transfer.py` (default pins, Ap-reference kernel + run tests, 1972-vs-thesis constant
   check); `test_solver_config_upgrade.py` / `test_srm1d_plugin.py` (the new config key).
 
