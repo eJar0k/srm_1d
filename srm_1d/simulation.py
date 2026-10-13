@@ -3843,10 +3843,28 @@ def _run_simulation_once(
         'ignition_heat_transfer': ignition_heat_transfer,
         'peretz_ap_reference': peretz_ap_reference,
         'ignited': bool(first_ignition_time == first_ignition_time),  # not NaN
-        # IG3: how much of the grain lit (a partly lit grain is a failed ignition)
+        # IG3: grain cells that never lit (convective-only ignition model:
+        # no igniter-jet impingement heating, burning-neighbour radiation off
+        # by default; NOT an igniter-size indicator). See run_simulation.
         'grain_cells': int(np.count_nonzero(is_grain)),
         'grain_cells_ignited': int(np.count_nonzero(
             is_grain & (ignition_time < 1.0e9))),
+        'grain_never_lit_mask': (is_grain & (ignition_time >= 1.0e9)).copy(),
+        'grain_cells_never_lit': int(np.count_nonzero(
+            is_grain & (ignition_time >= 1.0e9))),
+        'grain_fraction_lit': float(np.count_nonzero(
+            is_grain & (ignition_time < 1.0e9))
+            / max(int(np.count_nonzero(is_grain)), 1)),
+        'grain_never_lit_cell_range': (
+            [int(np.flatnonzero(is_grain & (ignition_time >= 1.0e9))[0]),
+             int(np.flatnonzero(is_grain & (ignition_time >= 1.0e9))[-1])]
+            if np.any(is_grain & (ignition_time >= 1.0e9)) else None),
+        'grain_never_lit_x_range_mm': (
+            [float(x_centers[np.flatnonzero(
+                is_grain & (ignition_time >= 1.0e9))[0]]) * 1e3,
+             float(x_centers[np.flatnonzero(
+                 is_grain & (ignition_time >= 1.0e9))[-1]]) * 1e3]
+            if np.any(is_grain & (ignition_time >= 1.0e9)) else None),
         'stop_if_unignitable': bool(stop_if_unignitable),
         'diagnostic_disable_erosive': bool(diagnostic_disable_erosive),
         'diagnostic_disable_endfaces': bool(diagnostic_disable_endfaces),
@@ -4086,39 +4104,71 @@ class PyrogenAutoSizeError(RuntimeError):
     allowed number of attempts (see :func:`run_simulation`)."""
 
 
+def _self_sustaining(res):
+    """True iff the grain lit and keeps burning once the igniter is spent.
+
+    There is no extinction model, so this is: at least one grain cell has
+    ignited AND grain cells are still burning (hence generating gas) at some
+    step after the pyrogen charge is consumed. If the run ended before the
+    pyrogen was spent, 'burning at the last step' is the best available test.
+    """
+    summ = res['summary']
+    if not summ['ignited'] or int(summ['grain_cells_ignited']) < 1:
+        return False
+    t = np.asarray(res['time'])
+    nb = np.asarray(res['n_burning'])
+    if t.size == 0:
+        return False
+    t_spent = float(summ['pyrogen_duration'])
+    after = t > t_spent
+    if np.any(after):
+        return bool(np.any(nb[after] > 0))
+    return bool(nb[-1] > 0)
+
+
 def run_simulation(*args, ignition_retry_factor=1.25,
-                   ignition_retry_max_attempts=10,
-                   ignition_min_lit_fraction=0.99, **kwargs):
+                   ignition_retry_max_attempts=10, **kwargs):
     """Run a complete transient simulation (all parameters as
     :func:`_run_simulation_once`, documented below), with the IG3 ignition
     fallback for AUTO-SIZED pyrogen charges.
 
-    If the pyrogen charge was auto-sized (``PyrogenChamber.mass_auto``, i.e.
-    ``build_pyrogen_chamber(pyrogen_mass=None)``) and the motor does not light
-    (fewer than ``ignition_min_lit_fraction`` of the grain cells ever ignite;
-    the IG2 ignition-threshold definition, default 0.99 -- a partly lit grain
-    gives a wrong trace, e.g. BALLSstick's head-end 10 % at a 4.8 g charge),
-    a run in which NO cell can light stops early (``stop_if_unignitable``: no energy source left and
-    every gas temperature below ``T_ignition``) and is retried at
-    ``ignition_retry_factor`` times the charge (default 1.25, the user-approved
-    step), at most ``ignition_retry_max_attempts`` attempts in all
-    (default 10, i.e. up to 1.25**9 = 7.5x the initial charge). If it still
-    does not light, :class:`PyrogenAutoSizeError` is raised. A successful
-    upsize is reported with a ``RuntimeWarning`` naming the final charge.
+    SUCCESS = the grain lights and keeps burning after the igniter is spent
+    (``_self_sustaining``: at least one grain cell ignited and grain cells are
+    still burning after the pyrogen is consumed; there is no extinction model).
+    It does NOT require every grain cell to light: cells the convective-only
+    ignition model never heats (e.g. BALLSstick's stagnant head-end 10 %) are
+    reported by a warning and by the ``grain_*`` summary keys instead, because
+    a bigger igniter charge is not the remedy (it only inflates the startup
+    spike).
 
-    An EXPLICITLY set charge is never resized: a run that does not light
+    If the pyrogen charge was auto-sized (``PyrogenChamber.mass_auto``, i.e.
+    ``build_pyrogen_chamber(pyrogen_mass=None)``) and the run is not a
+    success, a run in which NO cell can light stops early
+    (``stop_if_unignitable``: no energy source left and every grain-cell gas
+    temperature below ``T_ignition``) and is retried at ``ignition_retry_factor``
+    times the charge (default 1.25, the user-approved step), at most
+    ``ignition_retry_max_attempts`` attempts in all (default 10, i.e. up to
+    1.25**9 = 7.5x the initial charge). If it still fails,
+    :class:`PyrogenAutoSizeError` is raised. A successful upsize is reported
+    with a ``RuntimeWarning`` naming the final charge.
+
+    An EXPLICITLY set charge is never resized: a run that is not a success
     returns normally with ``summary['ignited'] == False`` and a warning.
 
-    ``summary`` gains ``ignition_attempts``, ``ignition_attempt_masses_kg``,
-    ``pyrogen_mass_auto``, ``pyrogen_mass_final_kg`` and ``pyrogen_resized``
-    (``ignited`` / ``stop_if_unignitable`` come from the single run).
+    At the end of EVERY run (auto or explicit) grain cells that never lit are
+    reported with a ``RuntimeWarning`` (count, cell-index range, x range) and
+    ``summary['grain_cells_never_lit']`` / ``['grain_never_lit_mask']`` /
+    ``['grain_fraction_lit']`` / ``['grain_never_lit_cell_range']`` /
+    ``['grain_never_lit_x_range_mm']``.
+
+    ``summary`` also gains ``ignition_attempts``, ``ignition_attempt_masses_kg``,
+    ``ignition_attempt_wall_s``, ``pyrogen_mass_auto``, ``pyrogen_mass_final_kg``
+    and ``pyrogen_resized``; ``summary['ignited']`` is the success flag.
     """
     import inspect
     import warnings
     bound = inspect.signature(_run_simulation_once).bind(*args, **kwargs)
     chamber = bound.arguments['pyrogen_chamber']
-    if not (0.0 < ignition_min_lit_fraction <= 1.0):
-        raise ValueError("ignition_min_lit_fraction must be in (0, 1]")
     if ignition_retry_factor <= 1.0:
         raise ValueError("ignition_retry_factor must be > 1")
     if int(ignition_retry_max_attempts) < 1:
@@ -4136,10 +4186,7 @@ def run_simulation(*args, ignition_retry_factor=1.25,
         res = _run_simulation_once(*bound.args, **bound.kwargs)
         t_wall.append(clock.time() - t0)
         summ = res['summary']
-        n_g = max(int(summ['grain_cells']), 1)
-        lit_ok = (int(summ['grain_cells_ignited'])
-                  >= int(np.ceil(float(ignition_min_lit_fraction) * n_g - 1e-9)))
-        ignited = bool(summ['ignited']) and lit_ok
+        ignited = _self_sustaining(res)
         if ignited or int(summ['termination_code']) in (3, 4, 5):
             break
         if not auto or attempt >= int(ignition_retry_max_attempts):
@@ -4170,11 +4217,23 @@ def run_simulation(*args, ignition_retry_factor=1.25,
             f"charge explicitly to fix it.", RuntimeWarning, stacklevel=2)
     if not ignited and not auto:
         warnings.warn(
-            f"the motor did not fully ignite ({summ['grain_cells_ignited']} of "
-            f"{summ['grain_cells']} grain cells lit) with the explicitly set {name} "
-            f"charge of {masses[-1] * 1e3:.3g} g (explicit charges are never "
-            f"resized); termination: {summ['termination']}.",
+            f"the motor did not light and keep burning with the explicitly "
+            f"set {name} charge of {masses[-1] * 1e3:.3g} g (explicit charges "
+            f"are never resized); termination: {summ['termination']}.",
             RuntimeWarning, stacklevel=2)
+    n_never = int(summ['grain_cells_never_lit'])
+    if n_never > 0 and summ['grain_cells_ignited'] > 0:
+        c0, c1 = summ['grain_never_lit_cell_range']
+        x0, x1 = summ['grain_never_lit_x_range_mm']
+        warnings.warn(
+            f"{n_never} of {summ['grain_cells']} grain cells never ignited "
+            f"(cells {c0}-{c1}, x = {x0:.0f}-{x1:.0f} mm; "
+            f"{100.0 * summ['grain_fraction_lit']:.0f} % of the grain lit). "
+            "This is the convective-only ignition model (no igniter-jet "
+            "impingement heating; burning-neighbour radiation is off by "
+            "default), not an igniter-size problem: a larger charge would "
+            "mostly inflate the startup spike. Their burning is missing from "
+            "this trace.", RuntimeWarning, stacklevel=2)
     return res
 
 
@@ -4191,6 +4250,4 @@ run_simulation.__signature__ = _once_sig.replace(parameters=list(
         _inspect.Parameter('ignition_retry_factor',
                            _inspect.Parameter.KEYWORD_ONLY, default=1.25),
         _inspect.Parameter('ignition_retry_max_attempts',
-                           _inspect.Parameter.KEYWORD_ONLY, default=10),
-        _inspect.Parameter('ignition_min_lit_fraction',
-                           _inspect.Parameter.KEYWORD_ONLY, default=0.99)])
+                           _inspect.Parameter.KEYWORD_ONLY, default=10)])

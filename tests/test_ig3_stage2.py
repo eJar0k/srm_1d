@@ -173,20 +173,61 @@ class TestEarlyStop:
         assert not np.any(np.asarray(res["ignition_time_by_cell"]) < 1e8)
 
 
-class TestPartialIgnition:
+class TestNeverLitCells:
+    """IG3 (user decision 2026-10-12): success = the grain lights and keeps
+    burning after the igniter is spent; cells that never light are WARNED about
+    (convective-only ignition model), not fixed by a bigger charge."""
     BALLS = os.path.join(ROOT, "motors", "BALLSstick.ric")
 
-    def test_partly_lit_grain_is_a_failed_ignition(self):
-        # BALLSstick at 4.83 g (explicit): 10 head-end cells (10 %) stay unlit
+    def _balls(self):
+        # BALLSstick at 4.83 g (explicit): the 10 head-end cells (cells 3-12) never light
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             res = oma.run_from_ric(self.BALLS, pyrogen="bpnv", pyrogen_mass=4.829e-3,
                                    t_max=0.05, print_interval=0.0, verbose=False)[0]
-        s = res["summary"]
-        assert s["grain_cells_ignited"] < 0.99 * s["grain_cells"]
-        assert not s["ignited"]
-        assert any("did not fully ignite" in str(x.message) for x in w)
+        return res, w
 
-    def test_min_lit_fraction_validated(self):
-        with pytest.raises(ValueError, match="ignition_min_lit_fraction"):
-            _chunc_run(ignition_min_lit_fraction=0.0)
+    def test_partly_lit_grain_is_still_a_success_and_warns(self):
+        res, w = self._balls()
+        s = res["summary"]
+        assert s["ignited"]                                  # self-sustaining
+        n = s["grain_cells_never_lit"]
+        assert 5 <= n <= 15                                   # BALLSstick's head-end block
+        assert s["grain_fraction_lit"] == pytest.approx(1.0 - n / s["grain_cells"])
+        mask = np.asarray(s["grain_never_lit_mask"])
+        idx = np.flatnonzero(mask)
+        assert mask.sum() == n
+        assert s["grain_never_lit_cell_range"] == [int(idx[0]), int(idx[-1])]
+        assert idx[0] == 3                                    # the head-most grain cell
+        x0, x1 = s["grain_never_lit_x_range_mm"]
+        assert 0.0 < x0 < x1
+        msgs = [str(x.message) for x in w if issubclass(x.category, RuntimeWarning)]
+        hit = [m for m in msgs if "never ignited" in m]
+        c0, c1 = s["grain_never_lit_cell_range"]
+        assert hit and f"{n} of {s['grain_cells']} grain cells" in hit[0] and f"cells {c0}-{c1}" in hit[0]
+        assert "convective-only ignition model" in hit[0] and "not an igniter-size problem" in hit[0]
+
+    def test_no_resize_for_never_lit_cells_with_auto_charge(self):
+        # an auto charge that already lights and sustains the grain is not upsized because
+        # some cells never light
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            res = oma.run_from_ric(self.BALLS, t_max=0.05, print_interval=0.0, verbose=False)[0]
+        s = res["summary"]
+        assert s["ignited"] and s["pyrogen_mass_auto"]
+        m = s["ignition_attempt_masses_kg"]
+        assert all(abs(m[k + 1] / m[k] - 1.25) < 1e-9 for k in range(len(m) - 1))
+        assert m[-1] < 7.19e-3                  # below the old 99 %-lit threshold charge
+        assert any("never ignited" in str(x.message) for x in w) or s["grain_cells_never_lit"] == 0
+
+    def test_all_lit_run_has_no_never_lit_warning(self):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            res = _chunc_run(pyrogen="bpnv", pyrogen_mass=4.5e-3, t_max=0.1)
+        s = res["summary"]
+        assert s["grain_cells_never_lit"] == 0 and s["grain_never_lit_cell_range"] is None
+        assert not any("never ignited" in str(x.message) for x in w)
+
+    def test_removed_kwarg(self):
+        import inspect
+        assert "ignition_min_lit_fraction" not in inspect.signature(sim.run_simulation).parameters
