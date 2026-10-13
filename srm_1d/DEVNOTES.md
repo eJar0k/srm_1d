@@ -331,6 +331,41 @@ in geometry/burn rate/ignition (called every step or every N steps).
 
 ## API Breaking Changes Log
 
+### IG3 stage 2 (unreleased, 2026-10-12) -- DeMar flux off, DeMar charge sizing, auto-upsize ignition fallback
+
+- **BEHAVIOUR CHANGE (defaults):** `Pyrogen.heat_delivery_mode` default and every library YAML (bpnv, mtv, mtv_fast,
+  thermite_cual) are now `'none'` (was `'demar'`; thermite `'radiation'`); `_pyrogen_from_mapping` absent-key default
+  `'none'`. The DeMar 69.4 / 110 cal/cm^2/s is a derived reference-vessel number, not a flux
+  (`docs/pyrogen_realism/IG2_REPORT.md` Part 3). `'demar'` / `'radiation'` stay selectable.
+- **Auto charge sizing:** `build_pyrogen_chamber(pyrogen_mass=None)` now uses `demar_pyrogen_mass(V_free_in3, impetus_W,
+  P_target_psi=300)` = V*P/W (DeMar, TRATECH 2021), V = case - propellant volume, W = `Pyrogen.impetus_W` (a clear
+  `ValueError` if missing/<=0: nothing is invented). `sutton_pyrogen_mass` is kept but no longer used. The chamber is
+  marked `mass_auto` (+ a `resize(mass_kg)` closure); `PyrogenChamber` gained `mass_auto` and `resize` fields.
+- **Ignition fallback (auto charges only):** `run_simulation` is now a wrapper around `_run_simulation_once`. If the motor
+  does not light (fewer than `ignition_min_lit_fraction`=0.99 of the grain cells ever ignite) the charge is raised by
+  `ignition_retry_factor`=1.25 and the run repeated, at most `ignition_retry_max_attempts`=10 attempts (up to 7.5x), then
+  `PyrogenAutoSizeError`. A successful upsize emits a `RuntimeWarning` naming the final charge. Explicit charges are never
+  resized (a failed ignition just returns, `summary['ignited']=False`, with a warning). `inspect.signature(run_simulation)`
+  still exposes every default (the wrapper sets `__signature__`). New summary keys: `ignited`, `grain_cells`,
+  `grain_cells_ignited`, `ignition_attempts`, `ignition_attempt_masses_kg`, `ignition_attempt_wall_s`, `pyrogen_mass_auto`,
+  `pyrogen_mass_final_kg`, `pyrogen_resized`, `stop_if_unignitable`. `summary['pyrogen_mass_initial']` is the FINAL attempt's charge.
+- **Physical early stop** (`run_simulation(stop_if_unignitable=True)`, termination_code 6 'ignition impossible'): no grain cell
+  has lit, the pyrogen charge is consumed and nothing leaves the igniter (no energy source left), and the gas in every grain
+  cell is colder than `T_ignition` -- a wall heated by convection cannot exceed the temperature of the gas heating it, and
+  that gas cannot get hotter without a source. The tested alternatives: ALL bore cells < T_ignition never fires (the head-end
+  igniter pocket stays at plenum temperature, no wall sink); 'every surface falling' never fires (cold downstream cells keep
+  rising slowly). Residual assumption: the pocket gas is not advected into the grain. A failed attempt costs ~3.5-4.5 s wall
+  (Chunc). Never changes a run that lights (array-identical, tested). `_run_time_loop` gained `stop_if_unignitable`
+  (after `peretz_ap_code`).
+- Plugin: termination_code 6 is reported as 'never ignited'. An exhausted auto-size (`PyrogenAutoSizeError`) propagates as an exception.
+- **Pre-IG3 embedded igniter blocks** (all committed .ric files embed library BPNV with `heat_delivery_mode: demar`) are
+  upgraded on load to the current library entry through `SUPERSEDED_PYROGENS` (snapshots for BPNV, MTV, MTV_fast, thermite);
+  `upgrade_igniter_block` always upgrades to the CURRENT library entry, so one snapshot per superseded state suffices.
+  `motors/*.ric` are untouched.
+- Tests: new `tests/test_ig3_stage2.py`; ten existing tests that rely on the DeMar flux (explicit 12.3 g / 3.2 cm^3 plenum
+  baselines, flame-front gate, diagnostics) pin `heat_delivery_mode='demar'`; the sibling-pyrogen adapter test gains an
+  `impetus_W`.
+
 ### IG3 stage 1 (unreleased, 2026-10-11) -- Peretz ignition heat transfer is the default; Ap reading option
 
 - **BEHAVIOUR CHANGE (default; every transient run shifts):** `run_simulation(ignition_heat_transfer='peretz')`
