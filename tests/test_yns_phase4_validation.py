@@ -52,9 +52,11 @@ def _short_hasegawa_a_run(**overrides):
     """Run Hasegawa A for a configurable duration with default v0.7.0
     calibrated knobs. Returns the result dict from run_simulation."""
     pytest.importorskip("numba")
-    from srm_1d.openmotor_adapter import run_from_ric
+    from srm_1d.openmotor_adapter import run_from_ric, load_pyrogen
+    pyrogen = load_pyrogen('bpnv')
+    pyrogen.heat_delivery_mode = 'demar'  # IG3: pin the DeMar-driven pre-IG3 ignition path
     defaults = dict(
-        pyrogen='bpnv',
+        pyrogen=pyrogen,
         pyrogen_mass=12.3e-3,
         pyrogen_throat_area=38.5e-6,
         pyrogen_volume=3.2e-6,

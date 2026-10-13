@@ -177,6 +177,7 @@ def _test_chamber(**pyrogen_overrides):
         gamma=1.25,
         impetus_W=5000.0,
         heat_flux_cal_cm2_s=69.4,
+        heat_delivery_mode="demar",   # IG3: default is now 'none'; this test is DeMar-driven
     )
     for key, value in pyrogen_overrides.items():
         setattr(pyro, key, value)

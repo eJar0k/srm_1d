@@ -165,6 +165,7 @@ def _build_hasegawa_a_inputs():
     gp = load_transport('motors/hasegawa_a.transport.yaml')
     prop = convert_propellant(motor['propellant'], gp)
     pyr = load_pyrogen('bpnv')
+    pyr.heat_delivery_mode = 'demar'  # IG3: pin the DeMar-driven pre-IG3 ignition path
     pyc = PyrogenChamber(
         pyrogen=pyr,
         m_pyrogen_initial=12.3e-3,
@@ -180,9 +181,11 @@ def test_yns_hasegawa_a_short_run_invariants():
     species composition is sensible (mostly propellant after a burn)."""
     pytest.importorskip("numba")
     from srm_1d.openmotor_adapter import run_from_ric
+    pyrogen = load_pyrogen('bpnv')
+    pyrogen.heat_delivery_mode = 'demar'  # IG3: pin the DeMar-driven pre-IG3 ignition path
     result, _perf, _nz, _geo, _prop = run_from_ric(
         'motors/hasegawa_a.ric',
-        pyrogen='bpnv',
+        pyrogen=pyrogen,
         pyrogen_mass=12.3e-3,
         pyrogen_throat_area=38.5e-6,
         pyrogen_volume=3.2e-6,

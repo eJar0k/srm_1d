@@ -4127,7 +4127,7 @@ def run_simulation(*args, ignition_retry_factor=1.25,
         t_wall.append(clock.time() - t0)
         summ = res['summary']
         ignited = bool(summ['ignited'])
-        if ignited or int(summ['termination_code']) in (4, 5):
+        if ignited or int(summ['termination_code']) in (3, 4, 5):
             break
         if not auto or attempt >= int(ignition_retry_max_attempts):
             break
@@ -4141,7 +4141,7 @@ def run_simulation(*args, ignition_retry_factor=1.25,
     summ['pyrogen_mass_final_kg'] = masses[-1]
     summ['pyrogen_resized'] = bool(auto and attempt > 1)
     name = chamber.pyrogen.name
-    if auto and not ignited and int(summ['termination_code']) not in (4, 5):
+    if auto and not ignited and int(summ['termination_code']) not in (3, 4, 5):
         raise PyrogenAutoSizeError(
             f"auto-sized {name} charge did not light the motor in {attempt} "
             f"attempts (charges tried: "

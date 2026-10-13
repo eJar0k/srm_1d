@@ -39,7 +39,10 @@ def _short_hasegawa_run(flame_spread_enabled, t_max=0.10):
     propellant.flame_spread_enabled = flame_spread_enabled
     nozzle = args.pop('nozzle')
 
+    # IG3: DeMar surface flux is off by default; this test's ignition path (explicit 12.3 g charge,
+    # 3.2 cm^3 plenum) is the DeMar-driven pre-IG3 one, so pin it.
     pyrogen = load_pyrogen('bpnv')
+    pyrogen.heat_delivery_mode = 'demar'
     pyrogen_chamber = build_pyrogen_chamber(
         pyrogen, geo, nozzle,
         pyrogen_mass=12.3e-3,

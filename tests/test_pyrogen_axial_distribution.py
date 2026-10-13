@@ -30,6 +30,7 @@ def _short_hasegawa_a_run(kappa_jet, t_max=0.10):
     from srm_1d.openmotor_adapter import run_from_ric, load_pyrogen
 
     pyrogen_obj = load_pyrogen('bpnv')
+    pyrogen_obj.heat_delivery_mode = 'demar'  # IG3: pin the DeMar-driven pre-IG3 ignition path
     pyrogen_obj.kappa_jet = kappa_jet
 
     result, _perf, _nz, _geo, _prop = run_from_ric(

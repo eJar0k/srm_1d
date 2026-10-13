@@ -93,13 +93,21 @@ def test_cartridge_cells_always_exposed():
 # must spread ignition in time (a genuine fore→aft front).
 # ---------------------------------------------------------------------------
 
+def _demar_bpnv():
+    # IG3: DeMar surface flux is off by default; this test is pinned to the pre-IG3 DeMar path.
+    from srm_1d.openmotor_adapter import load_pyrogen
+    p = load_pyrogen('bpnv')
+    p.heat_delivery_mode = 'demar'
+    return p
+
+
 def test_flame_front_spreads_ignition_in_full_sim():
     from srm_1d.openmotor_adapter import run_from_ric
     from srm_1d.tools.ignition_diagnostics import ignition_spread_metrics
 
     result, _perf, _nz, _geo, _prop = run_from_ric(
         'motors/hasegawa_a.ric',
-        roughness=37.1e-6, kappa=0.45, pyrogen='bpnv', pyrogen_mass=None,
+        roughness=37.1e-6, kappa=0.45, pyrogen=_demar_bpnv(), pyrogen_mass=None,
         T_ignition=850.0, P_cutoff=0.05e6,
         snapshot_interval=0.05, print_interval=20.0, verbose=False,
         flame_front_enabled=True, flame_front_velocity=3.0,
