@@ -35,3 +35,44 @@ copper-lined duct; Peretz: 2.54 x 0.635 cm along the whole motor, Ap/At set by f
 throats), so local, head-end and aft-end Ap are the same there. Peretz attributes the
 effect to igniter-jet expansion, a head-end mechanism; that leans toward the head-end
 (jet-region) port area for a tapered bore, but no source states it.
+
+## Update 2026-10-12: Carlson & Seader 1967 obtained (`docs/references/carlson1967.pdf`, untracked)
+
+AIAA J. 5(7):1272-1279, DOI 10.2514/3.4183. Read from the text layer by the
+reviewer (figures not digitized):
+
+- **Test conditions:** hot nitrogen, 570-620 psig, 550-950 F (561-783 K), thin
+  copper-walled cylindrical test sections Dp = 1, 2, 4 in; **port-diameter
+  Reynolds number 50,000-600,000**; Ap/At 1.1 (1.2), 2 and 3; 56 head-end and 35
+  aft-end tests (details in AFRPL-TR-65-158, their Ref. 1).
+- **Ap = "port or test-section flow area"** (nomenclature): uniform ducts, so the
+  data carry no local-vs-aft distinction.
+- **Ap/At:** "an unexpectedly large effect upon the heat-transfer levels and
+  distributions ... it is believed that Ap/At primarily affects the igniter jet
+  structure and fluid dynamics in general, and is actually a secondary variable."
+  Aft-end: Ap/At "had little effect ... not considered a significant variable".
+- **Head-end correlation (graphical):** reference Nusselt number from
+  Dittus-Boelter, Nu = 0.023 Re_D^0.8 Pr^0.4 (their Eq. 3), with the Reynolds
+  number built from the **igniter mass flow rate and the port diameter** ("the
+  effects of mass flowrate (m) and port diameter (Dp) appeared to be adequately
+  accounted for by this equation"), multiplied by a Nusselt-number RATIO read
+  from Figs. 8-10 vs X/Dp, with Dp/Di as the parameter, one figure per Ap/At and
+  two times (linear interpolation in t). "Applicable whether or not jet
+  impingement occurs upon the surface." Using it needs the figures digitized,
+  or the Cohen-Derr-Price analytical fits that Peretz reproduces (Eqs.
+  III-28..III-30).
+- **Head-end mechanism (their Fig. 3):** either the jet impinges on the wall
+  (boundary-layer growth; maximum h at the impingement point), or a free jet
+  disintegrates with periodic recirculation zones (h maxima of decreasing
+  amplitude). Flow separates in the back-step region in both cases.
+- **Aft-end:** Nu ~ Re^0.5; m/At is the key variable (critical ~0.3 lbm/s-in^2).
+- **Time:** h fell by up to a factor of 2 within a 1 s test at the maximum (later
+  attributed to conduction losses by Wrubel & Carlson). For low-diffusivity
+  propellant and high gas-to-surface temperature ratios they judge a constant h
+  "reasonable" for ignition-delay estimates during igniter operation.
+
+**Relevance to the head-end dead zone:** during igniter operation the measured
+head-end h scales with the IGNITER mass flow through the port, shaped by X/Dp,
+not with the local mean axial velocity a 1-D cell sees near the closed end.
+That is a literature basis for a head-end model while the igniter runs. Nothing
+here covers the head end after igniter burn-out.
