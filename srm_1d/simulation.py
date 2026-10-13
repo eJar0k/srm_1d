@@ -4120,7 +4120,7 @@ def run_simulation(*args, ignition_retry_factor=1.25,
     attempt = 0
     while True:
         attempt += 1
-        masses.append(float(chamber.m_pyrogen_initial))
+        masses.append(float(getattr(chamber, 'm_pyrogen_initial', 0.0)))
         bound.arguments['pyrogen_chamber'] = chamber
         t0 = clock.time()
         res = _run_simulation_once(*bound.args, **bound.kwargs)

@@ -101,7 +101,8 @@ class TestPyrogenLoading:
             "rho: 1700.0\n"
             "T_flame: 2800.0\n"
             "M: 0.030\n"
-            "gamma: 1.25\n",
+            "gamma: 1.25\n"
+            "impetus_W: 5000.0\n",   # IG3: the auto charge is DeMar-sized
             encoding='utf-8',
         )
 
