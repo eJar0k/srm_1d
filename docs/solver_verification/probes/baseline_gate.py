@@ -61,7 +61,24 @@ _spec = importlib.util.spec_from_file_location(
 _probe = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_probe)
 
-# RE-RECORDED 2026-10-12 by pyrogen-realism OB1: (i) the library pellet pyrogens
+# RE-RECORDED 2026-10-12 by pyrogen-realism IG3 (stage 2), on top of OB1: the DeMar surface
+# flux is OFF by default (library pyrogens heat_delivery_mode 'none') and the auto igniter
+# charge is DeMar-sized (V_free * 300 psi / impetus_W) with the auto-upsize fallback
+# (x1.25 until >= 99 % of the grain lights). The canonical rows use that auto path, so each
+# motor now runs a different, larger charge than the Sutton sizes: Chunc 0.904 -> 2.623 g
+# (5 attempts), BALLSstick 1.386 -> 7.546 g (7 attempts), Hasegawa A 4.184 -> 18.72 g
+# (4 attempts). Chunc peak 9.977 -> 8.698 MPa (peak/plateau 1.078, exp 1.027), plateau
+# -0.9 %; BALLSstick peak 7.061 -> 11.18 (pk/trough 2.64, exp ~1.5), trough -2.5 %; Hasegawa A
+# global peak 6.107 (t = 2.41 s) -> 6.195 (an ignition peak at t = 23 ms; its late 2.4 s peak
+# is ~6.1). Values recorded from a clean-compile run and reproduced EXACTLY by a warm run
+# (docs/pyrogen_realism/results/ig3s2_B0_rebased_*.txt). The OB1 values (the previous BASELINE) were:
+#   chunc: peak 9.977396119842126, t_peak 0.03519436869536591,
+#          plateau 8.141928366040833, n_steps 532348
+#   balls: peak 7.060894562817688, trough 4.343382326291922,
+#          mid 4.855564928020005, n_steps 843680
+#   haseg: peak 6.107263748109281, t_peak 2.4109782579175234, n_steps 2336318
+#
+# (earlier) RE-RECORDED 2026-10-12 by pyrogen-realism OB1: (i) the library pellet pyrogens
 # (bpnv, mtv) now use the MIL-P-46994B Type I-A pellet geometry (3.175 mm dia,
 # L/D 1.504; was 3.2 mm, L/D 1.0) and (ii) the forward plenum's '0d' burn-area
 # law is the exact right-cylinder form function (``_cyl_area_fraction``) instead of
@@ -116,12 +133,12 @@ _spec.loader.exec_module(_probe)
 #          mid 4.913378178011638, n_steps 842922
 #   haseg: peak 6.143912554793205, t_peak 2.3816074267208034, n_steps 2335770
 BASELINE = {
-    'chunc': dict(peak=9.977396119842126, t_peak=0.03519436869536591,
-                  plateau=8.141928366040833, n_steps=532348),
-    'balls': dict(peak=7.060894562817688, trough=4.343382326291922,
-                  mid=4.855564928020005, n_steps=843680),
-    'haseg': dict(peak=6.107263748109281, t_peak=2.4109782579175234,
-                  n_steps=2336318),
+    'chunc': dict(peak=8.698445703737404, t_peak=0.024529374887138196,
+                  plateau=8.06619314574538, n_steps=533513),
+    'balls': dict(peak=11.182269177449877, trough=4.235361601649791,
+                  mid=4.770663098447565, n_steps=842363),
+    'haseg': dict(peak=6.195206225864981, t_peak=0.02305180400111348,
+                  n_steps=2335529),
 }
 RIC_FILE = {'chunc': 'machbusterNew.ric', 'balls': 'BALLSstick.ric',
             'haseg': 'hasegawa_a.ric'}
