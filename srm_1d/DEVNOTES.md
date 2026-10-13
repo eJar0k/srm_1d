@@ -341,14 +341,22 @@ in geometry/burn rate/ignition (called every step or every N steps).
   P_target_psi=300)` = V*P/W (DeMar, TRATECH 2021), V = case - propellant volume, W = `Pyrogen.impetus_W` (a clear
   `ValueError` if missing/<=0: nothing is invented). `sutton_pyrogen_mass` is kept but no longer used. The chamber is
   marked `mass_auto` (+ a `resize(mass_kg)` closure); `PyrogenChamber` gained `mass_auto` and `resize` fields.
-- **Ignition fallback (auto charges only):** `run_simulation` is now a wrapper around `_run_simulation_once`. If the motor
-  does not light (fewer than `ignition_min_lit_fraction`=0.99 of the grain cells ever ignite) the charge is raised by
-  `ignition_retry_factor`=1.25 and the run repeated, at most `ignition_retry_max_attempts`=10 attempts (up to 7.5x), then
-  `PyrogenAutoSizeError`. A successful upsize emits a `RuntimeWarning` naming the final charge. Explicit charges are never
-  resized (a failed ignition just returns, `summary['ignited']=False`, with a warning). `inspect.signature(run_simulation)`
-  still exposes every default (the wrapper sets `__signature__`). New summary keys: `ignited`, `grain_cells`,
-  `grain_cells_ignited`, `ignition_attempts`, `ignition_attempt_masses_kg`, `ignition_attempt_wall_s`, `pyrogen_mass_auto`,
-  `pyrogen_mass_final_kg`, `pyrogen_resized`, `stop_if_unignitable`. `summary['pyrogen_mass_initial']` is the FINAL attempt's charge.
+- **Ignition fallback (auto charges only):** `run_simulation` is now a wrapper around `_run_simulation_once`. SUCCESS =
+  the grain lights and keeps burning after the igniter is spent (user decision 2026-10-12; `_self_sustaining`: at least one grain
+  cell ignited and grain cells are still burning after the pyrogen is consumed -- there is no extinction model). If an
+  auto-sized charge does not succeed it is raised by `ignition_retry_factor`=1.25 and the run repeated, at most
+  `ignition_retry_max_attempts`=10 attempts (up to 7.5x), then `PyrogenAutoSizeError`. A successful upsize emits a
+  `RuntimeWarning` naming the final charge. Explicit charges are never resized (a failure returns, `summary['ignited']=False`,
+  with a warning). `inspect.signature(run_simulation)` still exposes every default (the wrapper sets `__signature__`).
+  An earlier version required >= 99 % of the grain cells lit (`ignition_min_lit_fraction`, REMOVED): it made the sizer cover
+  the model's convective-only ignition gap with a bigger charge, which inflated the spike (BALLSstick 7.5 g: pk/trough 2.64).
+- **Never-lit cells are warned about, not fixed** (every run, auto or explicit): a `RuntimeWarning` gives the count, the cell
+  index range and the x range [mm] of grain cells that never ignited and says this is the convective-only ignition model (no
+  igniter-jet impingement heating; burning-neighbour radiation off by default), not an igniter-size problem. Summary keys:
+  `grain_cells`, `grain_cells_ignited`, `grain_cells_never_lit`, `grain_fraction_lit`, `grain_never_lit_mask`,
+  `grain_never_lit_cell_range`, `grain_never_lit_x_range_mm`. Other new summary keys: `ignited` (the success flag),
+  `ignition_attempts`, `ignition_attempt_masses_kg`, `ignition_attempt_wall_s`, `pyrogen_mass_auto`, `pyrogen_mass_final_kg`,
+  `pyrogen_resized`, `stop_if_unignitable`. `summary['pyrogen_mass_initial']` is the FINAL attempt's charge.
 - **Physical early stop** (`run_simulation(stop_if_unignitable=True)`, termination_code 6 'ignition impossible'): no grain cell
   has lit, the pyrogen charge is consumed and nothing leaves the igniter (no energy source left), and the gas in every grain
   cell is colder than `T_ignition` -- a wall heated by convection cannot exceed the temperature of the gas heating it, and
@@ -357,15 +365,15 @@ in geometry/burn rate/ignition (called every step or every N steps).
   rising slowly). Residual assumption: the pocket gas is not advected into the grain. A failed attempt costs ~3.5-4.5 s wall
   (Chunc). Never changes a run that lights (array-identical, tested). `_run_time_loop` gained `stop_if_unignitable`
   (after `peretz_ap_code`).
-- **B0 re-recorded** (on top of OB1; `docs/pyrogen_realism/results/ig3s2_*`). Canonical rows now run the auto path:
-  | motor | Sutton (old) | DeMar first | final charge | attempts | wall per attempt [s] | peak MPa | other |
-  |---|---|---|---|---|---|---|---|
-  | Chunc | 0.904 g | 1.074 g | 2.623 g | 5 | 4.2 3.6 3.5 3.7 12.1 | 8.698 (was 9.977) | plateau 8.066, pk/pl 1.078 |
-  | BALLSstick | 1.386 g | 1.978 g | 7.546 g | 7 | 4.0 4.1 3.2 4.0 21.6 21.0 20.0 | 11.18 (was 7.061) | trough 4.235, pk/trough 2.64 |
-  | Hasegawa A | 4.184 g | 9.585 g | 18.72 g | 4 | 11.9 12.4 58.6 46.6 | 6.195 at 23 ms (was 6.107 at 2.41 s) | late peak ~6.1 |
-  The 4.83 g BALLSstick attempt lights the aft 90 % of the grain and leaves the head-end 10 % unlit (stagnant,
-  u ~ 0.4 m/s), so the success test is >= 99 % of the grain cells lit (`ignition_min_lit_fraction`), not the first cell.
-  The upsized charges over-drive the startup spike (BALLSstick pk/trough 1.62 -> 2.64; Chunc improved 1.22 -> 1.08).
+- **B0 re-recorded** (on top of OB1; `docs/pyrogen_realism/results/ig3s2b_*`). Canonical rows run the auto path:
+  | motor | Sutton (old) | DeMar first | final charge | attempts | wall per attempt [s] | never lit (cells, x mm) | peak MPa | startup vs experiment |
+  |---|---|---|---|---|---|---|---|---|
+  | Chunc | 0.904 g | 1.074 g | 2.623 g | 5 | 4.1 3.5 3.5 3.7 12.2 | none | 8.698 at 24.5 ms (was 9.977) | plateau 8.066, pk/pl 1.078 (exp 1.027) |
+  | BALLSstick | 1.386 g | 1.978 g | 4.829 g | 5 | 4.1 4.3 3.3 4.1 22.1 | 9: cells 3-11, 36-117 mm | 7.193 at 22 ms (was 7.061) | trough 3.522, mid 3.888, pk/trough 2.04, pk/mid 1.85 (exp ~1.50 / ~1.35) |
+  | Hasegawa A | 4.184 g | 9.585 g | 14.98 g | 3 | 11.8 12.5 57.4 | 8: cells 3-10, 59-176 mm | late peak 5.362 at 2.68 s (early < 0.5 s: 4.654) | 0.83x exp 6.44 (was 0.95x) |
+  B0 now records Hasegawa A's LATE peak (5.362 MPa, t = 2.682 s): the 14.98 g charge has no ignition spike. The unlit head-end
+  cells cost it ~12 % of its peak (5.36 vs 6.1 with the grain fully lit). Chunc lights every cell. BALLSstick's startup spike
+  is still above experiment (the unlit head-end block makes the trough low too).
 - **Threshold sensitivity:** the fallback stops at the FIRST charge that lights, so the final charge sits within 25 % above the
   ignition threshold, where the startup is hypersensitive: Chunc at 2.623 g changed its 50 ms peak by +14 % from a refresh-cadence
   change (`tests/test_refresh_cadence.py` therefore pins an explicit 4.5 g charge).
