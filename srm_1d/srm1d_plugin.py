@@ -649,11 +649,24 @@ def _result_to_om_simresult(motor, result, perf, geo=None, prop=None):
     # IG3: code 6 = stopped early because ignition is impossible.
     no_ignition = (term_code == 6) or (
         (term_code == 0) and (p_peak_mpa < 0.3))
-    sr.success = not (canceled or collapsed or no_ignition)
+    # IG4: the run's own success flag (the grain, not the igniter, drives the
+    # chamber after the igniter is spent). A hang-fire -- a lit cell or two
+    # holding the chamber at the igniter's dribble pressure, ended by the
+    # pressure cutoff -- has P_peak above the check above, so it is flagged here.
+    dud = (summary.get('ignited') is False) and not (canceled or collapsed or no_ignition)
+    sr.success = not (canceled or collapsed or no_ignition or dud)
     if not sr.success and not canceled:
         from motorlib.simResult import SimAlert, SimAlertLevel, SimAlertType
-        why = ("the motor never ignited" if no_ignition
-               else "the solution collapsed")
+        if dud:
+            n_lit = summary.get('grain_cells_ignited')
+            n_all = summary.get('grain_cells')
+            why = ("the motor did not reach self-sustaining combustion "
+                   "(only {} of {} grain cells lit and the grain never out-"
+                   "produced the igniter; a hang-fire)".format(n_lit, n_all))
+        elif no_ignition:
+            why = "the motor never ignited"
+        else:
+            why = "the solution collapsed"
         sr.addAlert(SimAlert(
             SimAlertLevel.ERROR, SimAlertType.VALUE,
             "srm_1d: no usable trace -- {} (P_peak {:.2f} MPa). Check the "

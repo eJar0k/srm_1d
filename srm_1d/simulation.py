@@ -1751,6 +1751,7 @@ def _run_time_loop(
     # --- Output: time history (pre-allocated) ---
     time_hist, P_head_hist, P_exit_hist, D_throat_hist,
     Kn_hist, massflow_hist, P_ig_hist, T_ig_hist, mdot_ig_hist,
+    mdot_grain_hist,
     m_pyrogen_hist,
     gas_sensible_energy_before_hist, gas_sensible_energy_hist,
     gas_sensible_dE_dt_hist,
@@ -2657,6 +2658,10 @@ def _run_time_loop(
         P_ig_hist[hist_idx] = P_ig
         T_ig_hist[hist_idx] = T_ig
         mdot_ig_hist[hist_idx] = mdot_igniter
+        # IG4: the GRAIN's own gas-generation rate [kg/s]: total mass source
+        # (grain + igniter) minus the igniter's share (the igniter deposits
+        # exactly mdot_igniter / dx per unit length summed over cells).
+        mdot_grain_hist[hist_idx] = max(mass_sum * dx - mdot_igniter, 0.0)
         m_pyrogen_hist[hist_idx] = plenum_state[0]
         gas_sensible_energy_before_hist[hist_idx] = gas_energy_before
         gas_sensible_energy_hist[hist_idx] = gas_energy_after
@@ -3514,6 +3519,7 @@ def _run_simulation_once(
     P_ig_hist = np.empty(max_hist)
     T_ig_hist = np.empty(max_hist)
     mdot_ig_hist = np.empty(max_hist)
+    mdot_grain_hist = np.empty(max_hist)
     m_pyrogen_hist = np.empty(max_hist)
     gas_sensible_energy_before_hist = np.empty(max_hist)
     gas_sensible_energy_hist = np.empty(max_hist)
@@ -3670,6 +3676,7 @@ def _run_simulation_once(
         # Output: time history
         time_hist, P_head_hist, P_exit_hist, D_throat_hist,
         Kn_hist, massflow_hist, P_ig_hist, T_ig_hist, mdot_ig_hist,
+        mdot_grain_hist,
         m_pyrogen_hist,
         gas_sensible_energy_before_hist,
         gas_sensible_energy_hist, gas_sensible_dE_dt_hist,
@@ -3757,6 +3764,7 @@ def _run_simulation_once(
     P_ig_arr = P_ig_hist[:n_steps].copy()
     T_ig_arr = T_ig_hist[:n_steps].copy()
     mdot_ig_arr = mdot_ig_hist[:n_steps].copy()
+    mdot_grain_arr = mdot_grain_hist[:n_steps].copy()
     m_pyrogen_arr = m_pyrogen_hist[:n_steps].copy()
     gas_sensible_energy_before_arr = gas_sensible_energy_before_hist[:n_steps].copy()
     gas_sensible_energy_arr = gas_sensible_energy_hist[:n_steps].copy()
@@ -4130,7 +4138,7 @@ def _run_simulation_once(
     result_dict = {
         'time': time_arr, 'P_head': P_head_arr, 'P_exit': P_exit_arr,
         'D_throat': D_throat_arr, 'Kn': Kn_arr, 'massflow': massflow_arr,
-        'P_ig': P_ig_arr, 'T_ig': T_ig_arr, 'mdot_ig': mdot_ig_arr,
+        'P_ig': P_ig_arr, 'T_ig': T_ig_arr, 'mdot_ig': mdot_ig_arr, 'mdot_grain': mdot_grain_arr,
         'm_pyrogen': m_pyrogen_arr,
         'gas_sensible_energy_before': gas_sensible_energy_before_arr,
         'gas_sensible_energy': gas_sensible_energy_arr,
@@ -4280,25 +4288,33 @@ class PyrogenAutoSizeError(RuntimeError):
 
 
 def _self_sustaining(res):
-    """True iff the grain lit and keeps burning once the igniter is spent.
+    """True iff the GRAIN, not the igniter, drives the chamber once the
+    igniter is spent.
 
-    There is no extinction model, so this is: at least one grain cell has
-    ignited AND grain cells are still burning (hence generating gas) at some
-    step after the pyrogen charge is consumed. If the run ended before the
-    pyrogen was spent, 'burning at the last step' is the best available test.
+    Success = after the pyrogen is consumed, the grain's own gas-generation rate
+    exceeds, at some step, the igniter's PEAK gas-generation rate of this attempt
+    (two flows compared; no tuned number). If the run ended before the pyrogen
+    was spent the comparison is made at the last step. There is no extinction
+    model, so a grain that lights one cell and stays lit still fails this test
+    when that cell cannot out-produce the igniter (a hang-fire at a chamber
+    pressure set by the igniter's dribble). The two rates are written into the
+    summary (``igniter_peak_mdot_kg_s``, ``grain_mdot_after_igniter_kg_s``).
     """
     summ = res['summary']
-    if not summ['ignited'] or int(summ['grain_cells_ignited']) < 1:
-        return False
     t = np.asarray(res['time'])
-    nb = np.asarray(res['n_burning'])
     if t.size == 0:
+        summ['igniter_peak_mdot_kg_s'] = 0.0
+        summ['grain_mdot_after_igniter_kg_s'] = 0.0
         return False
-    t_spent = float(summ['pyrogen_duration'])
-    after = t > t_spent
-    if np.any(after):
-        return bool(np.any(nb[after] > 0))
-    return bool(nb[-1] > 0)
+    mig = np.asarray(res['mdot_ig'])
+    mgr = np.asarray(res['mdot_grain'])
+    peak_ig = float(mig.max()) if mig.size else 0.0
+    after = t > float(summ['pyrogen_duration'])
+    grain = float(mgr[after].max()) if np.any(after) else float(mgr[-1])
+    summ['igniter_peak_mdot_kg_s'] = peak_ig
+    summ['grain_mdot_after_igniter_kg_s'] = grain
+    return bool(summ['ignited'] and int(summ['grain_cells_ignited']) >= 1
+                and grain > peak_ig)
 
 
 def run_simulation(*args, ignition_retry_factor=1.25,
@@ -4307,10 +4323,12 @@ def run_simulation(*args, ignition_retry_factor=1.25,
     :func:`_run_simulation_once`, documented below), with the IG3 ignition
     fallback for AUTO-SIZED pyrogen charges.
 
-    SUCCESS = the grain lights and keeps burning after the igniter is spent
-    (``_self_sustaining``: at least one grain cell ignited and grain cells are
-    still burning after the pyrogen is consumed; there is no extinction model).
-    It does NOT require every grain cell to light: cells the convective-only
+    SUCCESS = the grain, not the igniter, drives the chamber once the igniter
+    is spent (``_self_sustaining``: after the pyrogen is consumed the grain's
+    own gas-generation rate exceeds, at some step, the igniter's peak
+    gas-generation rate of that attempt; compared at the last step if the run
+    ended first). One lit cell that cannot out-produce the igniter is a
+    hang-fire, not a success. It does NOT require every grain cell to light: cells the convective-only
     ignition model never heats (e.g. BALLSstick's stagnant head-end 10 %) are
     reported by a warning and by the ``grain_*`` summary keys instead, because
     a bigger igniter charge is not the remedy (it only inflates the startup
@@ -4366,6 +4384,7 @@ def run_simulation(*args, ignition_retry_factor=1.25,
             break
         if not auto or attempt >= int(ignition_retry_max_attempts):
             break
+        res = summ = None          # free the failed attempt's history arrays (~GB) before the next
         chamber = chamber.resize(masses[-1] * float(ignition_retry_factor))
         if progress is not None:       # restart the live progress bar
             progress[0] = 0.0
@@ -4391,11 +4410,18 @@ def run_simulation(*args, ignition_retry_factor=1.25,
             f"{ignition_retry_factor:g}) to light the motor. Set the "
             f"charge explicitly to fix it.", RuntimeWarning, stacklevel=2)
     if not ignited and not auto:
+        hang = (" The run ended by the pressure cutoff with the chamber still "
+                "sitting at the igniter's dribble pressure (a hang-fire)."
+                if int(summ['termination_code']) == 2 else "")
         warnings.warn(
-            f"the motor did not light and keep burning with the explicitly "
-            f"set {name} charge of {masses[-1] * 1e3:.3g} g (explicit charges "
-            f"are never resized); termination: {summ['termination']}.",
-            RuntimeWarning, stacklevel=2)
+            f"the motor did not reach self-sustaining combustion with the "
+            f"explicitly set {name} charge of {masses[-1] * 1e3:.3g} g "
+            f"({summ['grain_cells_ignited']} of {summ['grain_cells']} grain "
+            f"cells lit; grain gas generation "
+            f"{summ['grain_mdot_after_igniter_kg_s']:.3g} kg/s after the "
+            f"igniter vs the igniter's peak {summ['igniter_peak_mdot_kg_s']:.3g} "
+            f"kg/s). Explicit charges are never resized. Termination: "
+            f"{summ['termination']}.{hang}", RuntimeWarning, stacklevel=2)
     n_never = int(summ['grain_cells_never_lit'])
     if n_never > 0 and summ['grain_cells_ignited'] > 0:
         c0, c1 = summ['grain_never_lit_cell_range']
