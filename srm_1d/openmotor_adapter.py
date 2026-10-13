@@ -49,7 +49,9 @@ except ImportError:
 
 from .propellant import Propellant, PropellantTab, Pyrogen
 from .grain_geometry import build_snapped_geometry
-from .igniter_plenum import PyrogenChamber, sutton_pyrogen_mass
+from .igniter_plenum import (
+    PyrogenChamber, sutton_pyrogen_mass, demar_pyrogen_mass,
+)
 from .nozzle import Nozzle, compute_motor_performance, print_performance_summary
 from .simulation import run_simulation
 
@@ -477,7 +479,7 @@ def _pyrogen_from_mapping(d):
         # v0.7.3 Phase B.3 / B.4: optional fields with defensible
         # defaults baked into the Pyrogen dataclass.
         form=str(d.get('form', 'pellets')),
-        heat_delivery_mode=str(d.get('heat_delivery_mode', 'demar')),
+        heat_delivery_mode=str(d.get('heat_delivery_mode', 'none')),
         pellet_emissivity=float(d.get('pellet_emissivity', 0.7)),
         radiation_absorption_length_m=float(
             d.get('radiation_absorption_length_m', 1.0)
@@ -508,6 +510,11 @@ def build_pyrogen_chamber(
     """
     Build a PyrogenChamber using v0.7.0 default sizing rules.
 
+    IG3: with ``pyrogen_mass=None`` the charge is AUTO-sized by DeMar's rule
+    (``demar_pyrogen_mass``: free volume x 300 psi / ``pyrogen.impetus_W``) and
+    the chamber is marked ``mass_auto``, so ``run_simulation`` may upsize it
+    if the motor does not light. An explicit ``pyrogen_mass`` is never resized.
+
     v0.7.3 Phase A — ``injection_topology`` selects between the
     plenum-with-orifice (``'forward_plenum'``, v0.7.0+ default) and
     uncontained submerged-pyrogen models (``'head_basket'`` /
@@ -518,11 +525,21 @@ def build_pyrogen_chamber(
     derives the cartridge length from pyrogen mass via
     ``L_cart = m_pyrogen / (rho_p * A_port_avg)`` at sim init.
     """
+    mass_auto = pyrogen_mass is None
+    _call = dict(
+        pyrogen_throat_area=pyrogen_throat_area, pyrogen_volume=pyrogen_volume,
+        pyrogen_burn_area=pyrogen_burn_area, pyrogen_burn_law=pyrogen_burn_law,
+        injection_topology=injection_topology,
+        cartridge_length_m=cartridge_length_m,
+        basket_fill_fraction=basket_fill_fraction,
+        pellet_packing_fraction=pellet_packing_fraction)
     if pyrogen_mass is None:
         case_volume = np.pi / 4.0 * geo.D_outer ** 2 * geo.L_motor
         free_volume_m3 = max(case_volume - geo.total_propellant_volume(), 0.0)
         free_volume_in3 = free_volume_m3 / (0.0254 ** 3)
-        pyrogen_mass = sutton_pyrogen_mass(free_volume_in3)
+        # IG3: DeMar sizing at 300 psi (was Sutton Eq. 15-4; that function
+        # stays available as ``sutton_pyrogen_mass``).
+        pyrogen_mass = demar_pyrogen_mass(free_volume_in3, pyrogen.impetus_W)
 
     if pyrogen_volume is None:
         pyrogen_volume = 1.5 * pyrogen_mass / pyrogen.rho
@@ -574,7 +591,14 @@ def build_pyrogen_chamber(
         pyrogen_throat_area = pyrogen_burn_area / Kn_design_pyrogen
         pyrogen_throat_area = min(max(pyrogen_throat_area, 1.0e-6), 1.0e-4)
 
-    return PyrogenChamber(
+    def _resize(new_mass):
+        # Rebuild for a new AUTO charge: derived volume / burn area / throat
+        # are recomputed from the new mass (explicit ones stay as given).
+        return build_pyrogen_chamber(
+            pyrogen, geo, nozzle, pyrogen_mass=new_mass, **_call
+        )._as_auto(_resize)
+
+    chamber = PyrogenChamber(
         pyrogen=pyrogen,
         m_pyrogen_initial=pyrogen_mass,
         A_burn_initial=pyrogen_burn_area,
@@ -588,6 +612,9 @@ def build_pyrogen_chamber(
         basket_area_law=basket_area_law,
         bed_flame_speed_m_s=bed_flame_speed_m_s,
     )
+    if mass_auto:
+        chamber._as_auto(_resize)
+    return chamber
 
 
 # ================================================================
@@ -597,13 +624,13 @@ def build_pyrogen_chamber(
 # embeds its propellant: an embedded pyrogen MATERIAL datasheet (the
 # reusable library item, same field set as srm_1d/pyrogens/*.yaml)
 # plus the per-motor chamber SIZING / topology. ``-1.0`` sizing values are
-# the "auto" sentinel (Sutton sizing / derive at build). openMotor ignores
+# the "auto" sentinel (DeMar sizing / derive at build). openMotor ignores
 # the unknown ``data.igniter`` key on load (Phase 5 wires its GUI to it).
 
 # Sizing defaults match build_pyrogen_chamber's auto behavior (so a
 # migrated motor reproduces the current forward_plenum default run).
 _IGNITER_SIZING_DEFAULTS = {
-    'mass': -1.0,                 # -1 => Sutton auto
+    'mass': -1.0,                 # -1 => DeMar auto (300 psi), IG3
     'throat_area': -1.0,          # -1 => Kn-design auto
     'volume': -1.0,               # -1 => 1.5*m/rho auto
     'burn_area': -1.0,            # -1 => particle-geometry auto
@@ -745,6 +772,29 @@ SUPERSEDED_PYROGENS = {
             'heat_delivery_mode': 'demar', 'pellet_emissivity': 0.7,
             'radiation_absorption_length_m': 1.0, 'P_plateau': 0.0,
         },
+        # IG3 (2026-10-12): the post-OB1 library entries with the DeMar surface flux ON
+        # ('demar'); the library default became 'none'. Blocks saved between OB1 and IG3
+        # embed these (with and without P_plateau). A pre-OB1 snapshot above upgrades
+        # straight to the CURRENT library entry (upgrade_igniter_block), i.e. DeMar off
+        # as well; no chaining is needed.
+        {
+            'name': 'BPNV', 'a': 2e-05, 'n': 0.5, 'rho': 1700.0,
+            'T_flame': 2719.0, 'M': 0.0482, 'gamma': 1.17,
+            'impetus_W': 5000.0, 'heat_flux_cal_cm2_s': 69.4,
+            'gas_mass_fraction': 0.781, 'kappa_jet': 8.0, 'form': 'pellets',
+            'particle_diameter_m': 0.003175, 'particle_LD_ratio': 1.504,
+            'heat_delivery_mode': 'demar', 'pellet_emissivity': 0.7,
+            'radiation_absorption_length_m': 1.0,
+        },
+        {
+            'name': 'BPNV', 'a': 2e-05, 'n': 0.5, 'rho': 1700.0,
+            'T_flame': 2719.0, 'M': 0.0482, 'gamma': 1.17,
+            'impetus_W': 5000.0, 'heat_flux_cal_cm2_s': 69.4,
+            'gas_mass_fraction': 0.781, 'kappa_jet': 8.0, 'form': 'pellets',
+            'particle_diameter_m': 0.003175, 'particle_LD_ratio': 1.504,
+            'heat_delivery_mode': 'demar', 'pellet_emissivity': 0.7,
+            'radiation_absorption_length_m': 1.0, 'P_plateau': 0.0,
+        },
     ],
     'MTV': [
         # OB1 (2026-10-12): library MTV before the pellet-geometry change
@@ -766,6 +816,67 @@ SUPERSEDED_PYROGENS = {
             'particle_diameter_m': 3.2e-3, 'particle_LD_ratio': 1.0,
             'heat_delivery_mode': 'demar', 'pellet_emissivity': 0.7,
             'radiation_absorption_length_m': 0.5, 'P_plateau': 0.0,
+        },
+        # IG3 (2026-10-12): post-OB1 library MTV with the DeMar surface flux ON.
+        {
+            'name': 'MTV', 'a': 4.4e-05, 'n': 0.35, 'rho': 1800.0,
+            'T_flame': 3000.0, 'M': 0.032, 'gamma': 1.22,
+            'impetus_W': 4700.0, 'heat_flux_cal_cm2_s': 110.0,
+            'gas_mass_fraction': 1.0, 'kappa_jet': 8.0, 'form': 'pellets',
+            'particle_diameter_m': 0.003175, 'particle_LD_ratio': 1.504,
+            'heat_delivery_mode': 'demar', 'pellet_emissivity': 0.7,
+            'radiation_absorption_length_m': 0.5,
+        },
+        {
+            'name': 'MTV', 'a': 4.4e-05, 'n': 0.35, 'rho': 1800.0,
+            'T_flame': 3000.0, 'M': 0.032, 'gamma': 1.22,
+            'impetus_W': 4700.0, 'heat_flux_cal_cm2_s': 110.0,
+            'gas_mass_fraction': 1.0, 'kappa_jet': 8.0, 'form': 'pellets',
+            'particle_diameter_m': 0.003175, 'particle_LD_ratio': 1.504,
+            'heat_delivery_mode': 'demar', 'pellet_emissivity': 0.7,
+            'radiation_absorption_length_m': 0.5, 'P_plateau': 0.0,
+        },
+    ],
+    'MTV_fast': [
+        # IG3 (2026-10-12): library MTV_fast before the DeMar flux was switched off.
+        {
+            'name': 'MTV_fast', 'a': 3e-05, 'n': 0.5, 'rho': 1800.0,
+            'T_flame': 3000.0, 'M': 0.032, 'gamma': 1.22,
+            'impetus_W': 4700.0, 'heat_flux_cal_cm2_s': 110.0,
+            'gas_mass_fraction': 1.0, 'kappa_jet': 8.0, 'form': 'pellets',
+            'particle_diameter_m': 0.0032, 'particle_LD_ratio': 1.0,
+            'heat_delivery_mode': 'demar', 'pellet_emissivity': 0.7,
+            'radiation_absorption_length_m': 0.5,
+        },
+        {
+            'name': 'MTV_fast', 'a': 3e-05, 'n': 0.5, 'rho': 1800.0,
+            'T_flame': 3000.0, 'M': 0.032, 'gamma': 1.22,
+            'impetus_W': 4700.0, 'heat_flux_cal_cm2_s': 110.0,
+            'gas_mass_fraction': 1.0, 'kappa_jet': 8.0, 'form': 'pellets',
+            'particle_diameter_m': 0.0032, 'particle_LD_ratio': 1.0,
+            'heat_delivery_mode': 'demar', 'pellet_emissivity': 0.7,
+            'radiation_absorption_length_m': 0.5, 'P_plateau': 0.0,
+        },
+    ],
+    'Cu/Al thermite (CuO + Al stoichiometric)': [
+        # IG3 (2026-10-12): library thermite ('radiation') before the switch to 'none'.
+        {
+            'name': 'Cu/Al thermite (CuO + Al stoichiometric)', 'a': 0.015,
+            'n': 0.0, 'rho': 3570.0, 'T_flame': 2843.0, 'M': 0.064,
+            'gamma': 1.3, 'impetus_W': 500.0, 'heat_flux_cal_cm2_s': 250.0,
+            'gas_mass_fraction': 1.0, 'kappa_jet': 0.0, 'form': 'powder',
+            'particle_diameter_m': 5e-05, 'particle_LD_ratio': 1.0,
+            'heat_delivery_mode': 'radiation', 'pellet_emissivity': 0.85,
+            'radiation_absorption_length_m': 0.05,
+        },
+        {
+            'name': 'Cu/Al thermite (CuO + Al stoichiometric)', 'a': 0.015,
+            'n': 0.0, 'rho': 3570.0, 'T_flame': 2843.0, 'M': 0.064,
+            'gamma': 1.3, 'impetus_W': 500.0, 'heat_flux_cal_cm2_s': 250.0,
+            'gas_mass_fraction': 1.0, 'kappa_jet': 0.0, 'form': 'powder',
+            'particle_diameter_m': 5e-05, 'particle_LD_ratio': 1.0,
+            'heat_delivery_mode': 'radiation', 'pellet_emissivity': 0.85,
+            'radiation_absorption_length_m': 0.05, 'P_plateau': 0.0,
         },
     ],
 }

@@ -62,7 +62,10 @@ kappa_jet: 8.0
 # pellet_emissivity 0.7 is a defensible mid-range (lit range 0.5-0.9).
 # BPNV exhaust is K/KOH-rich but non-aluminized → absorption length 1 m.
 form: pellets
-heat_delivery_mode: demar
+# IG3 (2026-10-12): DeMar surface flux OFF by default. The 69.4/110 cal/cm^2/s is a derived
+# reference-vessel number, not a measured flux (docs/pyrogen_realism/IG2_REPORT.md Part 3).
+# 'demar' stays selectable.
+heat_delivery_mode: none
 pellet_emissivity: 0.7
 radiation_absorption_length_m: 1.0
 # OB1 (2026-10-12), user decision: pellet geometry = the MIL-P-46994B (boron/

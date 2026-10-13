@@ -181,9 +181,11 @@ class Pyrogen:
     #                  Physically modeled; extensible to powder/chunks.
     #   'none'       — neither pathway. Recovers v0.7.3-phaseA
     #                  byte-for-byte; backward-compat regression target.
-    # Default 'demar' for pellet pyrogens (best empirical grounding);
-    # powder/chunks should override to 'radiation' in their YAMLs.
-    heat_delivery_mode: str = 'demar'
+    # IG3 (2026-10-12): default 'none' -- the DeMar flux is a derived
+    # reference-vessel number, not a measured flux (docs/pyrogen_realism/
+    # IG2_REPORT.md Part 3); ignition comes from the modelled convective
+    # channel. 'demar' / 'radiation' stay selectable.
+    heat_delivery_mode: str = 'none'
 
     # v0.7.3 Phase B.4 (radiation mode only): pellet emissivity at
     # T_flame. Lit range 0.5-0.9 for ceramic/metal-oxide combustion

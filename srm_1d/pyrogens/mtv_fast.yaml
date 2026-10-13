@@ -20,7 +20,10 @@ impetus_W: 4700.0
 heat_flux_cal_cm2_s: 110.0
 kappa_jet: 8.0
 form: pellets
-heat_delivery_mode: demar
+# IG3 (2026-10-12): DeMar surface flux OFF by default. The 69.4/110 cal/cm^2/s is a derived
+# reference-vessel number, not a measured flux (docs/pyrogen_realism/IG2_REPORT.md Part 3).
+# 'demar' stays selectable.
+heat_delivery_mode: none
 pellet_emissivity: 0.7
 radiation_absorption_length_m: 0.5
 particle_diameter_m: 3.2e-3

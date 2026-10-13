@@ -1724,6 +1724,7 @@ def _run_time_loop(
     # --- IG2: opt-in ignition heat-transfer closure (0 = default Gnielinski) ---
     ignition_h_code,
     peretz_ap_code,               # IG3: 0 local, 1 head, 2 aft (peretz mode only)
+    stop_if_unignitable,          # IG3: bool, end the run once ignition is impossible
     # --- v0.8.0 Phase 6: live progress / cooperative cancel ---
     progress_state,               # [2] float64: [0]=progress 0..1 (written),
                                   #              [1]=cancel flag (read; >0.5 aborts)
@@ -1747,7 +1748,8 @@ def _run_time_loop(
     D_throat_final : float
     termination_code : int
         0 = t_max reached, 1 = complete burnout, 2 = pressure cutoff,
-        3 = history array full, 4 = numerical collapse aborted.
+        3 = history array full, 4 = numerical collapse aborted,
+        5 = canceled, 6 = stopped early: ignition impossible (IG3).
     (... then pyrogen_mass_burned, pyrogen_duration, pyrogen_peak_P, and,
     appended by solver-verification T3 -- pressure-floor accounting:)
     floor_energy_total : float
@@ -2642,6 +2644,24 @@ def _run_time_loop(
             termination_code = 2
             break
 
+        # IG3: ignition-impossible early stop (first-principles bound, not a
+        # tuned timeout). No grain cell has lit, the pyrogen charge is fully
+        # consumed and vented (no energy source is left; the propellant gives
+        # none until it lights), and every bore gas temperature AND the
+        # plenum gas are below T_ignition. A wall heated by convection (the
+        # only remaining channel; nothing burns, so there is no radiation)
+        # can approach but never exceed the temperature of the gas heating
+        # it, and the gas cannot get hotter without a source, so no
+        # unignited surface can ever reach T_ignition.
+        if stop_if_unignitable and n_ignited == 0 and pyrogen_done                 and step % 16 == 0 and plenum_state[2] < T_ignition:
+            T_gas_max = 0.0
+            for i in range(N):
+                if T[i] > T_gas_max:
+                    T_gas_max = T[i]
+            if T_gas_max < T_ignition:
+                termination_code = 6
+                break
+
         # Numerical-collapse trip: classified abort to avoid burning the
         # full history budget on a doomed run. Records the collapse step
         # in history (so the user sees the trip in diagnostics) and exits.
@@ -2740,7 +2760,7 @@ def _build_numerical_limits(
     }
 
 
-def run_simulation(
+def _run_simulation_once(
     geo,
     propellant,
     nozzle,
@@ -2846,9 +2866,14 @@ def run_simulation(
     # any other value CHANGES the physics of the run (diagnostic only).
     # Kept last for positional API compatibility.
     pressure_floor_pa=1.0e3,
+    # IG3: end the run (termination_code 6) as soon as ignition is physically
+    # impossible (see the check in _run_time_loop). Never affects a motor that
+    # lights; only shortens a run that would otherwise idle to t_max.
+    stop_if_unignitable=True,
 ):
     """
-    Run a complete transient simulation.
+    Run a complete transient simulation (one attempt; see ``run_simulation``
+    for the auto-sized-charge retry wrapper).
 
     Parameters
     ----------
@@ -3541,6 +3566,7 @@ def run_simulation(
         # IG2: opt-in ignition heat-transfer closure
         int(_ign_h_code),
         int(_ap_code),
+        bool(stop_if_unignitable),
         # v0.8.0 Phase 6: live progress / cooperative cancel
         progress_state,
     )
@@ -3719,6 +3745,7 @@ def run_simulation(
         0: "t_max reached", 1: "complete burnout",
         2: "pressure cutoff", 3: "history array full",
         4: "numerical collapse aborted", 5: "canceled by user",
+        6: "ignition impossible (stopped early)",
     }
     term_str = termination_names.get(termination_code, "unknown")
     if termination_code == 3:
@@ -3811,6 +3838,8 @@ def run_simulation(
         'erosive_model': erosive_model,
         'ignition_heat_transfer': ignition_heat_transfer,
         'peretz_ap_reference': peretz_ap_reference,
+        'ignited': bool(first_ignition_time == first_ignition_time),  # not NaN
+        'stop_if_unignitable': bool(stop_if_unignitable),
         'diagnostic_disable_erosive': bool(diagnostic_disable_erosive),
         'diagnostic_disable_endfaces': bool(diagnostic_disable_endfaces),
         'diagnostic_disable_momentum': bool(diagnostic_disable_momentum),
@@ -4039,3 +4068,108 @@ def run_simulation(
     # the unit-aware .channels / .axial API for the openMotor frontend.
     from .channels import build_channels
     return build_channels(result_dict)
+
+
+# ---------------------------------------------------------------------------
+# IG3: auto-sized-charge retry wrapper
+# ---------------------------------------------------------------------------
+class PyrogenAutoSizeError(RuntimeError):
+    """An auto-sized pyrogen charge failed to light the motor within the
+    allowed number of attempts (see :func:`run_simulation`)."""
+
+
+def run_simulation(*args, ignition_retry_factor=1.25,
+                   ignition_retry_max_attempts=10, **kwargs):
+    """Run a complete transient simulation (all parameters as
+    :func:`_run_simulation_once`, documented below), with the IG3 ignition
+    fallback for AUTO-SIZED pyrogen charges.
+
+    If the pyrogen charge was auto-sized (``PyrogenChamber.mass_auto``, i.e.
+    ``build_pyrogen_chamber(pyrogen_mass=None)``) and no grain cell lights,
+    the run stops early (``stop_if_unignitable``: no energy source left and
+    every gas temperature below ``T_ignition``) and is retried at
+    ``ignition_retry_factor`` times the charge (default 1.25, the user-approved
+    step), at most ``ignition_retry_max_attempts`` attempts in all
+    (default 10, i.e. up to 1.25**9 = 7.5x the initial charge). If it still
+    does not light, :class:`PyrogenAutoSizeError` is raised. A successful
+    upsize is reported with a ``RuntimeWarning`` naming the final charge.
+
+    An EXPLICITLY set charge is never resized: a run that does not light
+    returns normally with ``summary['ignited'] == False`` and a warning.
+
+    ``summary`` gains ``ignition_attempts``, ``ignition_attempt_masses_kg``,
+    ``pyrogen_mass_auto``, ``pyrogen_mass_final_kg`` and ``pyrogen_resized``
+    (``ignited`` / ``stop_if_unignitable`` come from the single run).
+    """
+    import inspect
+    import warnings
+    bound = inspect.signature(_run_simulation_once).bind(*args, **kwargs)
+    chamber = bound.arguments['pyrogen_chamber']
+    if ignition_retry_factor <= 1.0:
+        raise ValueError("ignition_retry_factor must be > 1")
+    if int(ignition_retry_max_attempts) < 1:
+        raise ValueError("ignition_retry_max_attempts must be >= 1")
+    auto = bool(getattr(chamber, 'mass_auto', False))
+    progress = bound.arguments.get('progress_state')
+    masses = []
+    t_wall = []
+    attempt = 0
+    while True:
+        attempt += 1
+        masses.append(float(chamber.m_pyrogen_initial))
+        bound.arguments['pyrogen_chamber'] = chamber
+        t0 = clock.time()
+        res = _run_simulation_once(*bound.args, **bound.kwargs)
+        t_wall.append(clock.time() - t0)
+        summ = res['summary']
+        ignited = bool(summ['ignited'])
+        if ignited or int(summ['termination_code']) in (4, 5):
+            break
+        if not auto or attempt >= int(ignition_retry_max_attempts):
+            break
+        chamber = chamber.resize(masses[-1] * float(ignition_retry_factor))
+        if progress is not None:       # restart the live progress bar
+            progress[0] = 0.0
+    summ['ignition_attempts'] = attempt
+    summ['ignition_attempt_masses_kg'] = list(masses)
+    summ['ignition_attempt_wall_s'] = list(t_wall)
+    summ['pyrogen_mass_auto'] = auto
+    summ['pyrogen_mass_final_kg'] = masses[-1]
+    summ['pyrogen_resized'] = bool(auto and attempt > 1)
+    name = chamber.pyrogen.name
+    if auto and not ignited and int(summ['termination_code']) not in (4, 5):
+        raise PyrogenAutoSizeError(
+            f"auto-sized {name} charge did not light the motor in {attempt} "
+            f"attempts (charges tried: "
+            f"{', '.join(f'{m * 1e3:.3g}' for m in masses)} g, factor "
+            f"{ignition_retry_factor:g}). Check the igniter topology / "
+            f"propellant, or set the charge explicitly.")
+    if ignited and auto and attempt > 1:
+        warnings.warn(
+            f"auto-sized {name} charge raised from {masses[0] * 1e3:.3g} g "
+            f"to {masses[-1] * 1e3:.3g} g ({attempt} attempts, factor "
+            f"{ignition_retry_factor:g}) to light the motor. Set the "
+            f"charge explicitly to fix it.", RuntimeWarning, stacklevel=2)
+    if not ignited and not auto:
+        warnings.warn(
+            f"the motor did not ignite with the explicitly set {name} "
+            f"charge of {masses[-1] * 1e3:.3g} g (explicit charges are never "
+            f"resized); termination: {summ['termination']}.",
+            RuntimeWarning, stacklevel=2)
+    return res
+
+
+run_simulation.__doc__ = (run_simulation.__doc__ + "\n\n"
+                          + (_run_simulation_once.__doc__ or ""))
+import inspect as _inspect  # noqa: E402
+
+# Expose the single-run signature (plus the two retry kwargs) so
+# inspect.signature(run_simulation).parameters[...] defaults keep working (the
+# openMotor plugin's solver-config defaults are generated from it, I4).
+_once_sig = _inspect.signature(_run_simulation_once)
+run_simulation.__signature__ = _once_sig.replace(parameters=list(
+    _once_sig.parameters.values()) + [
+        _inspect.Parameter('ignition_retry_factor',
+                           _inspect.Parameter.KEYWORD_ONLY, default=1.25),
+        _inspect.Parameter('ignition_retry_max_attempts',
+                           _inspect.Parameter.KEYWORD_ONLY, default=10)])

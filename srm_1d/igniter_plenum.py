@@ -8,7 +8,8 @@ module into ``simulation.py`` as the hot-gas igniter source.
 """
 
 import numpy as np
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Callable, Optional
 
 try:
     from numba import njit
@@ -179,6 +180,13 @@ class PyrogenChamber:
     #   by particle_diameter_m. So particle diameter is the single unifying
     #   knob: it sets specific surface area, while fill/packing are fixed
     #   structural assumptions.
+    # IG3: True when the charge mass was AUTO-sized (build_pyrogen_chamber
+    # pyrogen_mass=None). Only auto charges are resized by run_simulation's
+    # ignition fallback; an explicit charge never is. ``resize(mass_kg)`` is a
+    # closure from build_pyrogen_chamber returning the same chamber rebuilt for
+    # a new auto charge (derived volume / burn area / throat recomputed).
+    mass_auto: bool = False
+    resize: Optional[Callable] = field(default=None, repr=False, compare=False)
 
     def __post_init__(self):
         if self.m_pyrogen_initial <= 0.0:
@@ -221,6 +229,12 @@ class PyrogenChamber:
             raise ValueError("Pyrogen.P_plateau must be nonnegative")
         if self.pyrogen.particle_LD_ratio <= 0.0:
             raise ValueError("Pyrogen.particle_LD_ratio must be positive")
+
+    def _as_auto(self, resize):
+        """Mark this chamber's charge as auto-sized (IG3). Returns self."""
+        self.mass_auto = True
+        self.resize = resize
+        return self
 
     def resolve_cartridge_length(self, A_port_avg):
         """Return cartridge length in meters, deriving from pyrogen mass
@@ -361,6 +375,30 @@ def sutton_pyrogen_mass(V_free_in3):
     if V_free_in3 < 0.0:
         raise ValueError("V_free_in3 must be nonnegative")
     grams = 0.12 * V_free_in3 ** 0.7
+    return grams * 1e-3
+
+
+def demar_pyrogen_mass(V_free_in3, impetus_W, P_target_psi=300.0):
+    """
+    DeMar igniter charge sizing, ``M[g] = V[in^3] * P[psi] / W[psi*in^3/g]``
+    (DeMar, "Starting Your Up-Goers", TRATECH 2021 slides). Returns kg.
+
+    ``V_free_in3`` is the motor free volume (case minus propellant) in cubic
+    inches, ``impetus_W`` the pyrogen impetus in psi*in^3/g
+    (``Pyrogen.impetus_W``) and ``P_target_psi`` the pressure the charge is
+    meant to produce in that volume (300 psi default). Nothing is invented for
+    a pyrogen without an impetus: it raises.
+    """
+    if V_free_in3 < 0.0:
+        raise ValueError("V_free_in3 must be nonnegative")
+    if not (impetus_W is not None and impetus_W > 0.0):
+        raise ValueError(
+            "DeMar igniter sizing needs a positive pyrogen impetus_W "
+            f"[psi*in^3/g]; got {impetus_W!r}. Set Pyrogen.impetus_W or pass "
+            "an explicit charge mass.")
+    if not P_target_psi > 0.0:
+        raise ValueError("P_target_psi must be positive")
+    grams = V_free_in3 * P_target_psi / impetus_W
     return grams * 1e-3
 
 

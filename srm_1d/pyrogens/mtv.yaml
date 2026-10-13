@@ -47,7 +47,10 @@ kappa_jet: 8.0
 # MgO and carbon particles → absorption length 0.5 m (intermediate
 # between clean BKNO3 and heavily aluminized).
 form: pellets
-heat_delivery_mode: demar
+# IG3 (2026-10-12): DeMar surface flux OFF by default. The 69.4/110 cal/cm^2/s is a derived
+# reference-vessel number, not a measured flux (docs/pyrogen_realism/IG2_REPORT.md Part 3).
+# 'demar' stays selectable.
+heat_delivery_mode: none
 pellet_emissivity: 0.7
 radiation_absorption_length_m: 0.5
 # OB1 (2026-10-12), user decision: MTV igniter pellets are ASSUMED to have the

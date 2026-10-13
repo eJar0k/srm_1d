@@ -643,7 +643,9 @@ def _result_to_om_simresult(motor, result, perf, geo=None, prop=None):
     p_peak_mpa = float(summary.get('P_peak', 0.0) or 0.0) / 1.0e6
     canceled = term_code == 5
     collapsed = term_code == 4
-    no_ignition = (term_code == 0) and (p_peak_mpa < 0.3)
+    # IG3: code 6 = stopped early because ignition is impossible.
+    no_ignition = (term_code == 6) or (
+        (term_code == 0) and (p_peak_mpa < 0.3))
     sr.success = not (canceled or collapsed or no_ignition)
     if not sr.success and not canceled:
         from motorlib.simResult import SimAlert, SimAlertLevel, SimAlertType

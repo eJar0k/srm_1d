@@ -99,7 +99,10 @@ form: powder
 # thermite — Reese measured peak surface flux, which is best modeled
 # via σ·ε·T^4 with high emissivity. Switch to 'demar' for the heat-
 # flux-magnitude comparison (using INL 250 cal/cm^2/s).
-heat_delivery_mode: radiation
+# IG3 (2026-10-12): 'none' like every library pyrogen (DeMar flux off by default). DeMar's own
+# conclusion 4 is that thermites do not work as self-contained igniters. 'radiation' (the
+# physically motivated mode noted above) and 'demar' stay selectable.
+heat_delivery_mode: none
 # High emissivity: hot Cu droplets (ε ≈ 0.7) + Al2O3 fog (ε ≈ 0.9).
 pellet_emissivity: 0.85
 # Heavily particle-laden exhaust → very short absorption length.
