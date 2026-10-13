@@ -61,7 +61,23 @@ _spec = importlib.util.spec_from_file_location(
 _probe = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_probe)
 
-# RE-RECORDED 2026-10-12 by pyrogen-realism IG3 (stage 2), on top of OB1: the DeMar surface
+# RE-RECORDED 2026-10-12 by pyrogen-realism IG3 (stage 2, user decision "self-sustaining +
+# warn"): the fallback's success test is no longer >= 99 % of the grain lit; it is "the grain
+# lit and keeps burning after the igniter is spent", and grain cells that never light are only
+# WARNED about (convective-only ignition model, not an igniter-size problem). Final auto
+# charges: Chunc 2.623 g (unchanged, all cells lit), BALLSstick 4.829 g (was 7.546; 9 head-end
+# cells never lit), Hasegawa A 14.98 g (was 18.72; 8 head-end cells never lit). Chunc rows are
+# unchanged; BALLSstick peak 11.18 -> 7.193 (pk/trough 2.64 -> 2.04); Hasegawa A's B0 global
+# peak is now the LATE one, 5.362 MPa at t = 2.68 s (the 23 ms ignition spike of the 18.72 g
+# charge is gone). Values recorded from a clean-compile run (see results/ig3s2b_*). The
+# previous (99 %-lit) BASELINE was:
+#   chunc: peak 8.698445703737404, t_peak 0.024529374887138196,
+#          plateau 8.06619314574538, n_steps 533513
+#   balls: peak 11.182269177449877, trough 4.235361601649791,
+#          mid 4.770663098447565, n_steps 842363
+#   haseg: peak 6.195206225864981, t_peak 0.02305180400111348, n_steps 2335529
+#
+# (earlier) RE-RECORDED 2026-10-12 by pyrogen-realism IG3 (stage 2), on top of OB1: the DeMar surface
 # flux is OFF by default (library pyrogens heat_delivery_mode 'none') and the auto igniter
 # charge is DeMar-sized (V_free * 300 psi / impetus_W) with the auto-upsize fallback
 # (x1.25 until >= 99 % of the grain lights). The canonical rows use that auto path, so each
@@ -135,10 +151,10 @@ _spec.loader.exec_module(_probe)
 BASELINE = {
     'chunc': dict(peak=8.698445703737404, t_peak=0.024529374887138196,
                   plateau=8.06619314574538, n_steps=533513),
-    'balls': dict(peak=11.182269177449877, trough=4.235361601649791,
-                  mid=4.770663098447565, n_steps=842363),
-    'haseg': dict(peak=6.195206225864981, t_peak=0.02305180400111348,
-                  n_steps=2335529),
+    'balls': dict(peak=7.193312409822636, trough=3.522240937005205,
+                  mid=3.8878973484404313, n_steps=850245),
+    'haseg': dict(peak=5.362271099044967, t_peak=2.6818221964560043,
+                  n_steps=2347427),
 }
 RIC_FILE = {'chunc': 'machbusterNew.ric', 'balls': 'BALLSstick.ric',
             'haseg': 'hasegawa_a.ric'}

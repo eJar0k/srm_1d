@@ -1,0 +1,45 @@
+C:\tmp\sv\ig3\srm_1d\grain_geometry.py:1138: UserWarning: Integer-snapping altered total motor length by more than 10mm. Check segment proportions.
+  warnings.warn(f"Integer-snapping altered total motor length by more than 10mm. Check segment proportions.")
+C:\tmp\sv\ig3\srm_1d\openmotor_adapter.py:1536: RuntimeWarning: auto-sized BPNV charge raised from 1.07 g to 2.62 g (5 attempts, factor 1.25) to light the motor. Set the charge explicitly to fix it.
+  result = run_simulation(geo, prop, **args)
+C:\tmp\sv\ig3\srm_1d\grain_geometry.py:1138: UserWarning: Integer-snapping altered total motor length by more than 10mm. Check segment proportions.
+  warnings.warn(f"Integer-snapping altered total motor length by more than 10mm. Check segment proportions.")
+C:\tmp\sv\ig3\srm_1d\openmotor_adapter.py:1536: RuntimeWarning: auto-sized BPNV charge raised from 1.98 g to 4.83 g (5 attempts, factor 1.25) to light the motor. Set the charge explicitly to fix it.
+  result = run_simulation(geo, prop, **args)
+C:\tmp\sv\ig3\srm_1d\openmotor_adapter.py:1536: RuntimeWarning: 9 of 100 grain cells never ignited (cells 3-11, x = 36-117 mm; 91 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+  result = run_simulation(geo, prop, **args)
+C:\tmp\sv\ig3\srm_1d\openmotor_adapter.py:1536: RuntimeWarning: auto-sized BPNV charge raised from 9.58 g to 15 g (3 attempts, factor 1.25) to light the motor. Set the charge explicitly to fix it.
+  result = run_simulation(geo, prop, **args)
+C:\tmp\sv\ig3\srm_1d\openmotor_adapter.py:1536: RuntimeWarning: 8 of 100 grain cells never ignited (cells 3-10, x = 59-176 mm; 92 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+  result = run_simulation(geo, prop, **args)
+[provenance] srm_1d imported from C:\tmp\sv\ig3\srm_1d
+[provenance] git HEAD c5921aa96ea742444863167988eb8c46ed720500  dirty=True
+[provenance] numpy 2.2.6  numba 0.63.1  python 3.10.5
+[ric-source] motors/machbusterNew.ric: unmodified -> using working-tree copy
+[provenance] machbusterNew.ric sha256 a234a1dcf054dfb337e508360170e504228e9be85dfbd984940ea8326819df0e  (C:\tmp\sv\ig3\motors\machbusterNew.ric)
+[ric-source] motors/BALLSstick.ric: unmodified -> using working-tree copy
+[provenance] BALLSstick.ric sha256 7fd189d62aabcdc5a5a788611d7b2c3cd94b91fbcc3e111f15e89423074cbd73  (C:\tmp\sv\ig3\motors\BALLSstick.ric)
+[ric-source] motors/hasegawa_a.ric: unmodified -> using working-tree copy
+[provenance] hasegawa_a.ric sha256 ccb7fccc972fd6074beff0b0099d1fdd2f731549d4628ea0eccbef97ca69185d  (C:\tmp\sv\ig3\motors\hasegawa_a.ric)
+[ric-source] motors/machbusterNew.ric: unmodified -> using working-tree copy
+
+[chunc] wall 26.4 s, termination='t_max reached'
+  peak     got        8.698445703737404  ref        8.698445703737404  rel 0.000e+00  OK
+  t_peak   got     0.024529374887138196  ref     0.024529374887138196  rel 0.000e+00  OK
+  plateau  got         8.06619314574538  ref         8.06619314574538  rel 0.000e+00  OK
+  n_steps  got                   533513  ref                   533513  rel 0.000e+00  OK
+[ric-source] motors/BALLSstick.ric: unmodified -> using working-tree copy
+
+[balls] wall 46.0 s, termination='t_max reached'
+  peak     got        7.193312409822636  ref        7.193312409822636  rel 0.000e+00  OK
+  trough   got        3.522240937005205  ref        3.522240937005205  rel 0.000e+00  OK
+  mid      got       3.8878973484404313  ref       3.8878973484404313  rel 0.000e+00  OK
+  n_steps  got                   850245  ref                   850245  rel 0.000e+00  OK
+[ric-source] motors/hasegawa_a.ric: unmodified -> using working-tree copy
+
+[haseg] wall 82.2 s, termination='t_max reached'
+  peak     got        5.362271099044967  ref        5.362271099044967  rel 0.000e+00  OK
+  t_peak   got       2.6818221964560043  ref       2.6818221964560043  rel 0.000e+00  OK
+  n_steps  got                  2347427  ref                  2347427  rel 0.000e+00  OK
+
+B0 RESULT: PASS (floats within rtol 1e-05, n_steps and t_peak within 0.0005)

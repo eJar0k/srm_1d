@@ -30,7 +30,9 @@ k = int(P.argmax())
 row = dict(tag=tag, **spec, wall_s=wall, steps=int(s['steps']), termination=s.get('termination'),
            first_ign_s=s.get('first_ignition_time_s'), pyro_mass_g=float(s['pyrogen_mass_initial']) * 1e3,
            attempts=int(s['ignition_attempts']), attempt_masses_g=[m * 1e3 for m in s['ignition_attempt_masses_kg']],
-           attempt_wall_s=s['ignition_attempt_wall_s'], ignited=bool(s['ignited']))
+           attempt_wall_s=s['ignition_attempt_wall_s'], ignited=bool(s['ignited']),
+           never_lit=int(s['grain_cells_never_lit']), never_lit_cells=s['grain_never_lit_cell_range'],
+           never_lit_x_mm=s['grain_never_lit_x_range_mm'], frac_lit=float(s['grain_fraction_lit']))
 if spec['motor'] == 'chunc':
     pl = float(np.median(P[(t >= 0.4) & (t <= 0.9)]))
     row.update(peak=float(P[k]), t_peak=float(t[k]), plateau=pl, ratio=float(P[k]) / pl,
@@ -40,7 +42,8 @@ elif spec['motor'] == 'balls':
     after = (t > tpk) & (t < 1.2); Ptr = float(np.min(P[after])); Pmid = float(P[int(np.argmin(np.abs(t - 1.03)))])
     row.update(peak=Ppk, t_peak=tpk, trough=Ptr, mid=Pmid, pk_tr=Ppk / Ptr, pk_mid=Ppk / Pmid)
 else:
-    row.update(peak=float(P[k]), t_peak=float(t[k]))
+    row.update(peak=float(P[k]), t_peak=float(t[k]), early_peak_lt_0p5s=float(P[t < 0.5].max()),
+               late_peak_gt_1s=float(P[t > 1.0].max()), t_late_peak=float(t[t > 1.0][int(np.argmax(P[t > 1.0]))]))
 with open(out, 'a') as f:
     f.write(json.dumps(row) + chr(10))
 print(json.dumps(row))
