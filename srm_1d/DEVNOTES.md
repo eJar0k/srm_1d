@@ -366,6 +366,9 @@ in geometry/burn rate/ignition (called every step or every N steps).
   The 4.83 g BALLSstick attempt lights the aft 90 % of the grain and leaves the head-end 10 % unlit (stagnant,
   u ~ 0.4 m/s), so the success test is >= 99 % of the grain cells lit (`ignition_min_lit_fraction`), not the first cell.
   The upsized charges over-drive the startup spike (BALLSstick pk/trough 1.62 -> 2.64; Chunc improved 1.22 -> 1.08).
+- **Threshold sensitivity:** the fallback stops at the FIRST charge that lights, so the final charge sits within 25 % above the
+  ignition threshold, where the startup is hypersensitive: Chunc at 2.623 g changed its 50 ms peak by +14 % from a refresh-cadence
+  change (`tests/test_refresh_cadence.py` therefore pins an explicit 4.5 g charge).
 - Plugin: termination_code 6 is reported as 'never ignited'. An exhausted auto-size (`PyrogenAutoSizeError`) propagates as an exception.
 - **Pre-IG3 embedded igniter blocks** (all committed .ric files embed library BPNV with `heat_delivery_mode: demar`) are
   upgraded on load to the current library entry through `SUPERSEDED_PYROGENS` (snapshots for BPNV, MTV, MTV_fast, thermite);

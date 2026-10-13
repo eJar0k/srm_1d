@@ -22,7 +22,7 @@ import pytest
 pytest.importorskip("numba")
 
 CANON = dict(
-    roughness=32e-6, kappa=0.44, pyrogen="bpnv", pyrogen_mass=None,
+    roughness=32e-6, kappa=0.44, pyrogen="bpnv", pyrogen_mass=4.5e-3,  # IG3: explicit, well above the ignition threshold (~2.6 g); near it the 50 ms peak is hypersensitive to any perturbation (2.623 g: +14 % from a cadence change)
     T_ignition=756.0, t_max=0.05, print_interval=0.0, verbose=False,
 )
 
