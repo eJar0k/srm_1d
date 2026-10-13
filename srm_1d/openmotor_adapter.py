@@ -532,7 +532,9 @@ def build_pyrogen_chamber(
         injection_topology=injection_topology,
         cartridge_length_m=cartridge_length_m,
         basket_fill_fraction=basket_fill_fraction,
-        pellet_packing_fraction=pellet_packing_fraction)
+        pellet_packing_fraction=pellet_packing_fraction,
+        basket_area_law=basket_area_law,
+        bed_flame_speed_m_s=bed_flame_speed_m_s)
     if pyrogen_mass is None:
         case_volume = np.pi / 4.0 * geo.D_outer ** 2 * geo.L_motor
         free_volume_m3 = max(case_volume - geo.total_propellant_volume(), 0.0)

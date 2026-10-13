@@ -55,6 +55,9 @@ class TestDemarSizing:
         # derived sizes follow the new mass
         assert big.V_plenum == pytest.approx(1.25 * ch.V_plenum)
         assert big.A_burn_initial == pytest.approx(1.25 * ch.A_burn_initial)
+        # resizing keeps the other build arguments (OB1: basket_area_law)
+        cst = oma.build_pyrogen_chamber(pyro, geo, nozzle, basket_area_law='constant')
+        assert cst.resize(2.0e-3).basket_area_law == 'constant'
         # an explicit charge is not auto
         ex = oma.build_pyrogen_chamber(pyro, geo, nozzle, pyrogen_mass=1.0e-3)
         assert not ex.mass_auto and ex.resize is None
