@@ -319,10 +319,11 @@ def simulate_motor(motor, igniter_pyrogen=None, callback=None, **sim_overrides):
     # interval is far too coarse for the GUI — it heavily interpolates the
     # per-grain channels and under-samples the axial fields, making the station
     # traces jagged and eating the ignition transient. Target ~2000 frames over
-    # the run (>= 5 ms) so the axial pressure tracks the full-resolution head
-    # pressure. Short runs naturally get fewer frames.
+    # the run (>= 1 ms) so the axial pressure tracks the full-resolution head
+    # pressure and the ms-scale fill/ignition transient is resolved in the
+    # slice viewer. Runs shorter than 2 s get 1 ms frames.
     t_max_eff = float(args.get('t_max', 10.0))
-    args.setdefault('snapshot_interval', max(0.005, t_max_eff / 2000.0))
+    args.setdefault('snapshot_interval', max(0.001, t_max_eff / 2000.0))
 
     if callback is None:
         result = run_simulation(geo, prop, **args)
