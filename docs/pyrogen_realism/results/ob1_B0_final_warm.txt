@@ -1,0 +1,31 @@
+[provenance] srm_1d imported from C:\tmp\sv\ob1\srm_1d
+[provenance] git HEAD 82b1b64830742e0b43b598777102115e21d2a91c  dirty=True
+[provenance] numpy 2.2.6  numba 0.63.1  python 3.10.5
+[ric-source] motors/machbusterNew.ric: unmodified -> using working-tree copy
+[provenance] machbusterNew.ric sha256 a234a1dcf054dfb337e508360170e504228e9be85dfbd984940ea8326819df0e  (C:\tmp\sv\ob1\motors\machbusterNew.ric)
+[ric-source] motors/BALLSstick.ric: unmodified -> using working-tree copy
+[provenance] BALLSstick.ric sha256 7fd189d62aabcdc5a5a788611d7b2c3cd94b91fbcc3e111f15e89423074cbd73  (C:\tmp\sv\ob1\motors\BALLSstick.ric)
+[ric-source] motors/hasegawa_a.ric: unmodified -> using working-tree copy
+[provenance] hasegawa_a.ric sha256 ccb7fccc972fd6074beff0b0099d1fdd2f731549d4628ea0eccbef97ca69185d  (C:\tmp\sv\ob1\motors\hasegawa_a.ric)
+[ric-source] motors/machbusterNew.ric: unmodified -> using working-tree copy
+
+[chunc] wall 13.1 s, termination='t_max reached'
+  peak     got        9.977396119842126  ref        9.977396119842126  rel 0.000e+00  OK
+  t_peak   got      0.03519436869536591  ref      0.03519436869536591  rel 0.000e+00  OK
+  plateau  got        8.141928366040833  ref        8.141928366040833  rel 0.000e+00  OK
+  n_steps  got                   532348  ref                   532348  rel 0.000e+00  OK
+[ric-source] motors/BALLSstick.ric: unmodified -> using working-tree copy
+
+[balls] wall 28.5 s, termination='t_max reached'
+  peak     got        7.060894562817688  ref        7.060894562817688  rel 0.000e+00  OK
+  trough   got        4.343382326291922  ref        4.343382326291922  rel 0.000e+00  OK
+  mid      got        4.855564928020005  ref        4.855564928020005  rel 0.000e+00  OK
+  n_steps  got                   843680  ref                   843680  rel 0.000e+00  OK
+[ric-source] motors/hasegawa_a.ric: unmodified -> using working-tree copy
+
+[haseg] wall 50.5 s, termination='t_max reached'
+  peak     got        6.107263748109281  ref        6.107263748109281  rel 0.000e+00  OK
+  t_peak   got       2.4109782579175234  ref       2.4109782579175234  rel 0.000e+00  OK
+  n_steps  got                  2336318  ref                  2336318  rel 0.000e+00  OK
+
+B0 RESULT: PASS (floats within rtol 1e-05, n_steps and t_peak within 0.0005)

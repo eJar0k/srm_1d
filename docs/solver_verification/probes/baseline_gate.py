@@ -61,7 +61,25 @@ _spec = importlib.util.spec_from_file_location(
 _probe = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_probe)
 
-# RE-RECORDED 2026-10-11 by pyrogen-realism IG3 (stage 1): the default ignition
+# RE-RECORDED 2026-10-12 by pyrogen-realism OB1: (i) the library pellet pyrogens
+# (bpnv, mtv) now use the MIL-P-46994B Type I-A pellet geometry (3.175 mm dia,
+# L/D 1.504; was 3.2 mm, L/D 1.0) and (ii) the forward plenum's '0d' burn-area
+# law is the exact right-cylinder form function (``_cyl_area_fraction``) instead of
+# A0 (m/m0)^(2/3) (identical for L/D = 1), and the sphere initial-area branch was
+# removed (a single cylinder formula). The canonical motors use the Sutton-sized
+# forward-plenum BPNV igniter, so they move: Chunc peak +0.27 %, t_peak -4.2 %
+# (36.7 -> 35.2 ms), plateau unchanged; BALLSstick peak +0.58 %; Hasegawa A unchanged
+# (7e-7). Values below were recorded from a WARM-cache run (compile-state noise:
+# a clean-compile run differs at 1e-7..4e-7 in the peaks and a few steps; two warm
+# runs reproduce these EXACTLY). The IG3 (stage 1) values (the previous BASELINE)
+# were:
+#   chunc: peak 9.950855636512404, t_peak 0.036735041862973064,
+#          plateau 8.141968067255977, n_steps 532381
+#   balls: peak 7.020318627616664, trough 4.343390826697384,
+#          mid 4.855316005870968, n_steps 843726
+#   haseg: peak 6.107268310023869, t_peak 2.411042627819566, n_steps 2336271
+#
+# (earlier) RE-RECORDED 2026-10-11 by pyrogen-realism IG3 (stage 1): the default ignition
 # heat-transfer closure became 'peretz' (Peretz et al. 1973, Eq. III-22, local
 # port area) instead of the Ma/Gnielinski chain (ignition_heat_transfer='gnielinski').
 # Only the first-light delay changes (Chunc 1.72 -> 5.81 ms, BALLSstick 1.75 -> 7.22,
@@ -98,12 +116,12 @@ _spec.loader.exec_module(_probe)
 #          mid 4.913378178011638, n_steps 842922
 #   haseg: peak 6.143912554793205, t_peak 2.3816074267208034, n_steps 2335770
 BASELINE = {
-    'chunc': dict(peak=9.950855636512404, t_peak=0.036735041862973064,
-                  plateau=8.141968067255977, n_steps=532381),
-    'balls': dict(peak=7.020318627616664, trough=4.343390826697384,
-                  mid=4.855316005870968, n_steps=843726),
-    'haseg': dict(peak=6.107268310023869, t_peak=2.411042627819566,
-                  n_steps=2336271),
+    'chunc': dict(peak=9.977396119842126, t_peak=0.03519436869536591,
+                  plateau=8.141928366040833, n_steps=532348),
+    'balls': dict(peak=7.060894562817688, trough=4.343382326291922,
+                  mid=4.855564928020005, n_steps=843680),
+    'haseg': dict(peak=6.107263748109281, t_peak=2.4109782579175234,
+                  n_steps=2336318),
 }
 RIC_FILE = {'chunc': 'machbusterNew.ric', 'balls': 'BALLSstick.ric',
             'haseg': 'hasegawa_a.ric'}
