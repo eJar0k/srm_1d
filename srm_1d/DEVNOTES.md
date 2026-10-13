@@ -361,26 +361,38 @@ in geometry/burn rate/ignition (called every step or every N steps).
 - Tests: `tests/test_ignition_heat_transfer.py` (default pins, Ap-reference kernel + run tests, 1972-vs-thesis constant
   check); `test_solver_config_upgrade.py` / `test_srm1d_plugin.py` (the new config key).
 
-### OB1 (unreleased, 2026-10-11) -- opt-in pyrogen burn-model options (head/aft basket + plenum rate plateau)
+### OB1 (unreleased, 2026-10-12) -- exact pellet form function, I-A pellet geometry, opt-in rate plateau
 
-- **No default changes** (B0 PASS; all options OFF). New, all opt-in:
-  `Pyrogen.P_plateau` [Pa, default 0.0 = off]: the burn RATE is evaluated at `min(P, P_plateau)` in the
-  forward plenum (at `P_ig`) and the uncontained baskets (host-cell bore P). Zhu et al. 2008 closed-bomb B/KNO3
-  law = `a = r0/1e6, n = 1, P_plateau = 7e6` (r0 5.27e-3..6.85e-3 m/s/MPa).
-  `PyrogenChamber.basket_area_law` (`'constant'` default | `'shrinking'`): per-cell mass bookkeeping with the
-  burning area `A0 (m/m0)^(2/3)` (exact for cubes / spheres / L/D = 1 cylinders). Also a `run_from_ric` /
-  `build_pyrogen_chamber` kwarg and a `data.igniter` sizing key (`basket_area_law`).
-  `PyrogenChamber.bed_flame_speed_m_s` (default 0.0): DIAGNOSTIC sequential basket lighting, no sourced value
-  (PAYWALLED_REFERENCES R5); kwarg only, not in the .ric block / GUI.
-- Internal signature changes (hard breaks, internal only): `pyrogen_params()` returns 8 entries (index 7 =
-  `P_plateau`), `chamber_params()` returns 7 (5 = area-law code, 6 = bed flame speed); `_plenum_rates` /
-  `_plenum_rhs` take a trailing `P_plateau=0.0`; `_compute_uncontained_pyrogen_mdot` takes a trailing
-  `P_plateau=0.0`; new kernel helper `_compute_uncontained_pyrogen_mdot_cells`. GUI metadata: `P_plateau`
-  (material) and `basket_area_law` (chamber) added to `srm1d_plugin` so the schema-coverage tests stay exact;
-  the openMotor fork's generated igniter defs need a regeneration to show them.
-- `pyrogens/bpnv.yaml` comment CORRECTED (no value change): the BKNO3 burn-rate source is Nakano & Kakami 2016
-  (not "Mizushima"), valid 5-200 kPa (not 7 MPa), SI `a = 2.08e-5` for `n = 0.589` (not 3.50e-5).
-- Report: `docs/pyrogen_realism/OB1_REPORT.md`. Tests: `tests/test_ob1_pyrogen_bed.py`.
+- **BEHAVIOUR CHANGES (defaults; the B0 baseline is re-recorded, see `baseline_gate.py` BASELINE comments):**
+  1. `PyrogenChamber.basket_area_law` defaults to `'shrinking'` (head/aft baskets): per-cell mass bookkeeping with the EXACT
+     right-cylinder form function `igniter_plenum._cyl_area_fraction(f, L/D)` (all faces burning: `D = D0-2s`, `H = H0-2s`,
+     `A = pi D H + pi D^2/2`, `V = pi D^2 H/4`, burn-out at `s = min(D0, H0)/2`; closed form `f^(2/3)` for L/D == 1).
+     `'constant'` = the pre-OB1 pooled constant-area law, still selectable (`run_from_ric(basket_area_law='constant')`,
+     `data.igniter.basket_area_law`). The constant-area law burned a cube 3x too fast per unit regression.
+  2. The forward plenum's `burn_law='0d'` uses the same exact form function (was `A0 (m/m0)^(2/3)`, identical for L/D = 1,
+     so `thermite_cual` / `mtv_fast` and every L/D = 1 pyrogen are unchanged). `Pyrogen.particle_LD_ratio` must be > 0.
+  3. `build_pyrogen_chamber` initial burn area is the single cylinder formula `m (4 L/D + 2)/(rho (L/D) d)` for ANY L/D (the
+     `ld <= 1` sphere branch `6 m/(rho d)` was wrong for L/D < 1; the two agree at L/D = 1).
+  4. Library `bpnv.yaml` and `mtv.yaml`: `particle_diameter_m 3.175e-3`, `particle_LD_ratio 1.504` (was 3.2 mm, 1.0) = the
+     MIL-P-46994B Table III Type I-A pellet (0.125 x 0.188 in; BPNV cited, MTV is the user's stated assumption: no MIL spec).
+  Canonical motors (Sutton forward plenum, DeMar on): Chunc peak +0.27 %, t_peak 36.7 -> 35.2 ms; BALLSstick peak +0.58 %; Hasegawa A
+  unchanged. Chunc head basket 4.5 g BPNV: peak 20.26 -> 16.72 MPa, pyrogen burn 10.7 -> 25.4 ms; head-basket ignition threshold
+  1.43 -> 3.0 g.
+- **`SUPERSEDED_PYROGENS`** gained the pre-OB1 BPNV and MTV entries (each with and without `P_plateau: 0.0`), so the committed
+  `motors/*.ric` blocks (all embed the pre-OB1 BPNV) upgrade to the I-A pellet on load (`IgniterMaterialUpgradedWarning`); a
+  customised pellet never matches. IG3 stage 2 changes `heat_delivery_mode` in the same YAMLs: it must add ITS OWN snapshot of the
+  post-OB1 entry and de-duplicate against these.
+- New opt-in: `Pyrogen.P_plateau` [Pa, default 0.0]: the burn RATE is evaluated at `min(P, P_plateau)` in the plenum (at `P_ig`) and the
+  baskets (host-cell P); Zhu et al. 2008 B/KNO3 law = `a = r0/1e6, n = 1, P_plateau = 7e6`. `PyrogenChamber.bed_flame_speed_m_s`
+  (default 0.0): DIAGNOSTIC sequential basket lighting, no sourced value (R5); kwarg only.
+- Internal signature changes (hard breaks, internal only): `pyrogen_params()` returns 8 entries (7 = `P_plateau`),
+  `chamber_params()` returns 8 (5 = area-law code, 6 = bed speed, 7 = L/D); `_burn_area` takes `shape_LD`;
+  `_plenum_rates` / `_plenum_rhs` take trailing `P_plateau`, `shape_LD`; `_compute_uncontained_pyrogen_mdot` takes a trailing
+  `P_plateau=0.0`; new kernel helper `_compute_uncontained_pyrogen_mdot_cells` (used by default). GUI metadata: `P_plateau`
+  (material) and `basket_area_law` (chamber) in `srm1d_plugin`; the openMotor fork's generated igniter defs need regenerating.
+- `pyrogens/bpnv.yaml` comment CORRECTED: the BKNO3 burn-rate source is Nakano & Kakami 2016 (not "Mizushima"), valid 5-200 kPa
+  (not 7 MPa), SI `a = 2.08e-5` for `n = 0.589` (not 3.50e-5).
+- Report: `docs/pyrogen_realism/OB1_REPORT.md`. Tests: `tests/test_ob1_pyrogen_bed.py` (28).
 
 ### Solver verification T11 (unreleased, 2026-10-11) -- P5 PISO corrections are the defaults
 

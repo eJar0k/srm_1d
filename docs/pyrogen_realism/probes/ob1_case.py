@@ -1,15 +1,14 @@
-"""OB1 single-case runner. Usage: ob1_case.py '<json spec>' <out.jsonl>
+"""OB1 single-case runner (post-rebase: Peretz ignition h is main's default, shrinking cylinder basket law is the
+default, library pellets are the MIL-P-46994B Type I-A geometry). Usage: ob1_case.py '<json spec>' <out.jsonl>
 
 spec keys: tag, topo (head_basket|forward_plenum), g (grams) or lb, pyrogen (bpnv|mtv, default bpnv),
-cubes (3 mm cubes L/D 1; default True for head_basket), combo ('current'|'forward'; forward = peretz ignition h +
-DeMar off), law ('lib' | 'zhu_mean' | 'zhu_hi' | 'zhu_lo' | 'cap7_lib' | 'capZ_lib'), area ('constant'|'shrinking'),
-bed_v (diagnostic bed flame speed m/s, needs area=shrinking), t_max, plateau_win, ric, snap, erosive_model.
+geom ('lib' = library I-A pellet 3.175 mm L/D 1.504 | 'cube3' = 3 mm cubes L/D 1 | 'old32' = pre-OB1 library 3.2 mm L/D 1),
+area ('shrinking' default | 'constant' = pre-OB1 pooled constant-area basket law), demar ('on' default = library
+heat_delivery_mode 'demar' | 'off' = 'none'), law ('lib' | 'zhu_mean' | 'zhu_hi' | 'zhu_lo' | 'cap7_lib' | 'capZ_lib'),
+bed_v (diagnostic), t_max, plateau_win, ric, snap, erosive_model, T_ign, ign_h (override).
 
-Laws (all opt-in; 'lib' = shipped default):
-  zhu_*   : Zhu 2008 piecewise  r = r0*P (P<=7 MPa), 7*r0 (P>7 MPa);  r0 mean/hi/lo of Zhu Table 2 (m/s/MPa)
-  cap7_lib: library a,n capped at P = 7 MPa (rate flat above 7 MPa)
-  capZ_lib: library a,n capped at the Zhu plateau RATE (mean 7*r0 = 42.5 mm/s) -> P_cap = (r/a)^(1/n)
-Resumable (tag in jsonl -> skip). Run from the worktree root with PYTHONPATH=$PWD."""
+Laws (all opt-in): zhu_*: Zhu 2008 piecewise r = r0 P (P <= 7 MPa), 7 r0 above; cap7_lib / capZ_lib: library a, n capped at
+7 MPa / at the Zhu plateau RATE. Resumable (tag in jsonl -> skip). Run from the worktree root with PYTHONPATH=$PWD."""
 import sys, json, time, dataclasses
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
@@ -18,7 +17,9 @@ import numpy as np
 import srm_1d
 from srm_1d.openmotor_adapter import run_from_ric, load_pyrogen
 
-R0 = {'zhu_mean': 6.07375e-3, 'zhu_hi': 6.848e-3, 'zhu_lo': 5.271e-3}   # m/s/MPa, Zhu 2008 Table 2 (mean of 4)
+R0 = {'zhu_mean': 6.07375e-3, 'zhu_hi': 6.848e-3, 'zhu_lo': 5.271e-3}   # m/s/MPa, Zhu 2008 Table 2
+GEOM = {'cube3': dict(particle_diameter_m=3.0e-3, particle_LD_ratio=1.0),
+        'old32': dict(particle_diameter_m=3.2e-3, particle_LD_ratio=1.0)}
 
 
 def apply_law(pyro, law):
@@ -29,7 +30,7 @@ def apply_law(pyro, law):
     if law == 'cap7_lib':
         return dataclasses.replace(pyro, P_plateau=7e6)
     if law == 'capZ_lib':
-        r_plat = 7.0 * R0['zhu_mean']                    # m/s
+        r_plat = 7.0 * R0['zhu_mean']
         return dataclasses.replace(pyro, P_plateau=(r_plat / pyro.a) ** (1.0 / pyro.n))
     raise ValueError(law)
 
@@ -45,27 +46,24 @@ def _done(out, tag):
 def run_case(spec, return_res=False):
     tag = spec['tag']
     LB = 0.45359237
-    mass = spec['g'] * 1e-3 if 'g' in spec else spec['lb'] * LB
+    mass = spec['g'] * 1e-3 if 'g' in spec else (spec['lb'] * LB if 'lb' in spec else None)
     topo = spec.get('topo', 'head_basket')
     kw = dict(roughness=32e-6, kappa=0.44, T_ignition=spec.get('T_ign', 756.0), print_interval=0.0,
               verbose=False, t_max=spec.get('t_max', 0.2), snapshot_interval=spec.get('snap', 1e-3),
               injection_topology=topo)
-    if spec.get('combo', 'current') == 'forward':
-        kw['ignition_heat_transfer'] = 'peretz'
+    if spec.get('ign_h'):
+        kw['ignition_heat_transfer'] = spec['ign_h']
     if spec.get('erosive_model'):
         kw['erosive_model'] = spec['erosive_model']
-    if spec.get('area', 'constant') != 'constant':
+    if spec.get('P_cutoff') is not None:
+        kw['P_cutoff'] = spec['P_cutoff']
+    if topo != 'forward_plenum' and spec.get('area', 'shrinking') != 'shrinking':
         kw['basket_area_law'] = spec['area']
     if spec.get('bed_v', 0.0) > 0:
         kw['bed_flame_speed_m_s'] = spec['bed_v']
-    over = {}
-    if spec.get('combo', 'current') == 'forward':
+    over = dict(GEOM.get(spec.get('geom', 'lib'), {}))
+    if spec.get('demar', 'on') == 'off':
         over['heat_delivery_mode'] = 'none'
-    if spec.get('cubes', topo == 'head_basket'):
-        over['particle_diameter_m'] = 3e-3
-        over['particle_LD_ratio'] = 1.0
-    if spec.get('d_mm'):
-        over['particle_diameter_m'] = spec['d_mm'] * 1e-3
     pyro = dataclasses.replace(load_pyrogen(spec.get('pyrogen', 'bpnv')), **over)
     pyro = apply_law(pyro, spec.get('law', 'lib'))
     t0 = time.time()
@@ -97,6 +95,7 @@ def run_case(spec, return_res=False):
              frac_ignited=float(frac), t_first_ign_s=float(fin.min()) if fin.size else None,
              t90_s=float(np.percentile(ig, 90)) if frac >= .9 else None,
              pyro_duration_s=float(s['pyrogen_duration']), pyro_t50_s=t_frac(0.5), pyro_t90_s=t_frac(0.9),
+             pyro_mass_g=float(s['pyrogen_mass_initial']) * 1e3,
              pyro_mass_burned_g=float(s['pyrogen_mass_burned']) * 1e3,
              steps=int(s['steps']), wall_s=wall, n_grain=int(ig.size))
     if return_res:

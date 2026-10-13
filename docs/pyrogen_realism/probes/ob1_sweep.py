@@ -1,8 +1,8 @@
-"""OB1 resumable sweeps. Usage: ob1_sweep.py <name> <out.jsonl> [workers]
-names: rank (Part-3 ranking probes, BPNV 4.5 g, both combos) | realistic (Part 5.1 matrix, t_max 0.2 s)
-| long (Part 5.1 t_max 1.0 s) | extra (supplementary probes, see specs_extra).
-Appends one JSON line per finished case (tag-keyed, skipped if present). Run from the worktree root with
-PYTHONPATH=$PWD."""
+"""OB1 resumable sweeps (post-rebase). Usage: ob1_sweep.py <name> <out.jsonl> [workers]
+names: realistic (5.1, t_max 0.2 s) | long (5.1, t_max 1.0 s) | thresh (5.2 bisection) | mass (peak vs charge) |
+extra (attribution / ablation probes). Appends one JSON line per finished case (tag-keyed, skipped if present).
+Run from the worktree root with PYTHONPATH=$PWD. "pre_ob1" = the library pellet of the previous library (3.2 mm,
+L/D 1) with the pooled constant-area basket law = the state before OB1 (the forward-plenum law is identical there)."""
 import sys, json, time
 from pathlib import Path
 from multiprocessing import get_context
@@ -10,16 +10,16 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).parent))
 
-COMBOS = ['current', 'forward']
-# name -> (law, area, bed_v)
-OPTS = {
-    'base':        ('lib', 'constant', 0.0),
-    'area23':      ('lib', 'shrinking', 0.0),
-    'zhu':         ('zhu_mean', 'constant', 0.0),
-    'zhu+area23':  ('zhu_mean', 'shrinking', 0.0),
-    'cap7':        ('cap7_lib', 'constant', 0.0),
-    'capZ':        ('capZ_lib', 'constant', 0.0),
-    'capZ+area23': ('capZ_lib', 'shrinking', 0.0),
+DEMAR = ['on', 'off']
+# model name -> (geom, area, law)
+MODELS = {
+    'pre_ob1':      ('old32', 'constant', 'lib'),
+    'lib_constant': ('lib', 'constant', 'lib'),
+    'lib':          ('lib', 'shrinking', 'lib'),
+    'lib_capZ':     ('lib', 'shrinking', 'capZ_lib'),
+    'cube3_constant': ('cube3', 'constant', 'lib'),
+    'cube3':        ('cube3', 'shrinking', 'lib'),
+    'cube3_capZ':   ('cube3', 'shrinking', 'capZ_lib'),
 }
 
 
@@ -31,28 +31,20 @@ def _work(spec):
         return dict(tag=spec['tag'], error=repr(e), **{k: v for k, v in spec.items() if k != 'tag'})
 
 
-def specs_rank():
-    out = []
-    for combo in COMBOS:
-        for name, (law, area, bv) in OPTS.items():
-            out.append(dict(tag=f'rk_{combo}_{name}', combo=combo, law=law, area=area, bed_v=bv, g=4.5, t_max=0.2))
-        # diagnostic: bed flame speed (no sourced value) on top of the area law
-        for v in (3.0, 10.0, 30.0):
-            out.append(dict(tag=f'rk_{combo}_area23+bed{v:g}', combo=combo, law='lib', area='shrinking', bed_v=v,
-                            g=4.5, t_max=0.2))
-    return out
+def S(tag, model, **kw):
+    geom, area, law = MODELS[model]
+    return dict(tag=tag, model=model, geom=geom, area=area, law=law, **kw)
 
 
 def specs_realistic():
     out = []
     for pyro in ('bpnv', 'mtv'):
         for g in (4.5, 6.0):
-            for combo in COMBOS:
-                for name, (law, area, bv) in OPTS.items():
-                    if pyro == 'mtv' and law != 'lib':
-                        continue                  # no sourced plateau law for MTV
-                    out.append(dict(tag=f're_{pyro}_{g}_{combo}_{name}', pyrogen=pyro, g=g, combo=combo,
-                                    law=law, area=area, bed_v=bv, t_max=0.2))
+            for d in DEMAR:
+                for m in MODELS:
+                    if pyro == 'mtv' and m.endswith('capZ'):
+                        continue
+                    out.append(S(f're_{pyro}_{g}_{d}_{m}', m, pyrogen=pyro, g=g, demar=d, t_max=0.2))
     return out
 
 
@@ -60,72 +52,96 @@ def specs_long():
     out = []
     for pyro in ('bpnv', 'mtv'):
         for g in (4.5, 6.0):
-            for combo in COMBOS:
-                for name in ('base', 'area23', 'zhu+area23', 'capZ+area23'):
-                    law, area, bv = OPTS[name]
-                    if pyro == 'mtv' and law != 'lib':
-                        continue
-                    out.append(dict(tag=f'lg_{pyro}_{g}_{combo}_{name}', pyrogen=pyro, g=g, combo=combo,
-                                    law=law, area=area, bed_v=bv, t_max=1.0, plateau_win=(0.4, 0.9), snap=5e-3))
+            for d in DEMAR:
+                for m in ('pre_ob1', 'lib', 'cube3'):
+                    out.append(S(f'lg_{pyro}_{g}_{d}_{m}', m, pyrogen=pyro, g=g, demar=d, t_max=1.0,
+                                 plateau_win=(0.4, 0.9), snap=5e-3))
+    return out
+
+
+def specs_mass():
+    out = []
+    for d in DEMAR:
+        for m in ('pre_ob1', 'lib', 'cube3'):
+            for g in (0.6, 0.9, 1.36, 1.8, 2.27, 2.93, 3.6, 4.54, 6.3, 9.0):
+                out.append(S(f'ms_{d}_{m}_{g}', m, g=g, demar=d, t_max=0.2))
     return out
 
 
 def specs_extra():
-    """Attribution probes on the best grounded model (capZ+area23) and the base model, BPNV 4.5 g, current combo."""
     out = []
-    for name in ('base', 'capZ+area23'):
-        law, area, bv = OPTS[name]
+    for m in ('pre_ob1', 'lib', 'lib_capZ'):
         for em in ('saint_robert', 'mukunda_paul'):
-            out.append(dict(tag=f'ex_{name}_{em}', law=law, area=area, g=4.5, erosive_model=em, t_max=0.2))
-        out.append(dict(tag=f'ex_{name}_pyro_only', law=law, area=area, g=4.5, T_ign=1.0e5, t_max=0.1))
-    # sensitivity to the measured spread of Zhu's r0 (Table 2: 5.27e-3 .. 6.85e-3 m/s/MPa)
-    for law in ('zhu_lo', 'zhu_hi'):
-        out.append(dict(tag=f'ex_{law}+area23', law=law, area='shrinking', g=4.5, t_max=0.2))
+            out.append(S(f'ex_{m}_{em}', m, g=4.5, erosive_model=em, t_max=0.2))
+        out.append(S(f'ex_{m}_pyro_only', m, g=4.5, T_ign=1.0e5, t_max=0.1))
+    # ablations on the new default (lib, shrinking), BPNV 4.5 g
+    for law in ('zhu_lo', 'zhu_hi', 'zhu_mean', 'cap7_lib'):
+        out.append(dict(tag=f'ex_lib_{law}', model='lib', geom='lib', area='shrinking', law=law, g=4.5, t_max=0.2))
+    for v in (3.0, 10.0, 30.0):
+        out.append(dict(tag=f'ex_lib_bed{v:g}', model='lib', geom='lib', area='shrinking', law='lib', bed_v=v, g=4.5,
+                        t_max=0.2))
     return out
 
 
-GRID_G = [0.05, 0.1, 0.2, 0.3, 0.45, 0.6, 0.9, 1.36, 1.8, 2.27, 2.93, 3.6, 4.54, 6.3, 9.0, 13.6]
-THRESH_OPTS = ('base', 'area23', 'capZ+area23', 'zhu+area23')
+GRID_G = [0.05, 0.1, 0.2, 0.3, 0.45, 0.6, 0.9, 1.36, 1.8, 2.27, 2.93, 3.6, 4.54, 6.3, 9.0, 13.6, 20.0, 30.0]
+# (topo, demar, model) series for the threshold search
+THRESH_SERIES = (
+    [('head_basket', d, m) for d in DEMAR for m in ('pre_ob1', 'lib_constant', 'lib', 'cube3')] +
+    [('forward_plenum', d, m) for d in DEMAR for m in ('pre_ob1', 'lib', 'cube3')]
+)
 
 
 def _thresh_series(args):
-    """Minimum head-basket charge (g) with >= 99 % of the grain cells lit within t_max, bisected to 2 %.
-    Returns the rows run plus a summary row (tag 'thr_<combo>_<opt>')."""
+    """Lowest charge on a grid scan with >= 99 % of the 100 grain cells lit within t_max, bisected to 2 %
+    between the last failing and first lit grid point. The scan continues past the first lit point to flag
+    non-monotonic (ragged) boundaries: 'relit' lists lit charges above any later failure."""
     import ob1_case
-    combo, name = args
-    law, area, bv = OPTS[name]
+    topo, d, m = args
     rows = []
+    grid = ([0.005, 0.01, 0.02, 0.03, 0.04] + GRID_G) if topo == 'forward_plenum' else GRID_G
 
     def run(g):
-        sp = dict(tag=f'thg_{combo}_{name}_{g:.5g}', g=g, combo=combo, law=law, area=area, bed_v=bv, t_max=0.2)
-        m = ob1_case.run_case(sp)
-        rows.append(m)
-        return m['frac_ignited'] >= 0.99
-    lo, hi = None, None
-    for g in GRID_G:
-        if run(g):
+        sp = S(f'thg_{topo}_{d}_{m}_{g:.5g}', m, topo=topo, g=g, demar=d, t_max=0.2)
+        r = ob1_case.run_case(sp)
+        rows.append(r)
+        return r['frac_ignited'] >= 0.99
+    lo, hi, flags = None, None, []
+    for g in grid:
+        ok = run(g)
+        flags.append((g, ok))
+        if ok and hi is None:
             hi = g
+        elif not ok and hi is None:
+            lo = g
+        if ok and g >= 1.0 and sum(1 for _, o in flags if o) >= 3:
             break
-        lo = g
-    if hi is None:
-        thr = None
-    elif lo is None:
-        thr = ('<=', hi)
-    else:
-        while hi / lo > 1.02:
-            mid = (hi * lo) ** 0.5
-            if run(mid):
-                hi = mid
-            else:
-                lo = mid
-        thr = ('', hi)
-    summary = dict(tag=f'thr_{combo}_{name}', combo=combo, opt=name, threshold_g=(None if thr is None else thr[1]),
-                   threshold_note=('not lit up to 13.6 g' if thr is None else thr[0]), n_runs=len(rows))
+    thr = None
+    if hi is not None:
+        if lo is None:
+            thr = ('<=', hi)
+        else:
+            while hi / lo > 1.02:
+                mid = (hi * lo) ** 0.5
+                if run(mid):
+                    hi = mid
+                else:
+                    lo = mid
+            thr = ('', hi)
+    lit = [g for g, o in flags if o]
+    notlit_after = [g for g, o in flags if not o and hi is not None and g > hi]
+    summary = dict(tag=f'thr_{topo}_{d}_{m}', topo=topo, demar=d, model=m,
+                   threshold_g=(None if thr is None else thr[1]), threshold_note=(thr[0] if thr else 'not lit up to grid top'),
+                   grid_lit=lit, grid_fail_above_threshold=notlit_after, n_runs=len(rows))
     return rows + [summary]
 
 
-def run_thresh(out, nw):
-    jobs = [(c, n) for c in COMBOS for n in THRESH_OPTS]
+def run_thresh(out, nw, force_plenum_on=False):
+    done = set()
+    if out.exists() and not force_plenum_on:
+        done = {json.loads(l)['tag'] for l in out.read_text().splitlines() if l.strip()}
+    jobs = [j for j in THRESH_SERIES if f'thr_{j[0]}_{j[1]}_{j[2]}' not in done]
+    if force_plenum_on:
+        jobs = [j for j in THRESH_SERIES if j[0] == 'forward_plenum' and j[1] == 'on']
     with get_context('spawn').Pool(nw) as pool:
         for rows in pool.imap_unordered(_thresh_series, jobs):
             with open(out, 'a') as f:
@@ -134,24 +150,16 @@ def run_thresh(out, nw):
             print(rows[-1], flush=True)
 
 
-def specs_mass():
-    """Peak vs charge mass above threshold (BPNV head basket, 3 mm cubes)."""
-    out = []
-    for combo in COMBOS:
-        for name in ('base', 'area23', 'capZ+area23'):
-            law, area, bv = OPTS[name]
-            for g in (0.6, 0.9, 1.36, 1.8, 2.27, 2.93, 3.6, 4.54, 6.3, 9.0):
-                out.append(dict(tag=f'ms_{combo}_{name}_{g}', g=g, combo=combo, law=law, area=area, bed_v=bv, t_max=0.2))
-    return out
-
-
-SPECS = {'rank': specs_rank, 'realistic': specs_realistic, 'long': specs_long, 'extra': specs_extra, 'mass': specs_mass}
+SPECS = {'realistic': specs_realistic, 'long': specs_long, 'mass': specs_mass, 'extra': specs_extra}
 
 if __name__ == '__main__':
     name, out = sys.argv[1], Path(sys.argv[2])
     nw = int(sys.argv[3]) if len(sys.argv) > 3 else 6
     if name == 'thresh':
         run_thresh(out, nw)
+        sys.exit(0)
+    if name == 'thresh_plenum_low':      # re-run the DeMar-on plenum series with a finer low grid (last summary row wins)
+        run_thresh(out, nw, force_plenum_on=True)
         sys.exit(0)
     done = set()
     if out.exists():
