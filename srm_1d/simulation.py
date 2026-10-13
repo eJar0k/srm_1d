@@ -1282,6 +1282,9 @@ def _goodman_ignition_sources_and_mass(
     # SM1: solid-heating model (0 goodman, 1 peretz, 2 conduction) + conduction state
     solid_model_code, solid_y, solid_T, solid_age, solid_nact, solid_work,
     solid_age_fraction,
+    # SM2: ignition-event diagnostics (always on, bookkeeping only) and the opt-in
+    # open-loop surface-forcing recorder
+    ign_diag, rec_on, rec_h, rec_Td, rec_t, rec_dt, rec_k,
 ):
     """Goodman surface-temperature ignition and propellant source assembly.
 
@@ -1362,6 +1365,14 @@ def _goodman_ignition_sources_and_mass(
         for s in range(S_local):
             mass_source_by_species[i, s] = 0.0
 
+    rec_idx = rec_k[0]
+    rec_active = rec_on and rec_idx < rec_h.shape[0]
+    if rec_active:
+        rec_t[rec_idx] = t
+        rec_dt[rec_idx] = dt
+        for i in range(N):
+            rec_h[rec_idx, i] = -1.0
+            rec_Td[rec_idx, i] = 0.0
     for i in range(N):
         mass_source[i] = 0.0
         thermal_source[i] = 0.0
@@ -1399,6 +1410,31 @@ def _goodman_ignition_sources_and_mass(
                 heat_cell = True
             else:
                 heat_cell = False
+            if rec_active and has_ignited[i]:
+                # SM2: the forcing this cell WOULD see if it were still unlit (bare
+                # convective h of the local gas state), so an open-loop replay can run
+                # past the reference run's own ignition time.
+                if ignition_h_code == 0:
+                    h_v = _bare_heat_transfer_coeff(
+                        Re[i], D_hyd[i], x_centers[i], f_darcy[i],
+                        Pr, k_thermal, T[i], T_surf[i], kappa,
+                    )
+                elif ignition_h_code == 1:
+                    if ap_ref_idx >= 0:
+                        A_apv = A_port[ap_ref_idx]
+                    else:
+                        A_apv = A_port[i]
+                    h_v = _peretz_heat_transfer_coeff(
+                        P[i], u_cell[i], T[i], T_surf[i], R_mix_gas[i],
+                        Cp_mix_gas[i], gamma_mix_gas[i], D_hyd[i],
+                        x_centers[i], A_apv, A_throat,
+                    )
+                else:
+                    h_v = _keller_heat_transfer_coeff(
+                        rho_gas[i], u_cell[i], T[i], D_hyd[i],
+                    )
+                rec_h[rec_idx, i] = h_v
+                rec_Td[rec_idx, i] = T[i]
             if (not has_ignited[i]) and heat_cell:
                 if ignition_h_code == 0:
                     h_c = _bare_heat_transfer_coeff(
@@ -1508,6 +1544,10 @@ def _goodman_ignition_sources_and_mass(
                     h_driver = h_driver_num / h_total
                     h_c = h_total
 
+                T_s_before = T_surf[i]
+                if rec_active:
+                    rec_h[rec_idx, i] = h_c
+                    rec_Td[rec_idx, i] = h_driver
                 # SM1: the solid-heating model. The surface boundary is the
                 # same combined Robin flux for all three: h_c (h_driver - T_s),
                 # with h_c / h_driver already folding in the convective,
@@ -1558,6 +1598,18 @@ def _goodman_ignition_sources_and_mass(
                     has_ignited[i] = True
                     is_burning[i] = True
                     ignition_time[i] = t
+                    # SM2: what lit the cell (diagnostic only)
+                    ign_diag[i, 0] = h_c
+                    ign_diag[i, 1] = h_driver
+                    ign_diag[i, 2] = h_c * (h_driver - T_s_before)
+                    ign_diag[i, 3] = T_surf[i]
+                    ign_diag[i, 4] = T[i]
+                    ign_diag[i, 5] = u_cell[i]
+                    ign_diag[i, 6] = abs(u_cell[i]) / np.sqrt(
+                        gamma_mix_gas[i] * R_mix_gas[i] * T[i])
+                    ign_diag[i, 7] = P[i]
+                    ign_diag[i, 8] = t
+                    ign_diag[i, 9] = h_c * (h_driver - T_surf[i])
 
             if has_ignited[i]:
                 is_burning[i] = True
@@ -1634,6 +1686,8 @@ def _goodman_ignition_sources_and_mass(
             if radiation_sink_power[i] > 0.0:
                 thermal_source[i] -= radiation_sink_power[i] / dx
 
+    if rec_active:
+        rec_k[0] = rec_idx + 1
     return (n_burning, n_ignited, mass_sum,
             pyrogen_surface_heat_power, radiation_heat_power,
             radiation_sink_total_power,
@@ -1774,6 +1828,8 @@ def _run_time_loop(
     # --- SM1: solid-heating model + conduction state ---
     solid_model_code,             # 0 goodman, 1 peretz, 2 conduction
     solid_y, solid_T, solid_age, solid_nact, solid_work, solid_age_fraction,
+    # --- SM2: ignition-event diagnostics + open-loop forcing recorder ---
+    ign_diag, rec_on, rec_h, rec_Td, rec_t, rec_dt, rec_k,
     # --- v0.8.0 Phase 6: live progress / cooperative cancel ---
     progress_state,               # [2] float64: [0]=progress 0..1 (written),
                                   #              [1]=cancel flag (read; >0.5 aborts)
@@ -2325,6 +2381,7 @@ def _run_time_loop(
             R_mix_arr, gamma_mix_arr, peretz_ap_code,
             solid_model_code, solid_y, solid_T, solid_age, solid_nact,
             solid_work, solid_age_fraction,
+            ign_diag, rec_on, rec_h, rec_Td, rec_t, rec_dt, rec_k,
         )
 
         # v0.7.1 Phase 3.5: pyrogen mass injection uses pyrogen Cp for the
@@ -2868,6 +2925,11 @@ def _run_simulation_once(
     # T_s ODE, III-50: T_s is carried, not recomputed from h) or 'conduction'
     # (exact 1-D transient conduction in the solid, graded grid, implicit).
     solid_heating_model='goodman',
+    # SM2: record the per-cell surface forcing (h_total, T_driver per step) of the first
+    # n steps into result['forcing'] for an offline open-loop replay of the solid
+    # models (0 = off). The per-cell ignition-event diagnostics (result['ignition_diag'])
+    # are always recorded. Neither changes the trajectory.
+    record_forcing_steps=0,
     # --- Solver ---
     # v0.7.3.2 (2026-05-27): cfl_target tightened 0.5 → 0.3 and
     # source_cfl_factor tightened 0.10 → 0.05 to absorb Phase B.0
@@ -3004,6 +3066,14 @@ def _run_simulation_once(
         the heating age; uses only k_solid and alpha). All three see the same
         combined surface flux (convective + pyrogen + radiation). T_ignition /
         k_solid were calibrated with goodman. See SM1_REPORT.md.
+    record_forcing_steps : int
+        SM2. If > 0, record the per-cell surface forcing (``h_total``, ``T_driver``; ``-1`` =
+        not a heated grain cell) of the first n steps into ``result['forcing']`` (keys
+        ``h``, ``T_drv``, ``t``, ``dt``) so the solid models can be replayed offline on
+        identical forcing. Already-lit cells record the bare convective h of their local gas
+        (the forcing they would see unlit). ``result['ignition_diag']`` (always) holds, per cell
+        at its ignition step, [h_total, T_driver, q_pre, T_s, T_gas, u, Mach, P, t, q_post].
+        Neither changes the trajectory.
     cfl_target : float
         Target CFL number for time stepping. Default: 0.5.
     dt_max : float
@@ -3322,6 +3392,15 @@ def _run_simulation_once(
         solid_work = np.zeros((2, 2))
     solid_age = np.zeros(N)
     solid_nact = np.full(N, 3, dtype=np.int64)
+    # SM2: what lit each cell (always recorded; bookkeeping only) and the opt-in
+    # open-loop forcing recorder (record_forcing_steps > 0 = first n steps).
+    ign_diag = np.full((N, 10), np.nan)
+    _rec_n = int(record_forcing_steps)
+    rec_h = np.full((max(_rec_n, 1), N if _rec_n > 0 else 1), -1.0)
+    rec_Td = np.zeros_like(rec_h)
+    rec_t = np.zeros(max(_rec_n, 1))
+    rec_dt = np.zeros(max(_rec_n, 1))
+    rec_k = np.zeros(1, dtype=np.int64)
 
     plenum_state = initial_plenum_state(
         pyrogen_chamber, P_initial=P_ambient, T_initial=propellant.T_initial
@@ -3658,6 +3737,8 @@ def _run_simulation_once(
         # SM1: solid-heating model + conduction state
         int(_solid_code), solid_y, solid_T, solid_age, solid_nact, solid_work,
         float(CONDUCTION_AGE_FRACTION),
+        # SM2: ignition-event diagnostics + open-loop forcing recorder
+        ign_diag, bool(_rec_n > 0), rec_h, rec_Td, rec_t, rec_dt, rec_k,
         # v0.8.0 Phase 6: live progress / cooperative cancel
         progress_state,
     )
@@ -4115,6 +4196,12 @@ def _run_simulation_once(
         'mass_jump_remainder_kg': jump_remainder_kg_arr,
         'mass_jump_total_kg': jump_total_kg_arr,
         'ignition_time_by_cell': ignition_time.copy(),
+        # SM2: per grain cell at its ignition step: [h_total, T_driver, q_pre, T_s, T_gas, u,
+        # Mach, P, t, q_post] (NaN = never lit); forcing = open-loop recorder (or None)
+        'ignition_diag': ign_diag.copy(),
+        'forcing': ({'h': rec_h[:int(rec_k[0])].copy(), 'T_drv': rec_Td[:int(rec_k[0])].copy(),
+                     't': rec_t[:int(rec_k[0])].copy(), 'dt': rec_dt[:int(rec_k[0])].copy()}
+                    if _rec_n > 0 else None),
         # v0.8.x station-viz data contract: per-cell axial geometry so the
         # GUI station model + axial-payload builder work from `result`
         # alone (cell->grain map; gap sentinel -1). x_cell mirrors each
