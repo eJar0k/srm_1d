@@ -403,6 +403,15 @@ in geometry/burn rate/ignition (called every step or every N steps).
   baselines, flame-front gate, diagnostics) pin `heat_delivery_mode='demar'`; the sibling-pyrogen adapter test gains an
   `impetus_W`.
 
+### SM2 (unreleased, 2026-10-13) -- ignition-event diagnostics and open-loop forcing recorder (no behaviour change)
+
+- **New kwarg** `run_simulation(record_forcing_steps=0)`: if > 0, records the per-cell surface forcing (`h_total`, `T_driver`) of the first n steps into
+  `result['forcing']` (`h`, `T_drv`, `t`, `dt`; `h = -1` = not a heated grain cell; already-lit cells record the bare convective h of their local gas). `result['ignition_diag']`
+  (always): per cell at its lighting step [h_total, T_driver, q_pre, T_s, T_gas, u, Mach, P, t, q_post] (NaN = never lit). Neither changes the trajectory (tested; B0 PASS at 1e-15).
+- **Hard API break (internal):** `_run_time_loop` and `_goodman_ignition_sources_and_mass` gained 7 trailing args
+  `ign_diag, rec_on, rec_h, rec_Td, rec_t, rec_dt, rec_k` (after the SM1 solid args). Direct callers in tests: `np.zeros((N, 10)), False, np.zeros((1, 1)), np.zeros((1, 1)), np.zeros(1), np.zeros(1), np.zeros(1, dtype=np.int64)`.
+- New tool `srm_1d/tools/solid_replay.py` (`replay`, `lighting_metrics`); probes `docs/pyrogen_realism/probes/sm2_*.py`; report `docs/pyrogen_realism/SM2_REPORT.md`.
+
 ### SM1 (unreleased, 2026-10-12) -- opt-in solid-heating models for the ignition gate
 
 - **New kwarg** `run_simulation(solid_heating_model='goodman'|'peretz'|'conduction')`, default `'goodman'`

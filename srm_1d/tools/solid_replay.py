@@ -39,6 +39,8 @@ def _replay_cell(model, h, Td, tt, dtt, T_i, T_ign, alpha, k, y, age_fraction):
     age = 0.0
     delta = 1.0e-6
     Ts = T_i
+    t_c100 = np.nan
+    Ts_max = T_i
     for j in range(n):
         hj = h[j]
         if hj < 0.0:
@@ -53,15 +55,19 @@ def _replay_cell(model, h, Td, tt, dtt, T_i, T_ign, alpha, k, y, age_fraction):
                 Ts, nact = st._step_conduction(T, y, nact, age, hj, Td[j], T_i, alpha, k,
                                                dtt[j], age_fraction, cp, dp)
                 age += dtt[j]
+        if Ts > Ts_max:
+            Ts_max = Ts
+        if np.isnan(t_c100) and Ts > T_ign - 100.0:
+            t_c100 = tt[j]
         if Ts > T_ign:
-            return (tt[j], Ts, hj * (Td[j] - Ts_before), hj * (Td[j] - Ts), hj, Td[j], j)
-    return (NEVER, Ts, np.nan, np.nan, np.nan, np.nan, -1)
+            return (tt[j], Ts, hj * (Td[j] - Ts_before), hj * (Td[j] - Ts), hj, Td[j], j, t_c100, Ts_max)
+    return (NEVER, Ts, np.nan, np.nan, np.nan, np.nan, -1, t_c100, Ts_max)
 
 
 @njit(cache=True)
 def _replay_all(model, h, Td, tt, dtt, T_i, T_ign, alpha, k, y, age_fraction):
     n, N = h.shape
-    out = np.full((N, 7), np.nan)
+    out = np.full((N, 9), np.nan)
     out[:, 0] = NEVER
     for i in range(N):
         col_h = np.ascontiguousarray(h[:, i])
@@ -76,6 +82,8 @@ def _replay_all(model, h, Td, tt, dtt, T_i, T_ign, alpha, k, y, age_fraction):
         out[i, 4] = r[4]
         out[i, 5] = r[5]
         out[i, 6] = r[6]
+        out[i, 7] = r[7]
+        out[i, 8] = r[8]
     return out
 
 
@@ -86,8 +94,9 @@ def replay(forcing, model, *, T_i=293.0, T_ign=756.0, k_solid=0.271, rho=None, c
            alpha=None, grid=None):
     """Replay ``forcing`` (the dict from ``result['forcing']``) through ``model``.
 
-    Returns an (N, 7) array: [t_ignite (NEVER if not lit within the recorded window), T_s,
-    q_pre, q_post, h, T_driver at ignition, step index]. ``alpha`` defaults to
+    Returns an (N, 9) array: [t_ignite (NEVER if not lit within the recorded window), T_s,
+    q_pre, q_post, h, T_driver at ignition, step index, time T_s first exceeded T_ign - 100 K
+    (NaN if never), max T_s reached]. ``alpha`` defaults to
     ``k_solid / (rho cps)`` (give ``rho`` or ``alpha``).
     """
     if alpha is None:
