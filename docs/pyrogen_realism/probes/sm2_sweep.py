@@ -1,5 +1,5 @@
 """SM2 sweeps. Usage: sm2_sweep.py <group> <out.jsonl> [workers<=8]
-groups: A (base, 3 models x 4 cases, forcing recorded), H (gnielinski ign h), D (DeMar on), C (auto charge),
+groups: A (base, 3 models x 4 cases, forcing recorded), X (high charge), H (gnielinski ign h), D (DeMar on), C (auto charge),
         K (calibration k_solid x T_ignition, short windows), G (200 cells).
 Run from the repo root with PYTHONPATH=$PWD. Resumable (tag-keyed)."""
 import sys, json, time
@@ -41,6 +41,12 @@ def specs(group):
                     for T in TIGN:
                         out.append(dict(tag=f'K_{mo}_{m}_k{k}_T{int(T)}', motor=mo, solid=m, k_solid=k, T_ign=T,
                                         t_max=SHORT[mo]))
+    elif group == 'X':
+        # beyond the spec: a charge well above every model's ignition threshold, so the models are
+        # compared away from the threshold-hypersensitive regime of the IG3 auto charges
+        for mo, g in (('chunc', 10.0), ('chunc_hb', 8.0), ('balls', 10.0), ('haseg', 30.0)):
+            for m in MODELS3:
+                out.append(dict(tag=f'X_{mo}_{m}', motor=mo, solid=m, charge=g, rec=120000))
     elif group == 'G':
         for mo in MOTORS:
             for m in MODELS3:

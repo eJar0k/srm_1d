@@ -88,11 +88,13 @@ def run_case(spec, return_res=False):
         m['peak'] = float(P[ms][kp]); m['t_peak'] = tpk
         m['trough'] = float(P[after].min()); m['mid'] = float(P[int(np.argmin(np.abs(t - 1.03)))])
         m['pk_trough'] = m['peak'] / m['trough']; m['pk_mid'] = m['peak'] / m['mid']
-    if spec['motor'] == 'haseg':
+    if spec['motor'] == 'haseg' and (t > 0.5).any():
         late = t > 0.5
         m['late_peak'] = float(P[late].max()); m['t_late_peak'] = float(t[late][P[late].argmax()])
         m['late_over_exp'] = m['late_peak'] / P_EXP_HASEG
         m['early_peak'] = float(P[t <= 0.5].max())
+    elif spec['motor'] == 'haseg':
+        m['early_peak'] = float(P.max())
     # fill Mach (thread-F confounder): max |Mach| over the bore at fixed times, + at each first-lit cell
     mm = np.asarray(res['max_mach'])
     m['max_mach_at_ms'] = {str(ms): float(mm[min(int(np.searchsorted(t, ms * 1e-3)), mm.size - 1)])
