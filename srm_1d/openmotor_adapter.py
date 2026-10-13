@@ -1382,17 +1382,31 @@ def ric_to_sim_args(motor, gas_props=None, target_propellant_cells=100,
     return args
 
 
+def _merge_igniter_sizing(block_sizing, **explicit):
+    """Igniter sizing kwargs for ``build_pyrogen_chamber``.
+
+    Precedence: an explicit (non-None) caller value > the motor file's
+    igniter block (``block_sizing``, may be None) > the
+    ``build_pyrogen_chamber`` defaults (keys left out).
+    """
+    merged = dict(block_sizing) if block_sizing else {}
+    for key, value in explicit.items():
+        if value is not None:
+            merged[key] = value
+    return merged
+
+
 def run_from_ric(filepath, gas_props=None, transport_path=None,
                  pyrogen=None, pyrogen_mass=None,
                  pyrogen_throat_area=None, pyrogen_volume=None,
-                 pyrogen_burn_area=None, pyrogen_burn_law='0d',
+                 pyrogen_burn_area=None, pyrogen_burn_law=None,
                  pyrogen_heat_flux_cal_cm2_s=None,
-                 injection_topology='forward_plenum',
-                 cartridge_length_m=-1.0,
-                 basket_fill_fraction=0.5,
-                 pellet_packing_fraction=0.60,
-                 basket_area_law='shrinking',
-                 bed_flame_speed_m_s=0.0,
+                 injection_topology=None,
+                 cartridge_length_m=None,
+                 basket_fill_fraction=None,
+                 pellet_packing_fraction=None,
+                 basket_area_law=None,
+                 bed_flame_speed_m_s=None,
                  particle_diameter_m=None,
                  particle_LD_ratio=None,
                  T_ignition=756.0, k_solid=None,  # T_ign: v0.7.5 re-LHS (was 850)
@@ -1417,8 +1431,16 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
         Explicit transport YAML path. If None, sibling auto-resolution
         is attempted.
     pyrogen : Pyrogen, str, or None
-        Explicit pyrogen object, built-in name, or YAML path. If None,
-        a sibling ``<stem>.pyrogen.yaml`` must exist.
+        Explicit pyrogen object, built-in name, or YAML path. If None, the
+        motor file's igniter block is used (else a sibling
+        ``<stem>.pyrogen.yaml`` must exist).
+    pyrogen_mass, pyrogen_throat_area, pyrogen_volume, pyrogen_burn_area,
+    pyrogen_burn_law, injection_topology, cartridge_length_m,
+    basket_fill_fraction, pellet_packing_fraction, basket_area_law,
+    bed_flame_speed_m_s
+        Igniter sizing. None = not given. Precedence: an explicit value here
+        > the motor file's igniter block > the ``build_pyrogen_chamber``
+        defaults. (``pyrogen_mass=None`` everywhere = auto-size.)
     verbose : bool
         If True, print simulation and performance summary blocks. Set
         False for large parameter sweeps.
@@ -1511,23 +1533,20 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
     if particle_LD_ratio is not None:
         pyrogen_obj.particle_LD_ratio = float(particle_LD_ratio)
 
-    if igniter_sizing is not None:
-        # Sizing from the motor file's igniter block (self-describing path).
-        chamber_kwargs = igniter_sizing
-    else:
-        chamber_kwargs = dict(
-            pyrogen_mass=pyrogen_mass,
-            pyrogen_throat_area=pyrogen_throat_area,
-            pyrogen_volume=pyrogen_volume,
-            pyrogen_burn_area=pyrogen_burn_area,
-            pyrogen_burn_law=pyrogen_burn_law,
-            injection_topology=injection_topology,
-            cartridge_length_m=cartridge_length_m,
-            basket_fill_fraction=basket_fill_fraction,
-            pellet_packing_fraction=pellet_packing_fraction,
-            basket_area_law=basket_area_law,
-            bed_flame_speed_m_s=bed_flame_speed_m_s,
-        )
+    chamber_kwargs = _merge_igniter_sizing(
+        igniter_sizing,
+        pyrogen_mass=pyrogen_mass,
+        pyrogen_throat_area=pyrogen_throat_area,
+        pyrogen_volume=pyrogen_volume,
+        pyrogen_burn_area=pyrogen_burn_area,
+        pyrogen_burn_law=pyrogen_burn_law,
+        injection_topology=injection_topology,
+        cartridge_length_m=cartridge_length_m,
+        basket_fill_fraction=basket_fill_fraction,
+        pellet_packing_fraction=pellet_packing_fraction,
+        basket_area_law=basket_area_law,
+        bed_flame_speed_m_s=bed_flame_speed_m_s,
+    )
     args['pyrogen_chamber'] = build_pyrogen_chamber(
         pyrogen_obj, geo, nozzle, **chamber_kwargs)
     args['T_ignition'] = T_ignition

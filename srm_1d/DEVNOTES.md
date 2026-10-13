@@ -331,6 +331,23 @@ in geometry/burn rate/ignition (called every step or every N steps).
 
 ## API Breaking Changes Log
 
+### run_from_ric igniter-sizing precedence (unreleased, 2026-10-13) -- explicit kwargs now win over the .ric block
+
+- **Bug fixed:** when the motor file carried an igniter block, `run_from_ric` used
+  the block's sizing and silently dropped every explicit igniter-sizing kwarg
+  (`pyrogen_mass`, `pyrogen_throat_area`, `pyrogen_volume`, `pyrogen_burn_area`,
+  `pyrogen_burn_law`, `injection_topology`, `cartridge_length_m`,
+  `basket_fill_fraction`, `pellet_packing_fraction`, `basket_area_law`,
+  `bed_flame_speed_m_s`). Example: a block with `mass: -1` plus
+  `pyrogen_mass=2.62e-3` auto-sized the charge instead (Chunc, conduction: 2.10 g).
+  Runs that passed `pyrogen=` explicitly were not affected (no block is read then).
+- **Precedence now:** explicit kwarg > the .ric igniter block > the
+  `build_pyrogen_chamber` defaults (new helper `_merge_igniter_sizing`).
+- **Hard break:** those kwargs' defaults in `run_from_ric` are now `None`
+  (= not given); the concrete defaults live only in `build_pyrogen_chamber`.
+  Behaviour without a block, or without explicit kwargs, is unchanged.
+- Test: `tests/test_run_from_ric_overrides.py`.
+
 ### IG3 stage 2 (unreleased, 2026-10-12) -- DeMar flux off, DeMar charge sizing, auto-upsize ignition fallback
 
 - **BEHAVIOUR CHANGE (defaults):** `Pyrogen.heat_delivery_mode` default and every library YAML (bpnv, mtv, mtv_fast,
