@@ -54,7 +54,10 @@ from .igniter_plenum import (
     initial_plenum_state,
     pyrogen_params,
 )
-from .solid_thermal import _step_goodman_ode, _surface_has_ignited
+from .solid_thermal import (_step_goodman_ode, _step_peretz_ode,
+                            _step_conduction, _surface_has_ignited,
+                            build_solid_grid, CONDUCTION_DY0,
+                            CONDUCTION_RATIO, CONDUCTION_AGE_FRACTION)
 from .propellant import (
     R_UNIVERSAL,
     create_gas_properties, speed_of_sound, critical_flow_function,
@@ -199,6 +202,26 @@ def _peretz_ap_code(mode):
         raise ValueError(
             f"unknown peretz_ap_reference: {mode!r} "
             f"(expected one of {sorted(_PERETZ_AP_MODES)})") from None
+
+
+# SM1 (docs/pyrogen_realism/SM1_REPORT.md): solid-heating model of the ignition
+# gate. 'goodman' (default, bit-identical to pre-SM1) = algebraic-in-h cubic
+# heat-balance integral; 'peretz' = Peretz's T_s ODE (III-50); 'conduction' =
+# exact 1-D transient conduction on a graded grid.
+SOLID_GOODMAN = 0
+SOLID_PERETZ = 1
+SOLID_CONDUCTION = 2
+_SOLID_MODES = {'goodman': SOLID_GOODMAN, 'peretz': SOLID_PERETZ,
+                'conduction': SOLID_CONDUCTION}
+
+
+def _solid_model_code(mode):
+    try:
+        return _SOLID_MODES[mode]
+    except (KeyError, TypeError):
+        raise ValueError(
+            f"unknown solid_heating_model: {mode!r} "
+            f"(expected one of {sorted(_SOLID_MODES)})") from None
 
 
 @njit(cache=True, fastmath=True)
@@ -1256,6 +1279,9 @@ def _goodman_ignition_sources_and_mass(
     u_cell, A_port, A_throat, R_mix_gas, gamma_mix_gas,
     # IG3: which port area Peretz's (A_p/A_t)^0.4 uses (0 local, 1 head, 2 aft)
     peretz_ap_code,
+    # SM1: solid-heating model (0 goodman, 1 peretz, 2 conduction) + conduction state
+    solid_model_code, solid_y, solid_T, solid_age, solid_nact, solid_work,
+    solid_age_fraction,
 ):
     """Goodman surface-temperature ignition and propellant source assembly.
 
@@ -1482,11 +1508,31 @@ def _goodman_ignition_sources_and_mass(
                     h_driver = h_driver_num / h_total
                     h_c = h_total
 
-                new_delta, new_T_surf = _step_goodman_ode(
-                    delta[i], T_surf[i], h_c, h_driver, T_initial,
-                    solid_alpha, k_solid, dt,
-                )
-                delta[i] = new_delta
+                # SM1: the solid-heating model. The surface boundary is the
+                # same combined Robin flux for all three: h_c (h_driver - T_s),
+                # with h_c / h_driver already folding in the convective,
+                # pyrogen and adjacent-radiation channels above.
+                if solid_model_code == 0:
+                    new_delta, new_T_surf = _step_goodman_ode(
+                        delta[i], T_surf[i], h_c, h_driver, T_initial,
+                        solid_alpha, k_solid, dt,
+                    )
+                    delta[i] = new_delta
+                elif solid_model_code == 1:
+                    new_T_surf = _step_peretz_ode(
+                        T_surf[i], h_c, h_driver, T_initial,
+                        solid_alpha, k_solid, dt,
+                    )
+                else:
+                    new_T_surf = T_surf[i]
+                    if h_c > 0.0 or solid_age[i] > 0.0:
+                        new_T_surf, solid_nact[i] = _step_conduction(
+                            solid_T[i], solid_y, solid_nact[i], solid_age[i],
+                            h_c, h_driver, T_initial, solid_alpha, k_solid,
+                            dt, solid_age_fraction,
+                            solid_work[0], solid_work[1],
+                        )
+                        solid_age[i] += dt
                 T_surf[i] = new_T_surf
 
                 # v0.7.4 energy-balance fix: convective wall heat-loss sink.
@@ -1725,6 +1771,9 @@ def _run_time_loop(
     ignition_h_code,
     peretz_ap_code,               # IG3: 0 local, 1 head, 2 aft (peretz mode only)
     stop_if_unignitable,          # IG3: bool, end the run once ignition is impossible
+    # --- SM1: solid-heating model + conduction state ---
+    solid_model_code,             # 0 goodman, 1 peretz, 2 conduction
+    solid_y, solid_T, solid_age, solid_nact, solid_work, solid_age_fraction,
     # --- v0.8.0 Phase 6: live progress / cooperative cancel ---
     progress_state,               # [2] float64: [0]=progress 0..1 (written),
                                   #              [1]=cancel flag (read; >0.5 aborts)
@@ -2274,6 +2323,8 @@ def _run_time_loop(
             # IG2: opt-in ignition heat-transfer closure
             ignition_h_code, u_cell, A_port, A_throat,
             R_mix_arr, gamma_mix_arr, peretz_ap_code,
+            solid_model_code, solid_y, solid_T, solid_age, solid_nact,
+            solid_work, solid_age_fraction,
         )
 
         # v0.7.1 Phase 3.5: pyrogen mass injection uses pyrogen Cp for the
@@ -2811,6 +2862,12 @@ def _run_simulation_once(
     # only): 'local' (default, the cell's own port area), 'head' (fore-most
     # grain cell) or 'aft' (aft-most grain cell); instantaneous values.
     peretz_ap_reference='local',
+    # SM1 (docs/pyrogen_realism/SM1_REPORT.md): solid-phase heating model of
+    # the ignition gate. 'goodman' (default; algebraic-in-h cubic heat-balance
+    # integral, bit-identical to pre-SM1), 'peretz' (Peretz's integral-method
+    # T_s ODE, III-50: T_s is carried, not recomputed from h) or 'conduction'
+    # (exact 1-D transient conduction in the solid, graded grid, implicit).
+    solid_heating_model='goodman',
     # --- Solver ---
     # v0.7.3.2 (2026-05-27): cfl_target tightened 0.5 → 0.3 and
     # source_cfl_factor tightened 0.10 → 0.05 to absorb Phase B.0
@@ -2935,6 +2992,18 @@ def _run_simulation_once(
         ``'aft'`` (aft-most grain cell). Instantaneous values (they follow the
         burnback and the throat). The sources only had uniform ports, so none
         of the three is stated for a non-uniform bore (R9_SOURCES.md).
+    solid_heating_model : str
+        How the unignited propellant surface temperature is advanced toward
+        ``T_ignition``. ``'goodman'`` (default): Goodman cubic heat-balance
+        integral with an algebraic T_s(h, delta) -- a drop in h instantly
+        lowers T_s. ``'peretz'``: Peretz's T_s ODE (thesis Eq. III-50), same
+        profile, T_s carried as state (held when h falls); identical to
+        goodman at constant h. ``'conduction'``: exact 1-D transient
+        conduction in the solid (graded grid of ``solid_thermal.
+        CONDUCTION_DY0/CONDUCTION_RATIO``, backward Euler sub-stepped against
+        the heating age; uses only k_solid and alpha). All three see the same
+        combined surface flux (convective + pyrogen + radiation). T_ignition /
+        k_solid were calibrated with goodman. See SM1_REPORT.md.
     cfl_target : float
         Target CFL number for time stepping. Default: 0.5.
     dt_max : float
@@ -3037,6 +3106,7 @@ def _run_simulation_once(
     _ero_code = resolve_erosive_model(erosive_model)
     _ign_h_code = _ignition_h_code(ignition_heat_transfer)
     _ap_code = _peretz_ap_code(peretz_ap_reference)
+    _solid_code = _solid_model_code(solid_heating_model)
     if erosive_mp_cap > 0.0 and erosive_model != 'ma2020':
         raise ValueError(
             f"erosive_mp_cap={erosive_mp_cap} is a ma2020-only option; "
@@ -3238,6 +3308,20 @@ def _run_simulation_once(
     u_cell = np.zeros(N)
     T_surf = np.full(N, propellant.T_initial)
     delta = np.full(N, 1.0e-6)
+    # SM1: conduction-model state (1x2 dummies unless solid_heating_model=
+    # 'conduction', so the default path allocates nothing).
+    if _solid_code == SOLID_CONDUCTION and propellant.k_solid > 0.0:
+        _alpha_s = propellant.k_solid / (propellant.rho_propellant * propellant.Cps)
+        solid_y = build_solid_grid(_alpha_s, t_max, CONDUCTION_DY0,
+                                   CONDUCTION_RATIO)
+        solid_T = np.full((N, solid_y.shape[0]), propellant.T_initial)
+        solid_work = np.zeros((2, solid_y.shape[0]))
+    else:
+        solid_y = np.array([0.0, 1.0e-6])
+        solid_T = np.full((1, 2), propellant.T_initial)
+        solid_work = np.zeros((2, 2))
+    solid_age = np.zeros(N)
+    solid_nact = np.full(N, 3, dtype=np.int64)
 
     plenum_state = initial_plenum_state(
         pyrogen_chamber, P_initial=P_ambient, T_initial=propellant.T_initial
@@ -3571,6 +3655,9 @@ def _run_simulation_once(
         int(_ign_h_code),
         int(_ap_code),
         bool(stop_if_unignitable),
+        # SM1: solid-heating model + conduction state
+        int(_solid_code), solid_y, solid_T, solid_age, solid_nact, solid_work,
+        float(CONDUCTION_AGE_FRACTION),
         # v0.8.0 Phase 6: live progress / cooperative cancel
         progress_state,
     )
@@ -3866,6 +3953,7 @@ def _run_simulation_once(
                  is_grain & (ignition_time >= 1.0e9))[-1]]) * 1e3]
             if np.any(is_grain & (ignition_time >= 1.0e9)) else None),
         'stop_if_unignitable': bool(stop_if_unignitable),
+        'solid_heating_model': solid_heating_model,
         'diagnostic_disable_erosive': bool(diagnostic_disable_erosive),
         'diagnostic_disable_endfaces': bool(diagnostic_disable_endfaces),
         'diagnostic_disable_momentum': bool(diagnostic_disable_momentum),
