@@ -70,9 +70,6 @@ Still open: **R5** (pellet-bed flame spread; not found), **R7** (raw Chunc ignit
 **R9** (Rocketdyne igniter-duct data; see `R9_SOURCES.md`: AIAA J. 5(7) 1967 DOI 10.2514/3.4183 is
 verified and fetchable; the two AFRPL reports and Cohen-Derr-Price are not online).
 
-**R9** (Rocketdyne igniter-duct data; NTRS search for AFRPL-TR-67-267 found nothing, DTIC down --
-candidate-source search delegated).
-
 ## OB1 additions (2026-10-11)
 
 R1, R2, R3 were READ for OB1 (page images; the text layers are unusable for R1/R2). What they do and do not
