@@ -2644,19 +2644,23 @@ def _run_time_loop(
             termination_code = 2
             break
 
-        # IG3: ignition-impossible early stop (first-principles bound, not a
-        # tuned timeout). No grain cell has lit, the pyrogen charge is fully
-        # consumed and vented (no energy source is left; the propellant gives
-        # none until it lights), and every bore gas temperature AND the
-        # plenum gas are below T_ignition. A wall heated by convection (the
-        # only remaining channel; nothing burns, so there is no radiation)
-        # can approach but never exceed the temperature of the gas heating
-        # it, and the gas cannot get hotter without a source, so no
-        # unignited surface can ever reach T_ignition.
-        if stop_if_unignitable and n_ignited == 0 and pyrogen_done                 and step % 16 == 0 and plenum_state[2] < T_ignition:
+        # IG3: ignition-impossible early stop (a physical bound, not a tuned
+        # timeout). No grain cell has lit, and the pyrogen charge is fully
+        # consumed with no mass leaving the igniter (pyrogen_done), so no
+        # energy source is left -- the propellant gives none until it lights --
+        # and the gas in EVERY grain cell is colder than T_ignition. A wall
+        # heated by convection (the only channel left: nothing burns, so no
+        # radiation) can approach but never exceed the temperature of the gas
+        # heating it, and that gas cannot get hotter without a source, so no
+        # unignited surface can reach T_ignition. Residual assumption: gas in
+        # the non-grain head-end cells (the cooled-by-nothing igniter pocket,
+        # which stays at plenum temperature in this model) is not advected
+        # into the grain; the grain gas keeps cooling beside it (measured).
+        if (stop_if_unignitable and n_ignited == 0 and pyrogen_done
+                and step % 16 == 0):
             T_gas_max = 0.0
             for i in range(N):
-                if T[i] > T_gas_max:
+                if is_grain[i] and T[i] > T_gas_max:
                     T_gas_max = T[i]
             if T_gas_max < T_ignition:
                 termination_code = 6
