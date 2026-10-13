@@ -288,6 +288,104 @@ def _nozzle_boundary_flow(
 
 
 @njit(cache=True, fastmath=True)
+def _total_energy_update(
+    rho, u_old, T, A_port, A_face, Cp_arr, R_arr, T_ceiling_arr,
+    rho_new_1, u_new, P_new, thermal_source, A_throat,
+    gamma_bnd, R_bnd, P_ambient, T_ambient, dx, dt, N,
+    T_new, T_raw_arr,
+):
+    """EN1: conservative total-energy update of the cell temperatures.
+
+    Per cell (control volume = the cell between faces i and i+1)::
+
+        E_i^{n+1} = E_i^n + dt (F_i - F_{i+1} + S_i dx)
+        E        = m (Cv T + KE),        m_new = rho_new_1 A dx  (continuity),
+        KE_i     = (u_i^2 + u_{i+1}^2) / 4,
+        F_j      = mdot_j (Cp T + KE)_{upwind cell, start-of-step state},
+        S_i dx   = ``thermal_source[i]*dx``  (enthalpy of injected gas, which
+                   enters with no axial kinetic energy),
+        Cv T_new = E^{n+1}/m_new - KE(u_new)
+
+    followed by the same T floor / ceiling clip as the sensible form.  The
+    pressure work (V dp/dt) and the kinetic energy are carried by the
+    conserved variable instead of being dropped.  Writes ``T_new`` and
+    ``T_raw_arr`` in place and returns
+    ``(E_before, E_after, convective_flux_power, nozzle_flux_power,
+    thermal_source_power, clipping_correction_power)``.
+    """
+    E_before = 0.0
+    E_after = 0.0
+    convective_power = 0.0
+    nozzle_power = 0.0
+    thermal_power = 0.0
+    clip_power = 0.0
+    T_floor = max(1.0, T_ambient)
+    for i in range(N):
+        Cp_i = Cp_arr[i]
+        Cv_i = Cp_i - R_arr[i]
+        old_mass = rho[i] * A_port[i] * dx
+        new_mass = max(rho_new_1[i] * A_port[i] * dx, 1e-16)
+        ke_old_i = 0.25 * (u_old[i] * u_old[i] + u_old[i + 1] * u_old[i + 1])
+        E_old = old_mass * (Cv_i * T[i] + ke_old_i)
+        E_before += E_old
+
+        # West face: total-enthalpy flux of the upwind cell (old state).
+        if i == 0:
+            flux_w = 0.0
+        else:
+            rho_w = 0.5 * (rho_new_1[i - 1] + rho_new_1[i])
+            mdot_w = rho_w * u_new[i] * A_face[i]
+            if mdot_w >= 0:
+                ke_up = 0.25 * (u_old[i - 1] * u_old[i - 1] + u_old[i] * u_old[i])
+                flux_w = mdot_w * (Cp_arr[i - 1] * T[i - 1] + ke_up)
+            else:
+                flux_w = mdot_w * (Cp_i * T[i] + ke_old_i)
+
+        # East face.
+        if i < N - 1:
+            rho_e = 0.5 * (rho_new_1[i] + rho_new_1[i + 1])
+            mdot_e = rho_e * u_new[i + 1] * A_face[i + 1]
+            if mdot_e >= 0:
+                flux_e = mdot_e * (Cp_i * T[i] + ke_old_i)
+            else:
+                ke_up = 0.25 * (u_old[i + 1] * u_old[i + 1]
+                                + u_old[i + 2] * u_old[i + 2])
+                flux_e = mdot_e * (Cp_arr[i + 1] * T[i + 1] + ke_up)
+        else:
+            mdot_e, _dmdp, T_upstream, _state = _nozzle_boundary_flow(
+                P_new[i], T[i], A_throat, gamma_bnd, R_bnd,
+                P_ambient, T_ambient,
+            )
+            if mdot_e >= 0.0:
+                # Outflow carries the cell's total enthalpy.
+                flux_e = mdot_e * (Cp_i * T_upstream + ke_old_i)
+            else:
+                # Ambient inflow: reservoir at rest, no kinetic energy.
+                flux_e = mdot_e * Cp_i * T_upstream
+            nozzle_power = flux_e
+
+        convective_flux = flux_w - flux_e
+        convective_power += convective_flux
+        thermal_power += thermal_source[i] * dx
+
+        E_new = E_old + dt * (convective_flux + thermal_source[i] * dx)
+        ke_new_i = 0.25 * (u_new[i] * u_new[i] + u_new[i + 1] * u_new[i + 1])
+        e_new = E_new / new_mass - ke_new_i
+        T_raw = e_new / Cv_i if Cv_i > 0.0 else e_new
+        T_clipped = T_raw
+        if T_clipped < T_floor:
+            T_clipped = T_floor
+        if T_clipped > T_ceiling_arr[i]:
+            T_clipped = T_ceiling_arr[i]
+        clip_power += (T_clipped - T_raw) * new_mass * Cv_i / dt
+        T_raw_arr[i] = T_raw
+        T_new[i] = T_clipped
+        E_after += new_mass * (Cv_i * T_clipped + ke_new_i)
+    return (E_before, E_after, convective_power, nozzle_power,
+            thermal_power, clip_power)
+
+
+@njit(cache=True, fastmath=True)
 def _piso_step_with_energy_diagnostics(
     rho, u, P, T, A_port, D_hyd,
     mass_source, thermal_source, momentum_source, f_darcy,
@@ -309,6 +407,8 @@ def _piso_step_with_energy_diagnostics(
     energy_coupling_iters=1,
     energy_coupling_tol=1.0e-6,
     corr2_storage=True,
+    total_energy=False,
+    conservative_momentum=False,
 ):
     """
     One complete PISO time step on a staggered grid.
@@ -468,6 +568,37 @@ def _piso_step_with_energy_diagnostics(
     eos_mass_jump_p2 : float
         Part of ``eos_mass_jump`` carried by the second pressure correction:
         ``sum((P_raw - P_after_corr1)/(R T_new) A dx)`` [kg] (diagnostic).
+
+    EN1 total-energy formulation (opt-in, default ``total_energy=False`` =
+    the sensible-enthalpy step above, bit-identical).  With
+    ``total_energy=True`` STEP 3b stores and transports the conserved total
+    energy instead of ``Cp*T``:
+
+        cell storage  E_i   = m_i (Cv_i T_i + KE_i),   Cv = Cp - R,
+                        KE_i = (u_i^2 + u_{i+1}^2)/4   (face-velocity mean square),
+        face flux     F_j   = mdot_j (Cp T + KE)_upwind cell,
+        sources       thermal_source*dx   (injected enthalpy, zero axial KE),
+        T recovery    Cv_i T_i = E_i/m_i - KE_i(u_new),  then the unchanged
+                      T floor / ceiling clips (ledger = ``clipping_correction_power``).
+
+    See ``_total_energy_update`` and docs/solver_verification/worklog/EN1.md.
+
+    EN1 conservative momentum (opt-in, default ``conservative_momentum=False``
+    = the shipped predictor, bit-identical).  The shipped predictor solves
+    ``rho_f (u* - u^n)/dt = RHS``, i.e. ``rho u_t = -(rho u u)_x - P_x``, which
+    is the conservative momentum equation MINUS the term ``u rho_t``: exact for
+    steady flow but, in a transient, it is neither the conservative nor the
+    primitive form, and a captured shock then moves at the wrong speed with
+    wrong post-shock states on any grid (docs/solver_verification/worklog/EN1.md).
+    With ``conservative_momentum=True`` the predictor is
+    ``rho_f^{n+1,p} u* - rho_f^n u^n = dt RHS`` with the face density predicted
+    from the old-state discrete continuity.  Steady flow is unchanged.
+    In this mode ``gas_energy_before/after``, ``convective_scalar_flux_power``,
+    ``nozzle_scalar_flux_power``, ``energy_residual``, ``eos_energy_jump`` and
+    ``floor_energy_added`` are TOTAL-energy quantities (the jumps weight the
+    mass by ``Cv T_new + KE_new`` instead of ``Cp T_new``) so that the ledger
+    identity ``gas_energy_after + eos + floor == carried storage`` holds in
+    either form.
     """
     # v0.7.1 Phase 3: nozzle boundary uses cell-N-1 mixture thermo
     gamma_bnd = gamma_arr[N - 1]
@@ -490,6 +621,23 @@ def _piso_step_with_energy_diagnostics(
 
     u_star = np.zeros(N + 1)
     u_star[0] = 0.0  # Head-end wall BC
+
+    # EN1 (opt-in): predicted new cell density from the OLD-state discrete
+    # continuity (the same face densities and nozzle boundary flow the pressure
+    # correctors use), for the conservative momentum predictor below.
+    rho_pred = np.zeros(N)
+    if conservative_momentum:
+        mdot_old = np.zeros(N + 1)
+        for j in range(1, N):
+            mdot_old[j] = 0.5 * (rho[j - 1] + rho[j]) * u[j] * A_face[j]
+        mdot_old[N], _dmdp0, _Tbc0, _st0 = _nozzle_boundary_flow(
+            P[N - 1], T[N - 1], A_throat, gamma_bnd, R_bnd, P_ambient, T_ambient
+        )
+        for i in range(N):
+            rho_pred[i] = rho[i] + dt * (
+                mass_source[i] / A_port[i]
+                - (mdot_old[i + 1] - mdot_old[i]) / (A_port[i] * dx)
+            )
 
     for j in range(1, N):
         # Face j sits between cells j-1 and j
@@ -536,7 +684,14 @@ def _piso_step_with_energy_diagnostics(
 
         # --- Update ---
         RHS = pres_force + conv / A_f + friction + momentum_source[j]
-        u_star[j] = u[j] + dt / rho_f * RHS
+        if conservative_momentum:
+            rho_f_pred = 0.5 * (rho_pred[j - 1] + rho_pred[j])
+            if rho_f_pred < 1e-10:
+                u_star[j] = 0.0
+            else:
+                u_star[j] = (rho_f * u[j] + dt * RHS) / rho_f_pred
+        else:
+            u_star[j] = u[j] + dt / rho_f * RHS
 
     # Nozzle face: extrapolate for now (corrected by pressure step)
     u_star[N] = u_star[N - 1]
@@ -763,7 +918,8 @@ def _piso_step_with_energy_diagnostics(
                 mach_hit_arr[j - 1] = mach_hit
 
         # -------------------------------------------------------
-        # STEP 3b: ENERGY EQUATION  (v0.7.1 Phase 3: sensible-enthalpy form)
+        # STEP 3b: ENERGY EQUATION  (v0.7.1 Phase 3: sensible-enthalpy form;
+        #          EN1: opt-in conservative total-energy form, ``total_energy``)
         # -------------------------------------------------------
         # We advect h_i = Cp_arr[i] * T[i] (specific sensible enthalpy)
         # rather than T directly. Across a face between cells with different
@@ -777,73 +933,83 @@ def _piso_step_with_energy_diagnostics(
         # T_new = h_new / Cp_arr[i] (Cp stays at its start-of-step value within
         # the PISO step — species composition is updated by _advect_species
         # after PISO returns, then Cp_arr is refreshed for the next step.)
-        gas_energy_before = 0.0
-        gas_energy_after = 0.0
-        convective_scalar_flux_power = 0.0
-        nozzle_scalar_flux_power = 0.0
-        thermal_source_power = 0.0
-        clipping_correction_power = 0.0
-        T_new = np.zeros(N)
-        for i in range(N):
-            Cp_i = Cp_arr[i]
-            old_mass = rho[i] * A_port[i] * dx
-            new_mass = max(rho_new_1[i] * A_port[i] * dx, 1e-16)
-            h_old = Cp_i * T[i]
-            gas_energy_before += old_mass * h_old
+        if total_energy:
+            (gas_energy_before, gas_energy_after, convective_scalar_flux_power,
+             nozzle_scalar_flux_power, thermal_source_power,
+             clipping_correction_power) = _total_energy_update(
+                rho, u, T, A_port, A_face, Cp_arr, R_arr, T_ceiling_arr,
+                rho_new_1, u_new, P_new, thermal_source, A_throat,
+                gamma_bnd, R_bnd, P_ambient, T_ambient, dx, dt, N,
+                T_new, T_raw_arr,
+            )
+        else:
+            gas_energy_before = 0.0
+            gas_energy_after = 0.0
+            convective_scalar_flux_power = 0.0
+            nozzle_scalar_flux_power = 0.0
+            thermal_source_power = 0.0
+            clipping_correction_power = 0.0
+            T_new = np.zeros(N)
+            for i in range(N):
+                Cp_i = Cp_arr[i]
+                old_mass = rho[i] * A_port[i] * dx
+                new_mass = max(rho_new_1[i] * A_port[i] * dx, 1e-16)
+                h_old = Cp_i * T[i]
+                gas_energy_before += old_mass * h_old
 
-            # West face enthalpy flux (upwind using staggered face velocity)
-            if i == 0:
-                flux_h_w = 0.0
-            else:
-                rho_w = 0.5 * (rho_new_1[i - 1] + rho_new_1[i])
-                mdot_w = rho_w * u_new[i] * A_face[i]
-                if mdot_w >= 0:
-                    flux_h_w = mdot_w * Cp_arr[i - 1] * T[i - 1]
+                # West face enthalpy flux (upwind using staggered face velocity)
+                if i == 0:
+                    flux_h_w = 0.0
                 else:
-                    flux_h_w = mdot_w * Cp_i * T[i]
+                    rho_w = 0.5 * (rho_new_1[i - 1] + rho_new_1[i])
+                    mdot_w = rho_w * u_new[i] * A_face[i]
+                    if mdot_w >= 0:
+                        flux_h_w = mdot_w * Cp_arr[i - 1] * T[i - 1]
+                    else:
+                        flux_h_w = mdot_w * Cp_i * T[i]
 
-            # East face enthalpy flux
-            if i < N - 1:
-                rho_e = 0.5 * (rho_new_1[i] + rho_new_1[i + 1])
-                mdot_e = rho_e * u_new[i + 1] * A_face[i + 1]
-                if mdot_e >= 0:
-                    flux_h_e = mdot_e * Cp_i * T[i]
+                # East face enthalpy flux
+                if i < N - 1:
+                    rho_e = 0.5 * (rho_new_1[i] + rho_new_1[i + 1])
+                    mdot_e = rho_e * u_new[i + 1] * A_face[i + 1]
+                    if mdot_e >= 0:
+                        flux_h_e = mdot_e * Cp_i * T[i]
+                    else:
+                        flux_h_e = mdot_e * Cp_arr[i + 1] * T[i + 1]
                 else:
-                    flux_h_e = mdot_e * Cp_arr[i + 1] * T[i + 1]
-            else:
-                mdot_e, _dmdp, T_upstream, _state = _nozzle_boundary_flow(
-                    P_new[i], T[i], A_throat, gamma_bnd, R_bnd,
-                    P_ambient, T_ambient,
+                    mdot_e, _dmdp, T_upstream, _state = _nozzle_boundary_flow(
+                        P_new[i], T[i], A_throat, gamma_bnd, R_bnd,
+                        P_ambient, T_ambient,
+                    )
+                    # Outflow carries cell-N-1's mixture Cp; inflow uses cell-N-1's
+                    # Cp as a stand-in for ambient Cp (mdot_e is small in that
+                    # regime so the choice is negligible).
+                    flux_h_e = mdot_e * Cp_i * T_upstream
+                    nozzle_scalar_flux_power = flux_h_e
+
+                convective_h_flux = flux_h_w - flux_h_e
+                convective_scalar_flux_power += convective_h_flux
+                # thermal_source is enthalpy injection [W/m] (Phase 3 step 1).
+                thermal_source_power += thermal_source[i] * dx
+
+                h_scalar = old_mass * h_old + dt * (
+                    convective_h_flux + thermal_source[i] * dx
                 )
-                # Outflow carries cell-N-1's mixture Cp; inflow uses cell-N-1's
-                # Cp as a stand-in for ambient Cp (mdot_e is small in that
-                # regime so the choice is negligible).
-                flux_h_e = mdot_e * Cp_i * T_upstream
-                nozzle_scalar_flux_power = flux_h_e
-
-            convective_h_flux = flux_h_w - flux_h_e
-            convective_scalar_flux_power += convective_h_flux
-            # thermal_source is enthalpy injection [W/m] (Phase 3 step 1).
-            thermal_source_power += thermal_source[i] * dx
-
-            h_scalar = old_mass * h_old + dt * (
-                convective_h_flux + thermal_source[i] * dx
-            )
-            h_new = h_scalar / new_mass
-            T_raw = h_new / Cp_i if Cp_i > 0.0 else h_new
-            T_floor = max(1.0, T_ambient)
-            T_ceiling_i = T_ceiling_arr[i]
-            T_clipped = T_raw
-            if T_clipped < T_floor:
-                T_clipped = T_floor
-            if T_clipped > T_ceiling_i:
-                T_clipped = T_ceiling_i
-            clipping_correction_power += (
-                (T_clipped - T_raw) * new_mass * Cp_i / dt
-            )
-            T_raw_arr[i] = T_raw  # PB/P2 bookkeeping (last pass wins)
-            T_new[i] = T_clipped
-            gas_energy_after += new_mass * Cp_i * T_new[i]
+                h_new = h_scalar / new_mass
+                T_raw = h_new / Cp_i if Cp_i > 0.0 else h_new
+                T_floor = max(1.0, T_ambient)
+                T_ceiling_i = T_ceiling_arr[i]
+                T_clipped = T_raw
+                if T_clipped < T_floor:
+                    T_clipped = T_floor
+                if T_clipped > T_ceiling_i:
+                    T_clipped = T_ceiling_i
+                clipping_correction_power += (
+                    (T_clipped - T_raw) * new_mass * Cp_i / dt
+                )
+                T_raw_arr[i] = T_raw  # PB/P2 bookkeeping (last pass wins)
+                T_new[i] = T_clipped
+                gas_energy_after += new_mass * Cp_i * T_new[i]
 
         # P5: convergence of the T fixed point T_comp -> T_new.
         rel_dT = 0.0
@@ -932,7 +1098,13 @@ def _piso_step_with_energy_diagnostics(
         gas_mass_before += old_mass_acct
         gas_mass_after += new_mass_acct
         eos_mass_jump += m_eos_acct - new_mass_acct
-        eos_energy_jump += (m_eos_acct - new_mass_acct) * Cp_arr[i] * T_new[i]
+        if total_energy:
+            # EN1: native (total-energy) weighting, Cv T + KE of the new state.
+            e_w = (Cp_arr[i] - R_arr[i]) * T_new[i] + 0.25 * (
+                u_new[i] * u_new[i] + u_new[i + 1] * u_new[i + 1])
+            eos_energy_jump += (m_eos_acct - new_mass_acct) * e_w
+        else:
+            eos_energy_jump += (m_eos_acct - new_mass_acct) * Cp_arr[i] * T_new[i]
         # P5 diagnostic: the part of the EOS jump carried by the second
         # pressure correction alone (P'2 is applied after rho_new_1 is built).
         eos_mass_jump_p2 += (
@@ -957,7 +1129,12 @@ def _piso_step_with_energy_diagnostics(
                 * A_port[i] * dx
             )
             floor_mass_added += m_floor_i
-            floor_energy_added += m_floor_i * Cp_arr[i] * T_new[i]
+            if total_energy:
+                floor_energy_added += m_floor_i * (
+                    (Cp_arr[i] - R_arr[i]) * T_new[i] + 0.25 * (
+                        u_new[i] * u_new[i] + u_new[i + 1] * u_new[i + 1]))
+            else:
+                floor_energy_added += m_floor_i * Cp_arr[i] * T_new[i]
             if P_new[i] < floor_min_raw_P:
                 floor_min_raw_P = P_new[i]
             # PB/P2 bookkeeping only: per-cell activation tally + deficit.
@@ -1009,6 +1186,8 @@ def piso_step(
     energy_coupling_iters=1,
     energy_coupling_tol=1.0e-6,
     corr2_storage=True,
+    total_energy=False,
+    conservative_momentum=False,
 ):
     """Public PISO step returning only the updated flow state.
 
@@ -1034,6 +1213,8 @@ def piso_step(
         energy_coupling_iters=energy_coupling_iters,
         energy_coupling_tol=energy_coupling_tol,
         corr2_storage=corr2_storage,
+        total_energy=total_energy,
+        conservative_momentum=conservative_momentum,
     )
     return out[0], out[1], out[2], out[3]
 

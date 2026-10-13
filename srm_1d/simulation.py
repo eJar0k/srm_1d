@@ -416,6 +416,33 @@ def _gas_mass_energy(rho, T, A_port, dx, Cp_arr, N):
 
 
 @njit(cache=True, fastmath=True)
+def _gas_mass_energy_total(rho, T, u, A_port, dx, Cp_arr, R_arr, N):
+    """EN1: gas mass [kg] and TOTAL energy [J] of a state, ``sum m (Cv T + KE)``.
+
+    Same role as :func:`_gas_mass_energy` for the ``energy_formulation='total'``
+    ledger: ``Cv = Cp - R`` (per cell), ``KE = (u_i^2 + u_{i+1}^2)/4`` from the
+    face velocities (the cell kinetic energy the PISO energy step stores).
+    """
+    mass = 0.0
+    energy = 0.0
+    for i in range(N):
+        m_i = rho[i] * A_port[i] * dx
+        ke = 0.25 * (u[i] * u[i] + u[i + 1] * u[i + 1])
+        mass += m_i
+        energy += m_i * ((Cp_arr[i] - R_arr[i]) * T[i] + ke)
+    return mass, energy
+
+
+@njit(cache=True, fastmath=True)
+def _ledger_mass_energy(total_energy, rho, T, u, A_port, dx, Cp_arr, R_arr, N):
+    """Storage of a carried state in the ledger's own energy convention
+    (sensible ``Cp T`` or, with EN1 ``total_energy``, ``Cv T + KE``)."""
+    if total_energy:
+        return _gas_mass_energy_total(rho, T, u, A_port, dx, Cp_arr, R_arr, N)
+    return _gas_mass_energy(rho, T, A_port, dx, Cp_arr, N)
+
+
+@njit(cache=True, fastmath=True)
 def _thermal_source_power(thermal_source, dx, N):
     """Sum solver enthalpy-source units to thermal power [W].
 
@@ -1733,6 +1760,7 @@ def _run_time_loop(
     cfl_target, dt_max, burn_update_interval, geometry_update_interval,
     source_cfl_factor, port_mach_cap, pressure_floor_pa,
     piso_energy_coupling_iters, piso_corr2_storage,
+    total_energy, conservative_momentum,
     T_ignition, P_ambient, ambient_temperature,
     diagnostic_disable_erosive, diagnostic_disable_endfaces,
     diagnostic_disable_momentum, diagnostic_disable_pyrogen_surface_heating,
@@ -2120,8 +2148,8 @@ def _run_time_loop(
             if gap_geometry > max_geometry_refresh_gap:
                 max_geometry_refresh_gap = gap_geometry
             t_last_geometry_refresh = t
-            geo_mass_pre, geo_energy_pre = _gas_mass_energy(
-                rho, T, A_port, dx, Cp_mix_arr, N,
+            geo_mass_pre, geo_energy_pre = _ledger_mass_energy(
+                total_energy, rho, T, u, A_port, dx, Cp_mix_arr, R_mix_arr, N,
             )
             update_cell_geometry(
                 regress, D_port, x_centers, dx, N, N_seg, cell_D_outer,
@@ -2136,8 +2164,8 @@ def _run_time_loop(
                 cell_segment_type, cell_fmm_idx,
                 fmm_offset, fmm_reg_flat, fmm_perim_flat, fmm_port_flat,
             )
-            geo_mass_post, geo_energy_post = _gas_mass_energy(
-                rho, T, A_port, dx, Cp_mix_arr, N,
+            geo_mass_post, geo_energy_post = _ledger_mass_energy(
+                total_energy, rho, T, u, A_port, dx, Cp_mix_arr, R_mix_arr, N,
             )
             geo_dM = geo_mass_post - geo_mass_pre
             geo_dE = geo_energy_post - geo_energy_pre
@@ -2526,7 +2554,7 @@ def _run_time_loop(
             t,
             pressure_floor_pa,
             piso_energy_coupling_iters, 1.0e-6,
-            piso_corr2_storage,
+            piso_corr2_storage, total_energy, conservative_momentum,
         )
 
         # T6 energy audit (bookkeeping only): the gap between the END of the
@@ -2565,14 +2593,19 @@ def _run_time_loop(
         nozzle_enthalpy_power_post = (
             nozzle_mdot * Cp_mix_arr[N - 1] * nozzle_upstream_T
         )
+        if total_energy and nozzle_mdot > 0.0:
+            # EN1: the total-energy flux also carries the cell kinetic energy.
+            nozzle_enthalpy_power_post += nozzle_mdot * 0.25 * (
+                u[N - 1] * u[N - 1] + u[N] * u[N]
+            )
 
         # v0.7.1: species advection using post-PISO (u, rho) and the
         # pre-PISO rho snapshot. mass_source_by_species was populated
         # earlier (pyrogen at cell 0, propellant grain at active cells).
         # T6 energy audit (bookkeeping only): storage before/after the
         # mixture refresh (Cp changes at fixed rho, T, A_port).
-        mix_mass_pre, mix_energy_pre = _gas_mass_energy(
-            rho, T, A_port, dx, Cp_mix_arr, N,
+        mix_mass_pre, mix_energy_pre = _ledger_mass_energy(
+            total_energy, rho, T, u, A_port, dx, Cp_mix_arr, R_mix_arr, N,
         )
         _advect_species(
             Y_species, rho_pre_step, rho, u, A_port,
@@ -2588,8 +2621,8 @@ def _run_time_loop(
             Y_species, species_params_arr,
             gamma_mix_arr, Cp_mix_arr, R_mix_arr, M_mix_arr, N,
         )
-        mix_mass_post, mix_energy_post = _gas_mass_energy(
-            rho, T, A_port, dx, Cp_mix_arr, N,
+        mix_mass_post, mix_energy_post = _ledger_mass_energy(
+            total_energy, rho, T, u, A_port, dx, Cp_mix_arr, R_mix_arr, N,
         )
         _compute_T_ceiling_arr(
             Y_species, species_params_arr, T_ceiling_arr, N, T_initial_gas,
@@ -2981,6 +3014,16 @@ def _run_simulation_once(
     # corrector omitted (it re-applied the first corrector's storage, so every
     # transient pressure increment was applied ~twice). False = pre-T11 step.
     piso_corr2_storage=True,
+    # EN1 (opt-in; defaults reproduce the shipped step bit-for-bit):
+    # ``energy_formulation`` 'sensible' (transport Cp*T; shipped) | 'total'
+    # (conservative total energy m(Cv T + KE), pressure work + kinetic energy
+    # carried; docs/solver_verification/worklog/EN1.md). ``momentum_formulation``
+    # 'legacy' (shipped predictor rho u_t = -(rho u u)_x - P_x) | 'conservative'
+    # ((rho u)_t + (rho u u)_x = -P_x with the face density predicted from the
+    # old-state continuity); needed for captured shocks to satisfy the
+    # Rankine-Hugoniot jump conditions.
+    energy_formulation='sensible',
+    momentum_formulation='legacy',
     burn_update_interval=None,
     geometry_update_interval=None,
     # --- Ignition ---
@@ -3143,6 +3186,19 @@ def _run_simulation_once(
         historical constant, bit-identical). Overriding it is a
         limiter-sensitivity diagnostic and changes the run's physics. Must
         be finite and positive.
+    energy_formulation : {'sensible', 'total'}
+        EN1. ``'sensible'`` (default, the shipped step) transports ``Cp*T``;
+        ``'total'`` stores and transports the conserved total energy
+        ``m (Cv T + KE)`` (pressure work and kinetic energy carried; T is
+        recovered as ``Cv T = E/m - KE``). Opt-in. With ``'total'`` the
+        ``gas_sensible_*`` / ``energy_residual`` / jump channels hold TOTAL
+        energy. See docs/solver_verification/worklog/EN1.md.
+    momentum_formulation : {'legacy', 'conservative'}
+        EN1. ``'legacy'`` (default) is the shipped predictor
+        ``rho u_t = -(rho u u)_x - P_x`` (exact for steady flow; not the
+        conservative momentum law in a transient). ``'conservative'`` solves
+        ``(rho u)_t + (rho u u)_x = -P_x`` with the face density predicted
+        from the old-state continuity. Opt-in; steady flow is unchanged.
     history_capacity : int or None
         Number of preallocated per-step history rows. ``None`` (default)
         sizes them from the hottest species' sound speed (see
@@ -3179,6 +3235,15 @@ def _run_simulation_once(
         raise ValueError("igniter_axial_momentum_fraction must be between 0 and 1")
     if not np.isfinite(pressure_floor_pa) or pressure_floor_pa <= 0.0:
         raise ValueError("pressure_floor_pa must be finite and positive")
+    if energy_formulation not in ('sensible', 'total'):
+        raise ValueError(
+            f"energy_formulation must be 'sensible' or 'total', got {energy_formulation!r}")
+    if momentum_formulation not in ('legacy', 'conservative'):
+        raise ValueError(
+            "momentum_formulation must be 'legacy' or 'conservative', "
+            f"got {momentum_formulation!r}")
+    _total_energy_flag = energy_formulation == 'total'
+    _conservative_momentum_flag = momentum_formulation == 'conservative'
     if burn_update_interval is not None and (
             int(burn_update_interval) != burn_update_interval
             or burn_update_interval < 1):
@@ -3678,6 +3743,7 @@ def _run_simulation_once(
         cfl_target, dt_max, burn_update_interval, geometry_update_interval,
         source_cfl_factor, float(port_mach_cap), float(pressure_floor_pa),
         int(piso_energy_coupling_iters), bool(piso_corr2_storage),
+        _total_energy_flag, _conservative_momentum_flag,
         T_ignition, P_ambient, T_ambient,
         bool(diagnostic_disable_erosive), bool(diagnostic_disable_endfaces),
         bool(diagnostic_disable_momentum),
@@ -4039,6 +4105,8 @@ def _run_simulation_once(
         # DESIGN.md §4) — traces, probes, and CSV exports are otherwise
         # unlabeled as to which erosive closure produced them.
         'erosive_model': erosive_model,
+        'energy_formulation': energy_formulation,
+        'momentum_formulation': momentum_formulation,
         'ignition_heat_transfer': ignition_heat_transfer,
         'peretz_ap_reference': peretz_ap_reference,
         'ignited': bool(first_ignition_time == first_ignition_time),  # not NaN
@@ -4084,6 +4152,10 @@ def _run_simulation_once(
             'gas_sensible_dE_dt - convective_scalar_flux_power - '
             'thermal_source_power - clipping_correction_power; '
             'convective power is positive into the gas'
+            + ('; energy_formulation=total: every energy/flux/jump channel '
+               'is TOTAL energy m(Cv T + KE) / total-enthalpy flux '
+               '(eos_energy_jump and floor energy keep their Cp*T_new '
+               'weighting)' if energy_formulation == 'total' else '')
         ),
         # Pressure-floor accounting (solver-verification T3). The PISO step
         # clamps P to 1 kPa and rebuilds rho = P/(R*T); the mass/energy that
