@@ -386,6 +386,22 @@ in geometry/burn rate/ignition (called every step or every N steps).
   baselines, flame-front gate, diagnostics) pin `heat_delivery_mode='demar'`; the sibling-pyrogen adapter test gains an
   `impetus_W`.
 
+### SM1 (unreleased, 2026-10-12) -- opt-in solid-heating models for the ignition gate
+
+- **New kwarg** `run_simulation(solid_heating_model='goodman'|'peretz'|'conduction')`, default `'goodman'`
+  (bit-identical to pre-SM1; B0 PASS, `docs/pyrogen_realism/results/sm1_B0_output.txt`). `'peretz'` = Peretz's
+  integral-method T_s ODE (thesis Eq. III-50 / AIAA 72-1119 Eq. 19), T_s carried as state. `'conduction'` = exact
+  1-D transient conduction in the solid (graded grid `solid_thermal.CONDUCTION_DY0/RATIO`, backward Euler sub-stepped
+  at <= `CONDUCTION_AGE_FRACTION` x heating age; uses only k_solid and alpha; ~5-20 % wall cost). Reported in
+  `summary['solid_heating_model']`. See `docs/pyrogen_realism/SM1_REPORT.md` (the user decides the default).
+- **Hard API breaks (internal):** `_run_time_loop` gained `solid_model_code, solid_y, solid_T, solid_age, solid_nact,
+  solid_work, solid_age_fraction` (right after `peretz_ap_code`); `_goodman_ignition_sources_and_mass` gained the same
+  seven trailing args. Direct callers in tests need them (default: `0, array([0,1e-6]), full((1,2),T_i), zeros(N),
+  full(N,3,int64), zeros((2,2)), 0.0125`).
+- **Calibration note:** T_ignition 756 K and k_solid 0.271 were fitted with Goodman (+ Gnielinski ignition h, + the PISO bug).
+  Switching the solid model moves the ignition-front speed (Chunc canonical whole-grain lighting 0.6 ms -> 16 ms with
+  `conduction`), so a model switch needs a re-fit of those two.
+
 ### IG3 stage 1 (unreleased, 2026-10-11) -- Peretz ignition heat transfer is the default; Ap reading option
 
 - **BEHAVIOUR CHANGE (default; every transient run shifts):** `run_simulation(ignition_heat_transfer='peretz')`

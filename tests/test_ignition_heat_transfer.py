@@ -178,6 +178,8 @@ class TestPeretzApReference:
             np.full(N, 5.0), np.full(N, 1500.0),
             1, np.full(N, 300.0), np.asarray(A_port, dtype=np.float64), 1.0e-4,
             np.full(N, 290.0), np.full(N, 1.2), ap_code,
+            0, np.array([0.0, 1.0e-6]), np.full((1, 2), 293.0), np.zeros(N),   # SM1: goodman, dummy conduction state
+            np.full(N, 3, dtype=np.int64), np.zeros((2, 2)), 0.0125,
         )
         sim._goodman_ignition_sources_and_mass(*args)
         return T_surf

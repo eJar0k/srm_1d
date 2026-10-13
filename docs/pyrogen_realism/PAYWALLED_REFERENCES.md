@@ -84,3 +84,12 @@ support is in `OB1_REPORT.md` section 1. Remaining / new needs:
 | R16 | MTV (Mg/Teflon/Viton) burn rate ABOVE 7 MPa | Kubota & Serizawa 1987 (in repo, 0.3-7 MPa only) | OB1's plateau option has a sourced law only for B/KNO3; MTV has none | Strand or closed-bomb MTV rate 7-50 MPa | Any MTV plateau: pending (not implemented) |
 
 OB1 (2026-10-12): MIL-P-46994B Table III (page image) was read and verified: Type I-A cylindrical pellet 0.125 +/- 0.002 in dia x 0.188 +/- 0.004 in, minimum weight 0.067 g (also I-B 0.125 x 0.100 in, I-C 0.161 x 0.217 in, ...). It is now the library BPNV pellet; for MTV it is the user's assumption (no MIL spec exists for MTV).
+
+SM1 (2026-10-12): Peretz's integral-method ODE was read from the page images of `docs/references/peretz1974.pdf` (thesis p. 46,
+Eq. III-50) and `peretz1972.pdf` (AIAA 72-1119, Eq. 19); Eqs. III-28..III-30 from thesis p. 40. Nothing is taken second-hand. New needs:
+
+| # | Citation | DOI / URL | Why SM1 needs it | Quantity to extract |
+|---|---|---|---|---|
+| R17 | Goodman T. R., "Application of Integral Methods to Transient Nonlinear Heat Transfer", Advances in Heat Transfer, Vol. 1, Academic Press, 1964, pp. 51-122 (as cited by Peretz) | DOI not verified (book chapter) | The cubic heat-balance integral behind both the Goodman and Peretz models; Peretz quotes "2 % high at constant flux" and SM1 measures 2.6 % in time-to-756 K -- confirm the original's accuracy statement and its variable-h discussion | Accuracy of the cubic-profile integral for constant h / constant flux; any treatment of time-varying h |
+| R18 | Carslaw H. S. & Jaeger J. C., Conduction of Heat in Solids, 2nd ed., Oxford 1959, Sec. 2.7 (semi-infinite solid, Robin surface condition) | textbook, no DOI | SM1 Part 2 uses `T_s - T_i = (T_g - T_i)(1 - erfcx(h sqrt(alpha t)/k))` as the exact reference; it was checked here against an independent Volterra solve (agreement 0.0002-0.07 K), not against the book | The equation number / form in the book (confirmation only) |
+| R9 (update) | Cohen, Derr & Price (Peretz ref. 158) -- the source of Peretz Eqs. III-28..III-30 | already listed (R9) | Whether III-28..30 are their analytical fit of the Carlson & Seader Figs. 8-10 (see `HEAD_END_NOTES.md`) and the exact definition of Re_d and x_r there | Re_d definition (igniter mass flow vs local), x_r origin, validity range |

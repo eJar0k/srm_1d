@@ -1,0 +1,9 @@
+BALLSstick dead zone 4.83 g (2 s) | goodman | wall 31.36 s | steps 850245 | 27.1 k steps/s
+BALLSstick dead zone 4.83 g (2 s) | peretz | wall 31.22 s | steps 847161 | 27.1 k steps/s
+BALLSstick dead zone 4.83 g (2 s) | conduction | wall 37.73 s | steps 851541 | 22.6 k steps/s
+Chunc head basket 4.5 g BPNV (0.2 s) | goodman | wall 2.74 s | steps 115044 | 42.1 k steps/s
+Chunc head basket 4.5 g BPNV (0.2 s) | peretz | wall 2.81 s | steps 116356 | 41.5 k steps/s
+Chunc head basket 4.5 g BPNV (0.2 s) | conduction | wall 2.94 s | steps 115845 | 39.4 k steps/s
+Chunc canonical (1 s) | goodman | wall 12.16 s | steps 532348 | 43.8 k steps/s
+Chunc canonical (1 s) | peretz | wall 12.68 s | steps 548336 | 43.3 k steps/s
+Chunc canonical (1 s) | conduction | wall 13.22 s | steps 539374 | 40.8 k steps/s

@@ -153,5 +153,5 @@ if '--convergence' in sys.argv:
                 msk = ref <= 900.
                 cells.append(f"{np.abs(c - ref)[msk].max():.2f} K")
             mark = " (chosen)" if (dy0, r, f) == (5e-8, 1.1, 0.0125) else ""
-            print(f"| {dy0:.2e} | {r} | {f} | {len(y)} | " + " | ".join(cells) + f" |{mark}")
+            print(f"| {dy0:.2e} | {r} | {f} | {len(y)}{mark} | " + " | ".join(cells) + " |")
         print()
