@@ -1,0 +1,578 @@
+{
+ "motor": "chunc",
+ "case": "sens_cons",
+ "mass": "2.6225688088052457",
+ "t_max": 1.0,
+ "energy": "sensible",
+ "momentum": "conservative",
+ "wall_total_s": 21.87320566177368,
+ "wall_time_s": 19.01453709602356,
+ "steps": 538009,
+ "termination": "t_max reached",
+ "pyrogen_mass_final_g": 2.622568808805246,
+ "ignition_attempts": 1,
+ "pyrogen_mass_auto": false,
+ "pyrogen_mass_initial_g": 2.622568808805246,
+ "warnings": [
+  "13 of 100 grain cells never ignited (cells 3-15, x = 28-126 mm; 87 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is o"
+ ],
+ "peak": 7.879928335872348,
+ "t_peak": 0.022589302701815084,
+ "plateau": 6.384876710258359,
+ "ratio": 1.23415512835384,
+ "fill_mach_max": 2.4657313549953352,
+ "mach_max_all": 2.4657313549953352,
+ "floor_activations": 0,
+ "min_P_Pa_first_50ms": 74591.04663894941,
+ "ignition": {
+  "n_lit": 87,
+  "n_cells": 106,
+  "t_first_ms": 4.400903962787765,
+  "t90_ms": 5.193327618529285,
+  "first_cell": 16,
+  "grain_cells_never_lit": 13,
+  "grain_never_lit_cell_range": [
+   3,
+   15
+  ],
+  "grain_fraction_lit": 0.87,
+  "ignited": true
+ },
+ "first_cell_T": {
+  "T_before_K": [
+   4.003108524533113,
+   2257.3885956015547
+  ],
+  "T_after_K": [
+   5.003383993265197,
+   2393.6964255564126
+  ]
+ },
+ "fill_map": [
+  {
+   "t_ms": 0.0,
+   "M_max": 0.0011275237436138901,
+   "x_Mmax_mm": 12.19202438404877,
+   "n_supersonic": 0,
+   "supersonic_extent_mm": 0.0,
+   "x_shock_mm": null,
+   "T_max": 293.0,
+   "T_min": 293.0,
+   "P_max_MPa": 0.10036389620183708
+  },
+  {
+   "t_ms": 1.0000303020613261,
+   "M_max": 1.0865677713479376,
+   "x_Mmax_mm": 386.0807721615444,
+   "n_supersonic": 6,
+   "supersonic_extent_mm": 48.76809753619508,
+   "x_shock_mm": 406.40081280162565,
+   "T_max": 2692.125187201499,
+   "T_min": 293.0,
+   "P_max_MPa": 0.963856614122927
+  },
+  {
+   "t_ms": 2.0013634658119774,
+   "M_max": 2.3651150103466176,
+   "x_Mmax_mm": 824.9936499873,
+   "n_supersonic": 45,
+   "supersonic_extent_mm": 365.76073152146313,
+   "x_shock_mm": 837.1856743713487,
+   "T_max": 2263.6437126642104,
+   "T_min": 293.0,
+   "P_max_MPa": 1.4950814394346779
+  },
+  {
+   "t_ms": 3.0020447999688433,
+   "M_max": 1.422261179788437,
+   "x_Mmax_mm": 459.232918465837,
+   "n_supersonic": 53,
+   "supersonic_extent_mm": 430.78486156972315,
+   "x_shock_mm": 568.9611379222758,
+   "T_max": 2228.8303782331386,
+   "T_min": 360.0719781441908,
+   "P_max_MPa": 1.6099902210724768
+  },
+  {
+   "t_ms": 4.003108524533113,
+   "M_max": 1.596322785578094,
+   "x_Mmax_mm": 459.232918465837,
+   "n_supersonic": 41,
+   "supersonic_extent_mm": 333.24866649733303,
+   "x_shock_mm": 471.4249428498858,
+   "T_max": 2286.606882630359,
+   "T_min": 982.0891670339558,
+   "P_max_MPa": 1.5341857503262102
+  },
+  {
+   "t_ms": 5.003383993265197,
+   "M_max": 0.7372709021247505,
+   "x_Mmax_mm": 621.7932435864873,
+   "n_supersonic": 0,
+   "supersonic_extent_mm": 0.0,
+   "x_shock_mm": null,
+   "T_max": 3136.05,
+   "T_min": 1582.082960509361,
+   "P_max_MPa": 1.4341965510042793
+  },
+  {
+   "t_ms": 6.004121347702921,
+   "M_max": 0.38731928136102295,
+   "x_Mmax_mm": 816.8656337312675,
+   "n_supersonic": 0,
+   "supersonic_extent_mm": 0.0,
+   "x_shock_mm": null,
+   "T_max": 3136.05,
+   "T_min": 2381.5834465377898,
+   "P_max_MPa": 2.1489410943888014
+  },
+  {
+   "t_ms": 7.005408468465341,
+   "M_max": 0.3774578433956736,
+   "x_Mmax_mm": 824.9936499873,
+   "n_supersonic": 0,
+   "supersonic_extent_mm": 0.0,
+   "x_shock_mm": null,
+   "T_max": 3136.05,
+   "T_min": 2420.669619292258,
+   "P_max_MPa": 2.9637305131894136
+  },
+  {
+   "t_ms": 8.00664909265136,
+   "M_max": 0.3609973937053675,
+   "x_Mmax_mm": 824.9936499873,
+   "n_supersonic": 0,
+   "supersonic_extent_mm": 0.0,
+   "x_shock_mm": null,
+   "T_max": 3136.05,
+   "T_min": 2434.496896693869,
+   "P_max_MPa": 3.648192469817004
+  },
+  {
+   "t_ms": 9.007211116921884,
+   "M_max": 0.3523407042470787,
+   "x_Mmax_mm": 824.9936499873,
+   "n_supersonic": 0,
+   "supersonic_extent_mm": 0.0,
+   "x_shock_mm": null,
+   "T_max": 3136.05,
+   "T_min": 2262.418122727731,
+   "P_max_MPa": 4.286720414867538
+  }
+ ],
+ "ledger": {
+  "phase_bounds": {
+   "t_fill_end_s": 0.008495541809193242,
+   "t_peak_s": 0.022589302701815084,
+   "p_peak_pa": 7879928.335872348
+  },
+  "fill": {
+   "n_steps": 5460,
+   "energy_residual_max_abs_W": 4.191650077700615e-06,
+   "energy_residual_rms_W": 7.370324030765781e-07,
+   "source_ledger_mismatch_max_abs_W": 3.725290298461914e-09,
+   "nozzle_ledger_mismatch_max_abs_W": 2307.22359632561,
+   "jumps_J": {
+    "eos": {
+     "max_abs_single": 0.025097007585024218,
+     "sum_abs": 15.131776289802378,
+     "sum_signed": 14.886716846075181,
+     "n": 5460
+    },
+    "floor": {
+     "max_abs_single": 0.0,
+     "sum_abs": 0.0,
+     "sum_signed": 0.0,
+     "n": 5460
+    },
+    "mixture": {
+     "max_abs_single": 1.2328863361626645,
+     "sum_abs": 1122.9256646604458,
+     "sum_signed": 1122.9256646604458,
+     "n": 5460
+    },
+    "geometry": {
+     "max_abs_single": 0.27992789233030635,
+     "sum_abs": 16.872657796221347,
+     "sum_signed": 16.872657796221347,
+     "n": 5460
+    },
+    "remainder": {
+     "max_abs_single": 7.69044550263942e-12,
+     "sum_abs": 4.3412806561421435e-09,
+     "sum_signed": -5.827156812632239e-11,
+     "n": 5460
+    },
+    "total": {
+     "max_abs_single": 1.2767061926037968,
+     "sum_abs": 1154.685039302684,
+     "sum_signed": 1154.685039302684,
+     "n": 5460
+    }
+   },
+   "jumps_kg": {
+    "eos": {
+     "max_abs_single": 2.188854030672936e-08,
+     "sum_abs": 1.9636666587797933e-06,
+     "sum_signed": 1.6858388558809592e-06,
+     "n": 5460
+    },
+    "floor": {
+     "max_abs_single": 0.0,
+     "sum_abs": 0.0,
+     "sum_signed": 0.0,
+     "n": 5460
+    },
+    "mixture": {
+     "max_abs_single": 0.0,
+     "sum_abs": 0.0,
+     "sum_signed": 0.0,
+     "n": 5460
+    },
+    "geometry": {
+     "max_abs_single": 4.4831276236256476e-08,
+     "sum_abs": 2.8156803298951547e-06,
+     "sum_signed": 2.8156803298951547e-06,
+     "n": 5460
+    },
+    "remainder": {
+     "max_abs_single": 1.610209632730425e-18,
+     "sum_abs": 1.2452303355385986e-15,
+     "sum_signed": 1.402008934295318e-17,
+     "n": 5460
+    },
+    "total": {
+     "max_abs_single": 4.480859370874224e-08,
+     "sum_abs": 4.777280734736319e-06,
+     "sum_signed": 4.501519185790134e-06,
+     "n": 5460
+    }
+   },
+   "budget_J": {
+    "sources_in_gross": 15164.93882922289,
+    "sources_net": 14655.967644310967,
+    "wall_and_pyrogen_sinks": -508.97118491192305,
+    "nozzle_out": 7536.766812261383,
+    "convective_net_in": -7536.766812261383,
+    "clip": -1591.2758315152705,
+    "floor": 0.0,
+    "eos": 14.886716846075181,
+    "mixture": 1122.9256646604458,
+    "geometry": 16.872657796221347,
+    "remainder": -5.827156812632239e-11,
+    "jumps_total": 1154.685039302684,
+    "delta_storage": 6682.610039837105,
+    "closure_error_with_jumps": 1.0732037480920553e-10,
+    "closure_error_without_jumps": 1154.6850393027917,
+    "closure_error_with_jumps_frac_of_source": 7.0768748900192585e-15,
+    "closure_error_without_jumps_frac_of_source": 0.07614175383798512
+   }
+  },
+  "spike": {
+   "n_steps": 5997,
+   "energy_residual_max_abs_W": 1.0990785085596144e-05,
+   "energy_residual_rms_W": 3.0442830003475613e-06,
+   "source_ledger_mismatch_max_abs_W": 6.51925802230835e-09,
+   "nozzle_ledger_mismatch_max_abs_W": 76.93525663204491,
+   "jumps_J": {
+    "eos": {
+     "max_abs_single": 0.00022804804684611887,
+     "sum_abs": 0.16517986140340873,
+     "sum_signed": 0.09668614351579702,
+     "n": 5997
+    },
+    "floor": {
+     "max_abs_single": 0.0,
+     "sum_abs": 0.0,
+     "sum_signed": 0.0,
+     "n": 5997
+    },
+    "mixture": {
+     "max_abs_single": 0.040189304145314964,
+     "sum_abs": 158.17192085669012,
+     "sum_signed": 89.26107127918658,
+     "n": 5997
+    },
+    "geometry": {
+     "max_abs_single": 0.9540464265082846,
+     "sum_abs": 264.01181571449706,
+     "sum_signed": 264.01181571449706,
+     "n": 5997
+    },
+    "remainder": {
+     "max_abs_single": 1.9703093323553134e-11,
+     "sum_abs": 2.5691641780320722e-08,
+     "sum_signed": 3.7613244764363e-10,
+     "n": 5997
+    },
+    "total": {
+     "max_abs_single": 0.9860368023455521,
+     "sum_abs": 418.9590410016481,
+     "sum_signed": 353.36957313757557,
+     "n": 5997
+    }
+   },
+   "jumps_kg": {
+    "eos": {
+     "max_abs_single": 4.068923678012307e-11,
+     "sum_abs": 3.135172263321666e-08,
+     "sum_signed": 9.190482099405927e-09,
+     "n": 5997
+    },
+    "floor": {
+     "max_abs_single": 0.0,
+     "sum_abs": 0.0,
+     "sum_signed": 0.0,
+     "n": 5997
+    },
+    "mixture": {
+     "max_abs_single": 0.0,
+     "sum_abs": 0.0,
+     "sum_signed": 0.0,
+     "n": 5997
+    },
+    "geometry": {
+     "max_abs_single": 1.6075973914477654e-07,
+     "sum_abs": 4.4061435093372976e-05,
+     "sum_signed": 4.4061435093372976e-05,
+     "n": 5997
+    },
+    "remainder": {
+     "max_abs_single": 4.765407361252694e-18,
+     "sum_abs": 5.790452752701958e-15,
+     "sum_signed": -3.5223018078622825e-17,
+     "n": 5997
+    },
+    "total": {
+     "max_abs_single": 1.6079275830770123e-07,
+     "sum_abs": 4.409176196718684e-05,
+     "sum_signed": 4.407062557543716e-05,
+     "n": 5997
+    }
+   },
+   "budget_J": {
+    "sources_in_gross": 64547.14256967793,
+    "sources_net": 64223.903466630436,
+    "wall_and_pyrogen_sinks": -323.23910304749734,
+    "nozzle_out": 63776.21555714206,
+    "convective_net_in": -63776.21555714206,
+    "clip": -49.950519985558685,
+    "floor": 0.0,
+    "eos": 0.09668614351579702,
+    "mixture": 89.26107127918658,
+    "geometry": 264.01181571449706,
+    "remainder": 3.7613244764363e-10,
+    "jumps_total": 353.36957313757557,
+    "delta_storage": 751.1069626399003,
+    "closure_error_with_jumps": -4.936282493872568e-10,
+    "closure_error_without_jumps": 353.36957313708194,
+    "closure_error_with_jumps_frac_of_source": -7.647561607462182e-15,
+    "closure_error_without_jumps_frac_of_source": 0.005474596691179991
+   }
+  },
+  "plateau": {
+   "n_steps": 526552,
+   "energy_residual_max_abs_W": 2.5495653062534984e-05,
+   "energy_residual_rms_W": 4.1737509030816456e-06,
+   "source_ledger_mismatch_max_abs_W": 1.1175870895385742e-08,
+   "nozzle_ledger_mismatch_max_abs_W": 152.717810401693,
+   "jumps_J": {
+    "eos": {
+     "max_abs_single": 0.0010583461215552604,
+     "sum_abs": 4.624211435408833,
+     "sum_signed": 4.142785950304061,
+     "n": 526551
+    },
+    "floor": {
+     "max_abs_single": 0.0,
+     "sum_abs": 0.0,
+     "sum_signed": 0.0,
+     "n": 526551
+    },
+    "mixture": {
+     "max_abs_single": 0.07713508317283413,
+     "sum_abs": 817.7369657863783,
+     "sum_signed": 393.3999047826637,
+     "n": 526551
+    },
+    "geometry": {
+     "max_abs_single": 1.2916604714628193,
+     "sum_abs": 22599.10225134104,
+     "sum_signed": 22599.10225134104,
+     "n": 526551
+    },
+    "remainder": {
+     "max_abs_single": 5.438984603412661e-11,
+     "sum_abs": 3.3312886512728676e-06,
+     "sum_signed": 3.922320880765429e-09,
+     "n": 526551
+    },
+    "total": {
+     "max_abs_single": 1.2922497193940217,
+     "sum_abs": 23400.102342616392,
+     "sum_signed": 22996.644942077928,
+     "n": 526551
+    }
+   },
+   "jumps_kg": {
+    "eos": {
+     "max_abs_single": 2.555577653944892e-10,
+     "sum_abs": 1.535449753129065e-06,
+     "sum_signed": 1.2278614124840784e-06,
+     "n": 526551
+    },
+    "floor": {
+     "max_abs_single": 0.0,
+     "sum_abs": 0.0,
+     "sum_signed": 0.0,
+     "n": 526551
+    },
+    "mixture": {
+     "max_abs_single": 0.0,
+     "sum_abs": 0.0,
+     "sum_signed": 0.0,
+     "n": 526551
+    },
+    "geometry": {
+     "max_abs_single": 2.0292384580924278e-07,
+     "sum_abs": 0.003554160416191277,
+     "sum_signed": 0.003554160416191277,
+     "n": 526551
+    },
+    "remainder": {
+     "max_abs_single": 1.0085621302956954e-17,
+     "sum_abs": 6.187046013050087e-13,
+     "sum_signed": -5.23740800078068e-16,
+     "n": 526551
+    },
+    "total": {
+     "max_abs_single": 2.02926267556941e-07,
+     "sum_abs": 0.003555681463047893,
+     "sum_signed": 0.0035553882776032373,
+     "n": 526551
+    }
+   },
+   "budget_J": {
+    "sources_in_gross": 6341143.071765735,
+    "sources_net": 6318137.319430653,
+    "wall_and_pyrogen_sinks": -23005.75233508181,
+    "nozzle_out": 6310927.922329852,
+    "convective_net_in": -6310927.922329852,
+    "clip": -303.8245650286958,
+    "floor": 0.0,
+    "eos": 4.142785950304061,
+    "mixture": 393.3999047826637,
+    "geometry": 22599.10225134104,
+    "remainder": 3.922320880765429e-09,
+    "jumps_total": 22996.644942077928,
+    "delta_storage": 29902.21747783895,
+    "closure_error_with_jumps": -1.0932126315310597e-08,
+    "closure_error_without_jumps": 22996.644942066996,
+    "closure_error_with_jumps_frac_of_source": -1.723999315515597e-15,
+    "closure_error_without_jumps_frac_of_source": 0.0036265772088412166
+   }
+  },
+  "run": {
+   "n_steps": 538009,
+   "energy_residual_max_abs_W": 2.5495653062534984e-05,
+   "energy_residual_rms_W": 4.1422272470650845e-06,
+   "source_ledger_mismatch_max_abs_W": 1.1175870895385742e-08,
+   "nozzle_ledger_mismatch_max_abs_W": 2307.22359632561,
+   "jumps_J": {
+    "eos": {
+     "max_abs_single": 0.025097007585024218,
+     "sum_abs": 19.921167586614626,
+     "sum_signed": 19.126188939895044,
+     "n": 538008
+    },
+    "floor": {
+     "max_abs_single": 0.0,
+     "sum_abs": 0.0,
+     "sum_signed": 0.0,
+     "n": 538008
+    },
+    "mixture": {
+     "max_abs_single": 1.2328863361626645,
+     "sum_abs": 2098.834551303514,
+     "sum_signed": 1605.5866407222961,
+     "n": 538008
+    },
+    "geometry": {
+     "max_abs_single": 1.2916604714628193,
+     "sum_abs": 22879.98672485176,
+     "sum_signed": 22879.98672485176,
+     "n": 538008
+    },
+    "remainder": {
+     "max_abs_single": 5.438984603412661e-11,
+     "sum_abs": 3.3613215737093305e-06,
+     "sum_signed": 4.240181760282736e-09,
+     "n": 538008
+    },
+    "total": {
+     "max_abs_single": 1.2922497193940217,
+     "sum_abs": 24973.746422920725,
+     "sum_signed": 24504.699554518185,
+     "n": 538008
+    }
+   },
+   "jumps_kg": {
+    "eos": {
+     "max_abs_single": 2.188854030672936e-08,
+     "sum_abs": 3.530468134542075e-06,
+     "sum_signed": 2.9228907504644435e-06,
+     "n": 538008
+    },
+    "floor": {
+     "max_abs_single": 0.0,
+     "sum_abs": 0.0,
+     "sum_signed": 0.0,
+     "n": 538008
+    },
+    "mixture": {
+     "max_abs_single": 0.0,
+     "sum_abs": 0.0,
+     "sum_signed": 0.0,
+     "n": 538008
+    },
+    "geometry": {
+     "max_abs_single": 2.0292384580924278e-07,
+     "sum_abs": 0.003601037531614545,
+     "sum_signed": 0.003601037531614545,
+     "n": 538008
+    },
+    "remainder": {
+     "max_abs_single": 1.0085621302956954e-17,
+     "sum_abs": 6.257402843932492e-13,
+     "sum_signed": -5.449437288137376e-16,
+     "n": 538008
+    },
+    "total": {
+     "max_abs_single": 2.02926267556941e-07,
+     "sum_abs": 0.0036045505057498164,
+     "sum_signed": 0.0036039604223644644,
+     "n": 538008
+    }
+   },
+   "budget_J": {
+    "sources_in_gross": 6420855.153164634,
+    "sources_net": 6397017.190541592,
+    "wall_and_pyrogen_sinks": -23837.962623041123,
+    "nozzle_out": 6382240.904699256,
+    "convective_net_in": -6382240.904699256,
+    "clip": -1945.0509165295264,
+    "floor": 0.0,
+    "eos": 19.126188939895044,
+    "mixture": 1605.5866407222961,
+    "geometry": 22879.98672485176,
+    "remainder": 4.240181760282736e-09,
+    "jumps_total": 24504.699554518185,
+    "delta_storage": 37335.934480315955,
+    "closure_error_with_jumps": -9.422365110367537e-09,
+    "closure_error_without_jumps": 24504.699554508767,
+    "closure_error_with_jumps_frac_of_source": -1.4674626487600417e-15,
+    "closure_error_without_jumps_frac_of_source": 0.0038164230417861377
+   }
+  }
+ }
+}

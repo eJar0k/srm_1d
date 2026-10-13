@@ -557,6 +557,21 @@ in geometry/burn rate/ignition (called every step or every N steps).
   (not 7 MPa), SI `a = 2.08e-5` for `n = 0.589` (not 3.50e-5).
 - Report: `docs/pyrogen_realism/OB1_REPORT.md`. Tests: `tests/test_ob1_pyrogen_bed.py` (28).
 
+### Solver verification EN1 (unreleased, 2026-10-13) -- opt-in conservative total energy + conservative momentum
+
+No change to defaults (B0 PASS, rel diff 0; `energy_formulation='sensible'`, `momentum_formulation='legacy'`).
+
+- New kernel args (trailing, keyword): `_piso_step_with_energy_diagnostics(..., total_energy=False,
+  conservative_momentum=False)` and the same on `piso_step`; new internal `_total_energy_update`. New
+  `_run_time_loop` positional args `total_energy, conservative_momentum` (after `piso_corr2_storage`).
+- New `run_simulation` / `run_from_ric` kwargs: `energy_formulation` `'sensible'|'total'`,
+  `momentum_formulation` `'legacy'|'conservative'` (ValueError otherwise); summary stamps both.
+- With `energy_formulation='total'` the energy/ledger channels (`gas_sensible_energy*`, `energy_residual`,
+  `convective_scalar_flux_power`, `nozzle_scalar_flux_power`, `storage_jump_*_J`, `pressure_floor_energy_added_J`) hold TOTAL
+  energy `m(Cv T + KE)` / total-enthalpy flux; the names keep "sensible". `_gas_mass_energy_total`,
+  `_ledger_mass_energy` are the new simulation-side ledger helpers.
+- Full design, verification tables and motor effects: `docs/solver_verification/worklog/EN1.md`.
+
 ### Solver verification T11 (unreleased, 2026-10-11) -- P5 PISO corrections are the defaults
 
 - **BEHAVIOUR CHANGE (all transient results shift):** `run_simulation(piso_corr2_storage=True,

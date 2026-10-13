@@ -43,8 +43,13 @@ class TestDefaultsAreTheShippedStep:
         a = piso(*_vessel_step_args())
         b = piso(*_vessel_step_args(), total_energy=False,
                  conservative_momentum=False)
-        for x, y in zip(a, b):
+        # the flow state is bit-identical; the diagnostics may differ at round-off
+        # (omitted vs explicit arguments compile to different fastmath specialisations)
+        for x, y in zip(a[:4], b[:4]):
             assert np.array_equal(np.asarray(x), np.asarray(y))
+        for x, y in zip(a[4:], b[4:]):
+            assert np.allclose(np.asarray(x), np.asarray(y), rtol=1e-9,
+                               atol=1e-9 * abs(a[5]))
 
     def test_total_energy_changes_the_step(self):
         a = piso(*_vessel_step_args())
@@ -123,51 +128,64 @@ class TestSod:
 
 # ---------------------------------------------------------------- quasi-1-D duct
 @pytest.fixture(scope="module")
-def nozzle():
-    return {k: ev.duct_case(100, k[0], shock_ar=None, cons_mom=k[1], t_end=0.03)
+def venturi():
+    return {k: ev.duct_case(100, k[0], throat_M=0.8, cons_mom=k[1], t_end=0.03)
             for k in ((False, False), (True, False), (True, True))}
 
 
-class TestIsentropicNozzle:
-    def test_total_energy_gets_the_static_temperature(self, nozzle):
-        mt = ev.duct_metrics(nozzle[(True, False)])
-        ms = ev.duct_metrics(nozzle[(False, False)])
-        assert mt['L1_T'] < 0.03
-        assert ms['L1_T'] > 3.0 * mt['L1_T']
+class TestIsentropicVenturi:
+    """Steady subsonic converging-diverging flow (throat Mach 0.8): T/T0 = 1/(1+(g-1)/2 M^2)."""
+
+    def test_total_energy_gets_the_static_temperature(self, venturi):
+        mt = ev.duct_metrics(venturi[(True, False)])
+        ms = ev.duct_metrics(venturi[(False, False)])
+        assert not venturi[(True, False)]['diverged']
+        assert mt['L1_T'] < 0.005
+        assert ms['L1_T'] > 0.03
         Tn, Te = mt['T_over_T0_exit']
-        assert Tn == pytest.approx(Te, rel=0.05)
+        assert Tn == pytest.approx(Te, rel=0.005)
         Tn_s, Te_s = ms['T_over_T0_exit']
-        assert Tn_s > 1.25 * Te_s       # sensible form: no cooling in the expansion
+        assert Tn_s == pytest.approx(1.0, abs=1e-6)     # no cooling at all
+        assert Te_s < 0.99
 
-    def test_exit_mach_number(self, nozzle):
-        mt = ev.duct_metrics(nozzle[(True, False)])
-        assert mt['M_exit'][0] == pytest.approx(mt['M_exit'][1], rel=0.03)
+    def test_momentum_form_does_not_matter_in_steady_flow(self, venturi):
+        a = ev.duct_metrics(venturi[(True, False)])
+        b = ev.duct_metrics(venturi[(True, True)])
+        for k in ('L1_M', 'L1_T', 'L1_P'):
+            assert a[k] == pytest.approx(b[k], rel=0.15)
 
 
-class TestNormalShock:
-    @pytest.fixture(scope="class")
-    def shock(self):
-        return {k: ev.duct_case(100, k[0], shock_ar=1.5, cons_mom=k[1], t_end=0.04)
-                for k in ((False, False), (True, False))}
+@pytest.fixture(scope="module")
+def shock():
+    return {k: ev.duct_case(100, k[0], shock_ar=1.5, cons_mom=k[1], t_end=0.035)
+            for k in ((False, False), (True, False), (True, True))}
 
-    def test_total_energy_shock_station_and_jump(self, shock):
+
+class TestNormalShockInDivergentSection:
+    def test_total_energy_shock_station_and_post_shock_state(self, shock):
         r = shock[(True, False)]
+        assert not r['diverged']
         m = ev.duct_metrics(r)
         dx = r['x'][1] - r['x'][0]
         xs_num, xs_ex = m['x_shock']
-        assert abs(xs_num - xs_ex) < 3.0 * dx
-        P_n, P_e = m['post_shock_P_ratio']
-        assert P_n == pytest.approx(P_e, rel=0.08)
-        T_n, T_e = m['post_shock_T_ratio']
-        assert T_n == pytest.approx(T_e, rel=0.08)
+        assert abs(xs_num - xs_ex) < 2.0 * dx
+        assert m['post_shock_P_ratio'][0] == pytest.approx(m['post_shock_P_ratio'][1], rel=0.01)
+        assert m['post_shock_T_ratio'][0] == pytest.approx(m['post_shock_T_ratio'][1], rel=0.01)
+        assert m['post_shock_M'][0] == pytest.approx(m['post_shock_M'][1], rel=0.02)
+        # supersonic isentropic part upstream of the shock
+        assert m['L1up_T'] < 0.01 and m['L1up_P'] < 0.02
 
-    def test_sensible_form_violates_the_stagnation_temperature(self, shock):
-        # across a steady adiabatic shock T0 is continuous; the sensible form keeps
-        # T ~ T0 everywhere so the "static" T is the stagnation T and post-shock T
-        # comes out wrong.
+    def test_sensible_form_has_the_wrong_shock(self, shock):
         m = ev.duct_metrics(shock[(False, False)])
-        T_n, T_e = m['post_shock_T_ratio']
-        assert abs(T_n / T_e - 1.0) > 0.10
+        assert abs(m['x_shock'][0] - m['x_shock'][1]) > 0.05
+        assert abs(m['post_shock_P_ratio'][0] / m['post_shock_P_ratio'][1] - 1.0) > 0.3
+        assert m['post_shock_T_ratio'][0] == pytest.approx(1.0, abs=1e-4)   # T stays T0
+        assert m['L1up_T'] > 0.05
+
+    def test_steady_shock_is_independent_of_the_momentum_form(self, shock):
+        a = ev.duct_metrics(shock[(True, False)])
+        b = ev.duct_metrics(shock[(True, True)])
+        assert a['x_shock'][0] == pytest.approx(b['x_shock'][0], abs=2e-3)
 
 
 # ---------------------------------------------------------------- run_simulation plumbing
