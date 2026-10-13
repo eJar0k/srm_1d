@@ -1,0 +1,41 @@
+C:\tmp\sv\ig3\srm_1d\grain_geometry.py:1138: UserWarning: Integer-snapping altered total motor length by more than 10mm. Check segment proportions.
+  warnings.warn(f"Integer-snapping altered total motor length by more than 10mm. Check segment proportions.")
+C:\tmp\sv\ig3\srm_1d\openmotor_adapter.py:1436: RuntimeWarning: auto-sized BPNV charge raised from 1.07 g to 2.62 g (5 attempts, factor 1.25) to light the motor. Set the charge explicitly to fix it.
+  result = run_simulation(geo, prop, **args)
+C:\tmp\sv\ig3\srm_1d\grain_geometry.py:1138: UserWarning: Integer-snapping altered total motor length by more than 10mm. Check segment proportions.
+  warnings.warn(f"Integer-snapping altered total motor length by more than 10mm. Check segment proportions.")
+C:\tmp\sv\ig3\srm_1d\openmotor_adapter.py:1436: RuntimeWarning: auto-sized BPNV charge raised from 1.98 g to 4.83 g (5 attempts, factor 1.25) to light the motor. Set the charge explicitly to fix it.
+  result = run_simulation(geo, prop, **args)
+C:\tmp\sv\ig3\srm_1d\openmotor_adapter.py:1436: RuntimeWarning: auto-sized BPNV charge raised from 9.58 g to 15 g (3 attempts, factor 1.25) to light the motor. Set the charge explicitly to fix it.
+  result = run_simulation(geo, prop, **args)
+[provenance] srm_1d imported from C:\tmp\sv\ig3\srm_1d
+[provenance] git HEAD 705a4b83c2380a20cec358e46f74d7186d10513a  dirty=False
+[provenance] numpy 2.2.6  numba 0.63.1  python 3.10.5
+[ric-source] motors/machbusterNew.ric: unmodified -> using working-tree copy
+[provenance] machbusterNew.ric sha256 a234a1dcf054dfb337e508360170e504228e9be85dfbd984940ea8326819df0e  (C:\tmp\sv\ig3\motors\machbusterNew.ric)
+[ric-source] motors/BALLSstick.ric: unmodified -> using working-tree copy
+[provenance] BALLSstick.ric sha256 7fd189d62aabcdc5a5a788611d7b2c3cd94b91fbcc3e111f15e89423074cbd73  (C:\tmp\sv\ig3\motors\BALLSstick.ric)
+[ric-source] motors/hasegawa_a.ric: unmodified -> using working-tree copy
+[provenance] hasegawa_a.ric sha256 ccb7fccc972fd6074beff0b0099d1fdd2f731549d4628ea0eccbef97ca69185d  (C:\tmp\sv\ig3\motors\hasegawa_a.ric)
+[ric-source] motors/machbusterNew.ric: unmodified -> using working-tree copy
+
+[chunc] wall 30.5 s, termination='t_max reached'
+  peak     got        9.662256179377227  ref        9.950855636512404  rel 2.900e-02  MISMATCH
+  t_peak   got      0.03052882103667821  ref     0.036735041862973064  rel 1.689e-01  MISMATCH
+  plateau  got        7.987681177901459  ref        8.141968067255977  rel 1.895e-02  MISMATCH
+  n_steps  got                   532587  ref                   532381  rel 3.869e-04  OK
+[ric-source] motors/BALLSstick.ric: unmodified -> using working-tree copy
+
+[balls] wall 65.0 s, termination='t_max reached'
+  peak     got        7.185059850793623  ref        7.020318627616664  rel 2.347e-02  MISMATCH
+  trough   got         3.44017145106946  ref        4.343390826697384  rel 2.080e-01  MISMATCH
+  mid      got        3.791099825535989  ref        4.855316005870968  rel 2.192e-01  MISMATCH
+  n_steps  got                   850825  ref                   843726  rel 8.414e-03  MISMATCH
+[ric-source] motors/hasegawa_a.ric: unmodified -> using working-tree copy
+
+[haseg] wall 88.5 s, termination='t_max reached'
+  peak     got        6.106056785812103  ref        6.107268310023869  rel 1.984e-04  MISMATCH
+  t_peak   got       2.4004207959109025  ref        2.411042627819566  rel 4.405e-03  MISMATCH
+  n_steps  got                  2336440  ref                  2336271  rel 7.234e-05  OK
+
+B0 RESULT: FAIL

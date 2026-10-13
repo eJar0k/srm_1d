@@ -149,7 +149,7 @@ class TestEarlyStop:
         kw = dict(pyrogen="bpnv", pyrogen_mass=3.0e-3, t_max=0.02)
         a = _chunc_run(stop_if_unignitable=True, **kw)
         b = _chunc_run(stop_if_unignitable=False, **kw)
-        assert a["summary"]["ignited"] and b["summary"]["ignited"]
+        assert a["summary"]["grain_cells_ignited"] > 0 and b["summary"]["grain_cells_ignited"] > 0
         assert np.array_equal(np.asarray(a["P_head"]), np.asarray(b["P_head"]))
 
     def test_stop_off_runs_to_t_max(self):
@@ -168,3 +168,22 @@ class TestEarlyStop:
         # grain gas cools ~0.1 K per 0.1 ms here)
         assert snap["T"][snap["is_grain"]].max() < 756.0 * 1.01
         assert not np.any(np.asarray(res["ignition_time_by_cell"]) < 1e8)
+
+
+class TestPartialIgnition:
+    BALLS = os.path.join(ROOT, "motors", "BALLSstick.ric")
+
+    def test_partly_lit_grain_is_a_failed_ignition(self):
+        # BALLSstick at 4.83 g (explicit): 10 head-end cells (10 %) stay unlit
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            res = oma.run_from_ric(self.BALLS, pyrogen="bpnv", pyrogen_mass=4.829e-3,
+                                   t_max=0.05, print_interval=0.0, verbose=False)[0]
+        s = res["summary"]
+        assert s["grain_cells_ignited"] < 0.99 * s["grain_cells"]
+        assert not s["ignited"]
+        assert any("did not fully ignite" in str(x.message) for x in w)
+
+    def test_min_lit_fraction_validated(self):
+        with pytest.raises(ValueError, match="ignition_min_lit_fraction"):
+            _chunc_run(ignition_min_lit_fraction=0.0)

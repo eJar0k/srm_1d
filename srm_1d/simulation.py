@@ -3843,6 +3843,10 @@ def _run_simulation_once(
         'ignition_heat_transfer': ignition_heat_transfer,
         'peretz_ap_reference': peretz_ap_reference,
         'ignited': bool(first_ignition_time == first_ignition_time),  # not NaN
+        # IG3: how much of the grain lit (a partly lit grain is a failed ignition)
+        'grain_cells': int(np.count_nonzero(is_grain)),
+        'grain_cells_ignited': int(np.count_nonzero(
+            is_grain & (ignition_time < 1.0e9))),
         'stop_if_unignitable': bool(stop_if_unignitable),
         'diagnostic_disable_erosive': bool(diagnostic_disable_erosive),
         'diagnostic_disable_endfaces': bool(diagnostic_disable_endfaces),
@@ -4083,14 +4087,18 @@ class PyrogenAutoSizeError(RuntimeError):
 
 
 def run_simulation(*args, ignition_retry_factor=1.25,
-                   ignition_retry_max_attempts=10, **kwargs):
+                   ignition_retry_max_attempts=10,
+                   ignition_min_lit_fraction=0.99, **kwargs):
     """Run a complete transient simulation (all parameters as
     :func:`_run_simulation_once`, documented below), with the IG3 ignition
     fallback for AUTO-SIZED pyrogen charges.
 
     If the pyrogen charge was auto-sized (``PyrogenChamber.mass_auto``, i.e.
-    ``build_pyrogen_chamber(pyrogen_mass=None)``) and no grain cell lights,
-    the run stops early (``stop_if_unignitable``: no energy source left and
+    ``build_pyrogen_chamber(pyrogen_mass=None)``) and the motor does not light
+    (fewer than ``ignition_min_lit_fraction`` of the grain cells ever ignite;
+    the IG2 ignition-threshold definition, default 0.99 -- a partly lit grain
+    gives a wrong trace, e.g. BALLSstick's head-end 10 % at a 4.8 g charge),
+    a run in which NO cell can light stops early (``stop_if_unignitable``: no energy source left and
     every gas temperature below ``T_ignition``) and is retried at
     ``ignition_retry_factor`` times the charge (default 1.25, the user-approved
     step), at most ``ignition_retry_max_attempts`` attempts in all
@@ -4109,6 +4117,8 @@ def run_simulation(*args, ignition_retry_factor=1.25,
     import warnings
     bound = inspect.signature(_run_simulation_once).bind(*args, **kwargs)
     chamber = bound.arguments['pyrogen_chamber']
+    if not (0.0 < ignition_min_lit_fraction <= 1.0):
+        raise ValueError("ignition_min_lit_fraction must be in (0, 1]")
     if ignition_retry_factor <= 1.0:
         raise ValueError("ignition_retry_factor must be > 1")
     if int(ignition_retry_max_attempts) < 1:
@@ -4126,7 +4136,10 @@ def run_simulation(*args, ignition_retry_factor=1.25,
         res = _run_simulation_once(*bound.args, **bound.kwargs)
         t_wall.append(clock.time() - t0)
         summ = res['summary']
-        ignited = bool(summ['ignited'])
+        n_g = max(int(summ['grain_cells']), 1)
+        lit_ok = (int(summ['grain_cells_ignited'])
+                  >= int(np.ceil(float(ignition_min_lit_fraction) * n_g - 1e-9)))
+        ignited = bool(summ['ignited']) and lit_ok
         if ignited or int(summ['termination_code']) in (3, 4, 5):
             break
         if not auto or attempt >= int(ignition_retry_max_attempts):
@@ -4134,6 +4147,7 @@ def run_simulation(*args, ignition_retry_factor=1.25,
         chamber = chamber.resize(masses[-1] * float(ignition_retry_factor))
         if progress is not None:       # restart the live progress bar
             progress[0] = 0.0
+    summ['ignited'] = bool(ignited)
     summ['ignition_attempts'] = attempt
     summ['ignition_attempt_masses_kg'] = list(masses)
     summ['ignition_attempt_wall_s'] = list(t_wall)
@@ -4156,7 +4170,8 @@ def run_simulation(*args, ignition_retry_factor=1.25,
             f"charge explicitly to fix it.", RuntimeWarning, stacklevel=2)
     if not ignited and not auto:
         warnings.warn(
-            f"the motor did not ignite with the explicitly set {name} "
+            f"the motor did not fully ignite ({summ['grain_cells_ignited']} of "
+            f"{summ['grain_cells']} grain cells lit) with the explicitly set {name} "
             f"charge of {masses[-1] * 1e3:.3g} g (explicit charges are never "
             f"resized); termination: {summ['termination']}.",
             RuntimeWarning, stacklevel=2)
@@ -4176,4 +4191,6 @@ run_simulation.__signature__ = _once_sig.replace(parameters=list(
         _inspect.Parameter('ignition_retry_factor',
                            _inspect.Parameter.KEYWORD_ONLY, default=1.25),
         _inspect.Parameter('ignition_retry_max_attempts',
-                           _inspect.Parameter.KEYWORD_ONLY, default=10)])
+                           _inspect.Parameter.KEYWORD_ONLY, default=10),
+        _inspect.Parameter('ignition_min_lit_fraction',
+                           _inspect.Parameter.KEYWORD_ONLY, default=0.99)])
