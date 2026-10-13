@@ -1,0 +1,198 @@
+........................................................................ [  8%]
+........................................................................ [ 17%]
+........................................................................ [ 26%]
+........................................................................ [ 35%]
+........................................................................ [ 43%]
+........................................................................ [ 52%]
+........................................................................ [ 61%]
+........................................................................ [ 70%]
+........................................................................ [ 78%]
+........................................................................ [ 87%]
+...................................................................
+[T4 mode invariants] motor=hlbltest.ric
+  ma2020        term='pressure cutoff' m=0.72203kg (+0.0000%) I=1486.01Ns (+0.0000%) t_burn(5%F)=0.6055s (+0.0000%) t_end=0.6240s (+0.0000%) Ppk=11.137MPa (+0.0000%)
+  mukunda_paul  term='pressure cutoff' m=0.72208kg (+0.0058%) I=1486.58Ns (+0.0380%) t_burn(5%F)=0.6130s (+1.2362%) t_end=0.6299s (+0.9526%) Ppk=10.524MPa (-5.5045%)
+  saint_robert  term='pressure cutoff' m=0.72208kg (+0.0069%) I=1486.93Ns (+0.0619%) t_burn(5%F)=0.6152s (+1.6022%) t_end=0.6311s (+1.1409%) Ppk=10.120MPa (-9.1379%)
+..... [ 96%]
+.............................                                            [100%]
+============================== warnings summary ===============================
+tests/test_adapter.py: 11 warnings
+tests/test_canonical_examples.py: 2 warnings
+tests/test_channels.py: 1 warning
+tests/test_endface_conservation.py: 3 warnings
+tests/test_energy_audit.py: 2 warnings
+tests/test_energy_coupling.py: 1 warning
+tests/test_flame_front_gate.py: 1 warning
+tests/test_geometry.py: 12 warnings
+tests/test_hardening.py: 8 warnings
+tests/test_history_capacity.py: 4 warnings
+tests/test_ig3_stage2.py: 6 warnings
+tests/test_ignition_diagnostics.py: 7 warnings
+tests/test_ignition_heat_transfer.py: 5 warnings
+tests/test_numerical_limits.py: 5 warnings
+tests/test_ob1_pyrogen_bed.py: 1 warning
+tests/test_plotting_channels.py: 1 warning
+tests/test_pressure_floor.py: 1 warning
+tests/test_pyrogen_axial_distribution.py: 5 warnings
+tests/test_refresh_cadence.py: 10 warnings
+tests/test_ric_igniter.py: 1 warning
+tests/test_simulation_phase3.py: 3 warnings
+tests/test_solid_heating_models.py: 4 warnings
+tests/test_spatial_ignition_coupling.py: 4 warnings
+tests/test_srm1d_plugin.py: 7 warnings
+tests/test_station_viz.py: 1 warning
+tests/test_submerged_topology.py: 7 warnings
+tests/test_taper.py: 17 warnings
+tests/test_verification_limits.py: 1 warning
+tests/test_yns_mixture.py: 1 warning
+tests/test_yns_phase4_validation.py: 6 warnings
+tests/test_yns_transport.py: 1 warning
+tests/test_zn_burn_rate.py: 1 warning
+  C:\tmp\sv\sm1\srm_1d\grain_geometry.py:1138: UserWarning: Integer-snapping altered total motor length by more than 10mm. Check segment proportions.
+    warnings.warn(f"Integer-snapping altered total motor length by more than 10mm. Check segment proportions.")
+
+tests/test_canonical_examples.py::test_canonical_hasegawa_motor_a_does_not_collapse
+tests/test_zn_burn_rate.py::test_zn_full_sim_does_not_collapse
+  C:\tmp\sv\sm1\srm_1d\openmotor_adapter.py:1536: RuntimeWarning: auto-sized BPNV charge raised from 9.58 g to 18.7 g (4 attempts, factor 1.25) to light the motor. Set the charge explicitly to fix it.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_energy_audit.py::TestRunLedgers::test_summary_keys
+tests/test_energy_coupling.py::TestShortRun::test_eos_jump_shrinks_on_short_run
+tests/test_pressure_floor.py::TestPressureFloorRun::test_summary_keys_and_history_lengths
+  C:\tmp\sv\sm1\srm_1d\openmotor_adapter.py:1536: RuntimeWarning: auto-sized BPNV charge raised from 1.07 g to 2.62 g (5 attempts, factor 1.25) to light the motor. Set the charge explicitly to fix it.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_energy_audit.py::TestRunLedgers::test_summary_keys
+tests/test_pressure_floor.py::TestPressureFloorRun::test_summary_keys_and_history_lengths
+  C:\tmp\sv\sm1\srm_1d\openmotor_adapter.py:1536: RuntimeWarning: 8 of 100 grain cells never ignited (cells 3-11, x = 28-93 mm; 92 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_energy_audit.py::test_radiation_sink_is_fully_debited_from_gas
+  C:\tmp\sv\sm1\srm_1d\openmotor_adapter.py:1536: RuntimeWarning: auto-sized BPNV charge raised from 1.07 g to 2.1 g (4 attempts, factor 1.25) to light the motor. Set the charge explicitly to fix it.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_energy_coupling.py::TestShortRun::test_eos_jump_shrinks_on_short_run
+  C:\tmp\sv\sm1\srm_1d\openmotor_adapter.py:1536: RuntimeWarning: 7 of 100 grain cells never ignited (cells 3-11, x = 28-93 mm; 93 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_energy_coupling.py::TestShortRun::test_eos_jump_shrinks_on_short_run
+  C:\tmp\sv\sm1\srm_1d\openmotor_adapter.py:1536: RuntimeWarning: 11 of 100 grain cells never ignited (cells 3-14, x = 28-118 mm; 89 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_ig3_stage2.py::TestFallback::test_attempt_cap_raises
+tests/test_ig3_stage2.py::TestFallback::test_no_retry_arg_validation
+  C:\tmp\sv\sm1\srm_1d\openmotor_adapter.py:1477: IgniterMaterialUpgradedWarning: The motor's embedded igniter material 'BPNV' was a superseded library snapshot (an exact match of the pre-correction library values); the current library values are used instead. Re-saving the motor persists the upgrade.
+    ig = load_igniter(motor)
+
+tests/test_ig3_stage2.py::TestEarlyStop::test_lit_run_identical_with_and_without_the_stop
+tests/test_ignition_heat_transfer.py::TestDefaultIdentityAndEffect::test_default_equals_explicit_peretz_local
+tests/test_ignition_heat_transfer.py::TestDefaultIdentityAndEffect::test_peretz_delays_first_ignition_vs_gnielinski
+tests/test_ignition_heat_transfer.py::TestPeretzApReference::test_run_head_equals_local_on_uniform_head_section_aft_lights_sooner
+tests/test_solid_heating_models.py::TestSimIntegration::test_default_equals_explicit_goodman_bitwise
+tests/test_solid_heating_models.py::TestSimIntegration::test_models_run_and_ignite[peretz]
+tests/test_solid_heating_models.py::TestSimIntegration::test_models_run_and_ignite[conduction]
+  C:\tmp\sv\sm1\srm_1d\openmotor_adapter.py:1536: RuntimeWarning: 1 of 100 grain cells never ignited (cells 3-3, x = 28-28 mm; 99 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_ig3_stage2.py::TestEarlyStop::test_stop_off_runs_to_t_max
+  C:\tmp\sv\sm1\srm_1d\openmotor_adapter.py:1536: RuntimeWarning: the motor did not light and keep burning with the explicitly set BPNV charge of 0.2 g (explicit charges are never resized); termination: t_max reached.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_ig3_stage2.py::TestEarlyStop::test_stop_condition_is_physical
+  C:\tmp\sv\sm1\srm_1d\openmotor_adapter.py:1536: RuntimeWarning: the motor did not light and keep burning with the explicitly set BPNV charge of 0.2 g (explicit charges are never resized); termination: ignition impossible (stopped early).
+    result = run_simulation(geo, prop, **args)
+
+tests/test_ignition_diagnostics.py::test_custom_pyrogen_missing_heat_flux_requires_explicit_disable
+  C:\tmp\sv\sm1\tests\test_ignition_diagnostics.py:611: RuntimeWarning: the motor did not light and keep burning with the explicitly set diagnostic-test charge of 3 g (explicit charges are never resized); termination: t_max reached.
+    result = run_simulation(
+
+tests/test_numerical_limits.py::TestRunLevel::test_enabled_port_mach_cap_reports_face_activations
+  C:\tmp\sv\sm1\tests\test_numerical_limits.py:192: RuntimeWarning: 8 of 12 grain cells never ignited (cells 7-14, x = 75-145 mm; 33 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    return geo, run_simulation(geo, prop, nozzle, _test_chamber(), **args)
+
+tests/test_ric_igniter.py::test_all_repo_motors_have_parseable_igniter
+  C:\tmp\sv\sm1\tests\test_ric_igniter.py:88: IgniterMaterialUpgradedWarning: The motor's embedded igniter material 'BPNV' was a superseded library snapshot (an exact match of the pre-correction library values); the current library values are used instead. Re-saving the motor persists the upgrade.
+    ig = load_igniter(motor)
+
+tests/test_ric_igniter.py::test_build_chamber_from_motor_file_igniter
+  C:\tmp\sv\sm1\tests\test_ric_igniter.py:99: IgniterMaterialUpgradedWarning: The motor's embedded igniter material 'BPNV' was a superseded library snapshot (an exact match of the pre-correction library values); the current library values are used instead. Re-saving the motor persists the upgrade.
+    pyro, sizing = load_igniter(motor)
+
+tests/test_simulation_phase3.py::test_numerical_collapse_trip_aborts_with_termination_code_4
+  C:\tmp\sv\sm1\tests\test_simulation_phase3.py:257: RuntimeWarning: the motor did not light and keep burning with the explicitly set phase3-test charge of 3 g (explicit charges are never resized); termination: numerical collapse aborted.
+    result = run_simulation(
+
+tests/test_solid_heating_models.py::TestSimIntegration::test_models_run_and_ignite[peretz]
+  C:\tmp\sv\sm1\srm_1d\openmotor_adapter.py:1536: RuntimeWarning: 82 of 100 grain cells never ignited (cells 3-102, x = 28-833 mm; 18 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_solid_heating_models.py::TestSimIntegration::test_models_run_and_ignite[conduction]
+  C:\tmp\sv\sm1\srm_1d\openmotor_adapter.py:1536: RuntimeWarning: 15 of 100 grain cells never ignited (cells 3-102, x = 28-833 mm; 85 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_srm1d_plugin.py::test_quasi_steady_solver_preserved
+  C:\Users\ejarocki\Documents\Rocketry\Code Stuff\Erosive Burning Solver\openMotor\openMotor\motorlib\nozzle.py:47: RuntimeWarning: invalid value encountered in divide
+    return fsolve(lambda x: (1/self.calcExpansion()) - eRatioFromPRatio(k, x / inputPressure), 0)[0]
+
+tests/test_srm1d_plugin.py::test_quasi_steady_solver_preserved
+  C:\Users\ejarocki\Documents\Rocketry\Code Stuff\Erosive Burning Solver\openMotor\openMotor\motorlib\nozzle.py:47: RuntimeWarning: divide by zero encountered in divide
+    return fsolve(lambda x: (1/self.calcExpansion()) - eRatioFromPRatio(k, x / inputPressure), 0)[0]
+
+tests/test_srm1d_plugin.py::test_quasi_steady_solver_preserved
+  C:\Users\ejarocki\Documents\Rocketry\Code Stuff\Erosive Burning Solver\openMotor\openMotor\motorlib\nozzle.py:13: RuntimeWarning: invalid value encountered in sqrt
+    return (((k+1)/2)**(1/(k-1))) * (pRatio ** (1/k)) * ((((k+1)/(k-1))*(1-(pRatio**((k-1)/k))))**0.5)
+
+tests/test_srm1d_plugin.py::test_quasi_steady_solver_preserved
+  C:\Users\ejarocki\Documents\Rocketry\Code Stuff\Erosive Burning Solver\openMotor\openMotor\motorlib\nozzle.py:47: RuntimeWarning: The iteration is not making good progress, as measured by the 
+   improvement from the last ten iterations.
+    return fsolve(lambda x: (1/self.calcExpansion()) - eRatioFromPRatio(k, x / inputPressure), 0)[0]
+
+tests/test_srm1d_plugin.py::test_srm1d_solver_runs_via_registry
+tests/test_srm1d_plugin.py::test_solver_config_schema_drives_run
+tests/test_srm1d_plugin.py::test_per_grain_channels_populated
+tests/test_srm1d_plugin.py::test_srm1d_axial_payload_attached
+  C:\tmp\sv\sm1\srm_1d\srm1d_plugin.py:328: RuntimeWarning: auto-sized BPNV charge raised from 9.58 g to 15 g (3 attempts, factor 1.25) to light the motor. Set the charge explicitly to fix it.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_srm1d_plugin.py::test_srm1d_solver_runs_via_registry
+tests/test_srm1d_plugin.py::test_solver_config_schema_drives_run
+tests/test_srm1d_plugin.py::test_per_grain_channels_populated
+tests/test_srm1d_plugin.py::test_srm1d_axial_payload_attached
+  C:\tmp\sv\sm1\srm_1d\srm1d_plugin.py:328: RuntimeWarning: 8 of 100 grain cells never ignited (cells 3-10, x = 59-176 mm; 92 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_srm1d_plugin.py::test_fmm_grain_geometry_setup_no_crash
+  C:\tmp\sv\sm1\srm_1d\srm1d_plugin.py:328: RuntimeWarning: auto-sized BPNV charge raised from 0.585 g to 1.43 g (5 attempts, factor 1.25) to light the motor. Set the charge explicitly to fix it.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_srm1d_plugin.py::test_fmm_grain_geometry_setup_no_crash
+  C:\tmp\sv\sm1\srm_1d\srm1d_plugin.py:328: RuntimeWarning: 1 of 100 grain cells never ignited (cells 3-3, x = 18-18 mm; 99 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_srm1d_plugin.py::test_progress_callback_driven_to_completion
+  C:\tmp\sv\sm1\srm_1d\srm1d_plugin.py:364: RuntimeWarning: auto-sized BPNV charge raised from 9.58 g to 15 g (3 attempts, factor 1.25) to light the motor. Set the charge explicitly to fix it.
+    holder['result'] = run_simulation(geo, prop, **args)
+
+tests/test_srm1d_plugin.py::test_progress_callback_driven_to_completion
+  C:\tmp\sv\sm1\srm_1d\srm1d_plugin.py:364: RuntimeWarning: 8 of 100 grain cells never ignited (cells 3-10, x = 59-176 mm; 92 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    holder['result'] = run_simulation(geo, prop, **args)
+
+tests/test_submerged_topology.py::test_head_basket_runs_to_completion
+tests/test_submerged_topology.py::test_aft_basket_runs_to_completion
+tests/test_submerged_topology.py::test_head_basket_deposits_pyrogen_in_head_cells
+tests/test_submerged_topology.py::test_aft_basket_deposits_pyrogen_in_aft_cells
+tests/test_submerged_topology.py::test_uncontained_preserves_mass_balance[head_basket]
+tests/test_submerged_topology.py::test_uncontained_preserves_mass_balance[aft_basket]
+  C:\tmp\sv\sm1\tests\test_submerged_topology.py:56: RuntimeWarning: the motor did not light and keep burning with the explicitly set BPNV charge of 12.3 g (explicit charges are never resized); termination: t_max reached.
+    result = run_simulation(
+
+tests/test_yns_mixture.py::test_hasegawa_a_mixture_arrays_in_result
+  C:\tmp\sv\sm1\srm_1d\openmotor_adapter.py:1536: RuntimeWarning: the motor did not light and keep burning with the explicitly set BPNV charge of 12.3 g (explicit charges are never resized); termination: t_max reached.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_yns_phase4_validation.py::test_yns_pure_pyrogen_limit_thermo_matches_pyrogen_species
+  C:\tmp\sv\sm1\srm_1d\openmotor_adapter.py:1536: RuntimeWarning: the motor did not light and keep burning with the explicitly set BPNV charge of 12.3 g (explicit charges are never resized); termination: ignition impossible (stopped early).
+    result = run_simulation(geo, prop, **args)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+821 passed, 192 warnings in 711.49s (0:11:51)
