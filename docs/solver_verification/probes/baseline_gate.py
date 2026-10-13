@@ -22,6 +22,12 @@ noise floor:
     differences flip that decision on marginal steps, and the adaptive time
     step carries the flip into the trajectory. A warm cache reproduces the
     recorded values exactly.
+  * after IG3 (Peretz ignition h, 2026-10-12): a fresh recompile moved Chunc
+    t_peak by 4.6e-5 relative (1.7 us, of the order of one time step) while every
+    pressure stayed within 1e-5 and two warm runs reproduced the recorded
+    values exactly. t_peak is the time of the largest SAMPLE (an argmax over
+    steps), so it moves in whole steps like n_steps: it is compared with
+    ``--steps-rtol``, not ``--rtol``.
 1e-5 / 5e-4 keep ~40x / ~10x margin over that floor and stay far below the
 smallest real perturbation seen (T10: -0.5% peak; T11: -11%). Anything beyond
 them means the change perturbed the default trajectory -- report it, do not
@@ -155,6 +161,10 @@ def main():
             if key == 'n_steps':
                 rel = abs(int(got) - int(ref)) / ref
                 same = rel <= args.steps_rtol
+            elif key == 't_peak':
+                # argmax over time steps: discrete, so the step tolerance
+                rel = abs(got - ref) / abs(ref)
+                same = rel <= args.steps_rtol
             else:
                 rel = abs(got - ref) / abs(ref)
                 same = rel <= args.rtol
@@ -162,7 +172,7 @@ def main():
             print(f"  {key:8s} got {got!r:>24}  ref {ref!r:>24}  "
                   f"rel {rel:.3e}  {'OK' if same else 'MISMATCH'}")
     print("\nB0 RESULT:",
-          f"PASS (floats within rtol {args.rtol:g}, n_steps within "
+          f"PASS (floats within rtol {args.rtol:g}, n_steps and t_peak within "
           f"{args.steps_rtol:g})" if ok
           else "FAIL")
     sys.exit(0 if ok else 1)
