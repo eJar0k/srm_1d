@@ -502,7 +502,7 @@ def build_pyrogen_chamber(
     cartridge_length_m=-1.0,
     basket_fill_fraction=0.5,
     pellet_packing_fraction=0.60,
-    basket_area_law='constant',
+    basket_area_law='shrinking',
     bed_flame_speed_m_s=0.0,
 ):
     """
@@ -538,15 +538,20 @@ def build_pyrogen_chamber(
                 f"Pyrogen '{pyrogen.name}': particle_diameter_m must be "
                 f"positive; got {d}"
             )
-        if ld <= 1.0:
-            # Sphere of diameter d: A_total = 6·m / (ρ·d)
-            pyrogen_burn_area = 6.0 * pyrogen_mass / (pyrogen.rho * d)
-        else:
-            # Cylinder D=d, L=ld·d: A_total = m·(4λ+2) / (ρ·λ·d)
-            pyrogen_burn_area = (
-                pyrogen_mass * (4.0 * ld + 2.0)
-                / (pyrogen.rho * ld * d)
+        if ld <= 0.0:
+            raise ValueError(
+                f"Pyrogen '{pyrogen.name}': particle_LD_ratio must be "
+                f"positive; got {ld}"
             )
+        # Right cylinder D = d, H = ld*d (all faces burning):
+        #   A = pi d H + pi d^2/2 = pi d^2 (ld + 1/2),  V = pi d^2 H/4 = pi d^3 ld/4
+        #   A_total = A/V * m/rho = m (4 ld + 2) / (rho ld d)
+        # (OB1: valid for ANY L/D; L/D = 1 gives 6 m/(rho d) like a sphere, and
+        # the former `ld <= 1` sphere branch was wrong for L/D < 1.)
+        pyrogen_burn_area = (
+            pyrogen_mass * (4.0 * ld + 2.0)
+            / (pyrogen.rho * ld * d)
+        )
 
     if pyrogen_throat_area is None:
         # v0.7.3.2 (2026-05-27): switch from A_throat = 0.01 * A_main
@@ -607,7 +612,7 @@ _IGNITER_SIZING_DEFAULTS = {
     'cartridge_length_m': -1.0,   # -1 => derive at sim init
     'basket_fill_fraction': 0.5,
     'pellet_packing_fraction': 0.60,
-    'basket_area_law': 'constant',     # OB1 opt-in: 'shrinking'
+    'basket_area_law': 'shrinking',    # OB1 default (exact cylinder form function); 'constant' = pre-OB1
 }
 
 
@@ -716,6 +721,51 @@ SUPERSEDED_PYROGENS = {
             'particle_diameter_m': 3.2e-3, 'particle_LD_ratio': 1.0,
             'heat_delivery_mode': 'demar', 'pellet_emissivity': 0.7,
             'radiation_absorption_length_m': 1.0,
+        },
+        # OB1 (2026-10-12): the library BPNV BEFORE the MIL-P-46994B Type I-A
+        # pellet geometry (3.2 mm, L/D 1.0 -> 3.175 mm, L/D 1.504). This is what
+        # every committed ``motors/*.ric`` embeds. Two variants because a block
+        # re-saved after OB1 added ``P_plateau`` carries ``P_plateau: 0.0`` (and a
+        # snapshot key must match; extra keys must be None).
+        {
+            'name': 'BPNV', 'a': 2.0e-5, 'n': 0.5, 'rho': 1700.0,
+            'T_flame': 2719.0, 'M': 0.0482, 'gamma': 1.17,
+            'impetus_W': 5000.0, 'heat_flux_cal_cm2_s': 69.4,
+            'gas_mass_fraction': 0.781, 'kappa_jet': 8.0, 'form': 'pellets',
+            'particle_diameter_m': 3.2e-3, 'particle_LD_ratio': 1.0,
+            'heat_delivery_mode': 'demar', 'pellet_emissivity': 0.7,
+            'radiation_absorption_length_m': 1.0,
+        },
+        {
+            'name': 'BPNV', 'a': 2.0e-5, 'n': 0.5, 'rho': 1700.0,
+            'T_flame': 2719.0, 'M': 0.0482, 'gamma': 1.17,
+            'impetus_W': 5000.0, 'heat_flux_cal_cm2_s': 69.4,
+            'gas_mass_fraction': 0.781, 'kappa_jet': 8.0, 'form': 'pellets',
+            'particle_diameter_m': 3.2e-3, 'particle_LD_ratio': 1.0,
+            'heat_delivery_mode': 'demar', 'pellet_emissivity': 0.7,
+            'radiation_absorption_length_m': 1.0, 'P_plateau': 0.0,
+        },
+    ],
+    'MTV': [
+        # OB1 (2026-10-12): library MTV before the pellet-geometry change
+        # (3.2 mm, L/D 1.0 -> 3.175 mm, L/D 1.504); with and without P_plateau.
+        {
+            'name': 'MTV', 'a': 4.4e-5, 'n': 0.35, 'rho': 1800.0,
+            'T_flame': 3000.0, 'M': 0.032, 'gamma': 1.22,
+            'impetus_W': 4700.0, 'heat_flux_cal_cm2_s': 110.0,
+            'gas_mass_fraction': 1.0, 'kappa_jet': 8.0, 'form': 'pellets',
+            'particle_diameter_m': 3.2e-3, 'particle_LD_ratio': 1.0,
+            'heat_delivery_mode': 'demar', 'pellet_emissivity': 0.7,
+            'radiation_absorption_length_m': 0.5,
+        },
+        {
+            'name': 'MTV', 'a': 4.4e-5, 'n': 0.35, 'rho': 1800.0,
+            'T_flame': 3000.0, 'M': 0.032, 'gamma': 1.22,
+            'impetus_W': 4700.0, 'heat_flux_cal_cm2_s': 110.0,
+            'gas_mass_fraction': 1.0, 'kappa_jet': 8.0, 'form': 'pellets',
+            'particle_diameter_m': 3.2e-3, 'particle_LD_ratio': 1.0,
+            'heat_delivery_mode': 'demar', 'pellet_emissivity': 0.7,
+            'radiation_absorption_length_m': 0.5, 'P_plateau': 0.0,
         },
     ],
 }
@@ -842,7 +892,7 @@ def load_igniter(motor):
         'cartridge_length_m': ig.get('cartridge_length_m', -1.0),
         'basket_fill_fraction': ig.get('basket_fill_fraction', 0.5),
         'pellet_packing_fraction': ig.get('pellet_packing_fraction', 0.60),
-        'basket_area_law': ig.get('basket_area_law', 'constant'),
+        'basket_area_law': ig.get('basket_area_law', 'shrinking'),
     }
     return pyro, sizing
 
@@ -1228,7 +1278,7 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
                  cartridge_length_m=-1.0,
                  basket_fill_fraction=0.5,
                  pellet_packing_fraction=0.60,
-                 basket_area_law='constant',
+                 basket_area_law='shrinking',
                  bed_flame_speed_m_s=0.0,
                  particle_diameter_m=None,
                  particle_LD_ratio=None,

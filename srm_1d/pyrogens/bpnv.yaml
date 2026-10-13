@@ -65,15 +65,11 @@ form: pellets
 heat_delivery_mode: demar
 pellet_emissivity: 0.7
 radiation_absorption_length_m: 1.0
-# v0.7.4 Phase C.1: explicit particle geometry replaces the v0.7.3 ×5
-# pellets multiplier. Lit-cited via pyrogen physical params dive
-# (srm_1d/docs/v0_7_3/references/pyrogen_physical_params_lit_dive.md §1).
-# Industry-standard NASA/JAXA BKNO3 igniter pellet is 3.2 mm × 3.2 mm
-# right cylinder (L/D = 1.0). (Nakano & Kakami 2016 measured 3.2 mm dia pellets, 2.0-10 mm long; the L/D = 1 convention is not from that paper -- OB1 audit.)
-# Amateur HPR practice (QuickBurst/Apogee ProCast straw-cast) is
-# wider: 1.5-5 mm diameter, L/D 1-3. We default to the industry-
-# standard 3.2 mm × L/D=1.0 as the highest-confidence value;
-# override per-run via run_from_ric(particle_diameter_m=, ...) if
-# the motor uses larger amateur-cast pellets.
-particle_diameter_m: 3.2e-3
-particle_LD_ratio: 1.0
+# OB1 (2026-10-12), user decision: pellet geometry = the MIL-P-46994B (boron/
+# potassium nitrate igniter pellets) cylindrical pellet, Table III Type I-A:
+# diameter 0.125 +/- 0.002 in, height 0.188 +/- 0.004 in = 3.175 x 4.775 mm,
+# L/D = 1.504 (minimum weight 0.067 g). docs/references/MIL-P-46994B.pdf
+# (page image of Table III). Previously 3.2 mm, L/D = 1.0 (no source).
+# Override per-run via run_from_ric(particle_diameter_m=, particle_LD_ratio=).
+particle_diameter_m: 3.175e-3
+particle_LD_ratio: 1.504

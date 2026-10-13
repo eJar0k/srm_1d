@@ -48,6 +48,7 @@ from .burn_rate import (
     resolve_erosive_model,
 )
 from .igniter_plenum import (
+    _cyl_area_fraction,
     _step_plenum_ode,
     chamber_params,
     initial_plenum_state,
@@ -535,6 +536,7 @@ def _compute_pyrogen_axial_weights(x_centers, dx, L_jet, N):
 def _compute_uncontained_pyrogen_mdot_cells(
     P_bore, a, n, rho_p, A_cell0, m_cell, m_cell0, t, dt,
     i_start, i_end, N, mdot_arr, gas_mass_fraction, P_plateau, t_light,
+    shape_LD=1.0,
 ):
     """OB1 (opt-in) — per-cell uncontained pyrogen mdot with the burning
     area following the pellet web consumption.
@@ -542,12 +544,14 @@ def _compute_uncontained_pyrogen_mdot_cells(
     Each cartridge cell i keeps its own unburnt mass ``m_cell[i]`` (initially
     ``m_cell0``) and burns it at its host-cell bore pressure:
 
-        A_i     = A_cell0 * (m_cell[i] / m_cell0)^(2/3)     [m^2]
+        A_i     = A_cell0 * g(m_cell[i] / m_cell0; L/D)     [m^2]
         r_b[i]  = a * min(P_bore[i], P_plateau)^n           [m/s]  (cap if P_plateau > 0)
         mdot[i] = rho_p * r_b[i] * A_i                      [kg/s, SOLID]
 
-    ``A ~ m^(2/3)`` is exact for particles that regress uniformly on every
-    face and keep their shape (spheres, cubes, L/D = 1 cylinders). A cell that
+    ``g`` is the exact right-cylinder form function
+    (``igniter_plenum._cyl_area_fraction``: all faces regress at the same
+    rate, D = D0-2s, H = H0-2s); for L/D = 1 (spheres, cubes, L = D cylinders)
+    it is exactly ``f^(2/3)``. A cell that
     has not yet lit (``t < t_light[i]``) is inert. The last step of a cell is
     capped so it consumes exactly its remaining mass. Returns the total unburnt
     mass after the step (the caller stores it in ``plenum_state[0]``).
@@ -574,7 +578,7 @@ def _compute_uncontained_pyrogen_mdot_cells(
         if P_plateau > 0.0 and P > P_plateau:
             P = P_plateau
         frac = mi / m_cell0
-        A_i = A_cell0 * frac ** (2.0 / 3.0)
+        A_i = A_cell0 * _cyl_area_fraction(frac, shape_LD)
         mdot_solid = rho_p * a * (P ** n) * A_i
         if mdot_solid * dt >= mi:
             mdot_solid = mi / dt
@@ -1809,9 +1813,9 @@ def _run_time_loop(
     D_throat = D_throat_init
     A_throat = A_throat_init
     pyrogen_initial_mass = plenum_state[0]
-    # OB1: opt-in per-cell basket bookkeeping (area follows web consumption,
-    # optional sequential bed lighting). Off by default: the pooled
-    # constant-area path below is then bit-identical to pre-OB1.
+    # OB1: per-cell basket bookkeeping (area follows web consumption via the exact
+    # cylinder form function; optional sequential bed lighting). DEFAULT for the
+    # baskets; basket_area_law='constant' selects the pooled constant-area path.
     use_basket_cells = (
         topology_code != 0 and
         (chamber_params_arr[5] > 0.5 or chamber_params_arr[6] > 0.0)
@@ -2123,6 +2127,7 @@ def _run_time_loop(
                     cart_i_start, cart_i_end, N,
                     mdot_uncontained_arr, pyrogen_params_arr[6],
                     pyrogen_params_arr[7], t_light_basket,
+                    chamber_params_arr[7],
                 )
             else:
                 new_remaining = _compute_uncontained_pyrogen_mdot(

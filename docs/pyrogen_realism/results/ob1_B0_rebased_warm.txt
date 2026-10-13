@@ -1,0 +1,31 @@
+[provenance] srm_1d imported from C:\tmp\sv\ob1\srm_1d
+[provenance] git HEAD e3111a72b5858724c179abc30ef74a8a7713c29a  dirty=False
+[provenance] numpy 2.2.6  numba 0.63.1  python 3.10.5
+[ric-source] motors/machbusterNew.ric: unmodified -> using working-tree copy
+[provenance] machbusterNew.ric sha256 a234a1dcf054dfb337e508360170e504228e9be85dfbd984940ea8326819df0e  (C:\tmp\sv\ob1\motors\machbusterNew.ric)
+[ric-source] motors/BALLSstick.ric: unmodified -> using working-tree copy
+[provenance] BALLSstick.ric sha256 7fd189d62aabcdc5a5a788611d7b2c3cd94b91fbcc3e111f15e89423074cbd73  (C:\tmp\sv\ob1\motors\BALLSstick.ric)
+[ric-source] motors/hasegawa_a.ric: unmodified -> using working-tree copy
+[provenance] hasegawa_a.ric sha256 ccb7fccc972fd6074beff0b0099d1fdd2f731549d4628ea0eccbef97ca69185d  (C:\tmp\sv\ob1\motors\hasegawa_a.ric)
+[ric-source] motors/machbusterNew.ric: unmodified -> using working-tree copy
+
+[chunc] wall 12.8 s, termination='t_max reached'
+  peak     got        9.950853127903628  ref        9.950855636512404  rel 2.521e-07  OK
+  t_peak   got      0.03673671363620277  ref     0.036735041862973064  rel 4.551e-05  MISMATCH
+  plateau  got        8.141968068485546  ref        8.141968067255977  rel 1.510e-10  OK
+  n_steps  got                   532381  ref                   532381  rel 0.000e+00  OK
+[ric-source] motors/BALLSstick.ric: unmodified -> using working-tree copy
+
+[balls] wall 28.7 s, termination='t_max reached'
+  peak     got        7.020336343744134  ref        7.020318627616664  rel 2.524e-06  OK
+  trough   got        4.343390758258965  ref        4.343390826697384  rel 1.576e-08  OK
+  mid      got       4.8553172041676955  ref        4.855316005870968  rel 2.468e-07  OK
+  n_steps  got                   843726  ref                   843726  rel 0.000e+00  OK
+[ric-source] motors/hasegawa_a.ric: unmodified -> using working-tree copy
+
+[haseg] wall 50.2 s, termination='t_max reached'
+  peak     got        6.107268309533461  ref        6.107268310023869  rel 8.030e-11  OK
+  t_peak   got       2.4110426286676536  ref        2.411042627819566  rel 3.518e-10  OK
+  n_steps  got                  2336270  ref                  2336271  rel 4.280e-07  OK
+
+B0 RESULT: FAIL

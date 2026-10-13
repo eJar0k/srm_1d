@@ -50,13 +50,12 @@ form: pellets
 heat_delivery_mode: demar
 pellet_emissivity: 0.7
 radiation_absorption_length_m: 0.5
-# v0.7.4 Phase C.1: explicit particle geometry replaces the v0.7.3 ×5
-# pellets multiplier. Lit-cited via pyrogen physical params dive
-# (srm_1d/docs/v0_7_3/references/pyrogen_physical_params_lit_dive.md §2).
-# MTV ignition pellets follow the same NASA convention as BKNO3:
-# 3.2 mm × 3.2 mm right cylinder (L/D=1.0). Per Koch & Clément 2007
-# review, decoy-flare-grade MTV uses larger 6 mm pellets, but igniter-
-# grade MTV pellets match the BKNO3 standard. Override via
-# run_from_ric(particle_diameter_m=, ...) for decoy-flare-style use.
-particle_diameter_m: 3.2e-3
-particle_LD_ratio: 1.0
+# OB1 (2026-10-12), user decision: MTV igniter pellets are ASSUMED to have the
+# same geometry as the MIL-P-46994B boron/potassium-nitrate Type I-A pellet
+# (Table III: diameter 0.125 +/- 0.002 in, height 0.188 +/- 0.004 in =
+# 3.175 x 4.775 mm, L/D = 1.504). There is NO MIL specification for MTV; this
+# is the user's stated assumption, not a sourced MTV dimension.
+# Previously 3.2 mm, L/D = 1.0. Override per-run via
+# run_from_ric(particle_diameter_m=, particle_LD_ratio=).
+particle_diameter_m: 3.175e-3
+particle_LD_ratio: 1.504
