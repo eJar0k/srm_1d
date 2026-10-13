@@ -357,6 +357,15 @@ in geometry/burn rate/ignition (called every step or every N steps).
   rising slowly). Residual assumption: the pocket gas is not advected into the grain. A failed attempt costs ~3.5-4.5 s wall
   (Chunc). Never changes a run that lights (array-identical, tested). `_run_time_loop` gained `stop_if_unignitable`
   (after `peretz_ap_code`).
+- **B0 re-recorded** (on top of OB1; `docs/pyrogen_realism/results/ig3s2_*`). Canonical rows now run the auto path:
+  | motor | Sutton (old) | DeMar first | final charge | attempts | wall per attempt [s] | peak MPa | other |
+  |---|---|---|---|---|---|---|---|
+  | Chunc | 0.904 g | 1.074 g | 2.623 g | 5 | 4.2 3.6 3.5 3.7 12.1 | 8.698 (was 9.977) | plateau 8.066, pk/pl 1.078 |
+  | BALLSstick | 1.386 g | 1.978 g | 7.546 g | 7 | 4.0 4.1 3.2 4.0 21.6 21.0 20.0 | 11.18 (was 7.061) | trough 4.235, pk/trough 2.64 |
+  | Hasegawa A | 4.184 g | 9.585 g | 18.72 g | 4 | 11.9 12.4 58.6 46.6 | 6.195 at 23 ms (was 6.107 at 2.41 s) | late peak ~6.1 |
+  The 4.83 g BALLSstick attempt lights the aft 90 % of the grain and leaves the head-end 10 % unlit (stagnant,
+  u ~ 0.4 m/s), so the success test is >= 99 % of the grain cells lit (`ignition_min_lit_fraction`), not the first cell.
+  The upsized charges over-drive the startup spike (BALLSstick pk/trough 1.62 -> 2.64; Chunc improved 1.22 -> 1.08).
 - Plugin: termination_code 6 is reported as 'never ignited'. An exhausted auto-size (`PyrogenAutoSizeError`) propagates as an exception.
 - **Pre-IG3 embedded igniter blocks** (all committed .ric files embed library BPNV with `heat_delivery_mode: demar`) are
   upgraded on load to the current library entry through `SUPERSEDED_PYROGENS` (snapshots for BPNV, MTV, MTV_fast, thermite);
