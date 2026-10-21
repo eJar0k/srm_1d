@@ -331,6 +331,35 @@ in geometry/burn rate/ignition (called every step or every N steps).
 
 ## API Breaking Changes Log
 
+### MEM1 + IG4 (unreleased, 2026-10-21) -- bounded history memory; self-sustaining = grain out-produces the igniter
+
+- **MEM1 (memory; no change to any result):** the per-step history of `run_simulation` (~60 arrays, ~480 B/row) used
+  to be pre-allocated at `max(est_steps, 5,000,000)` rows = 2.4 GB for EVERY run (Chunc B0 row: 3.91 GB peak) and then
+  copied at the end (`[:n_steps].copy()`, a 2x peak). Now:
+  - no fixed floor; capacity = `min(est_steps, _HISTORY_ROWS_INITIAL_MAX = 3,000,000)` (~1.4 GB). The CFL estimate
+    (`_estimate_history_steps`) is unchanged and covers every measured motor (B0 rows: actual/estimate 0.72-0.79).
+  - an AUTO-sized history that fills (termination 3) is re-run ONCE with double the capacity (6M rows, ~2.9 GB) and a
+    `RuntimeWarning`, instead of returning a truncated result (`_run_once_growing_history`; the truncated run is freed
+    first). If even 6M rows are too few the result is truncated exactly as before, with the existing "history array
+    full" `RuntimeWarning` naming a `history_capacity` to pass (never silent; such a run needs > ~3 GB of history and
+    is a heavy job). An EXPLICIT `history_capacity` is honoured as given and never re-run.
+  - the end-of-run trim is in place (`_shrink_hist`: `ndarray.resize(n, refcheck=False)`), result arrays still have
+    exactly `n_steps` rows, values untouched. History size cannot change the physics (tested array-identical).
+  - new summary keys `history_estimated_steps` (existing), `history_capacity_explicit`. Hard break: none for callers.
+  - measured (guarded_run `peak_job_gb`, whole job incl. ~0.9 GB numba/interpreter): B0 Chunc 3.91 -> 1.79 GB,
+    B0 whole gate 2.85 GB, pathfin54 on the GUI path (t_max 10 s) 4.5+ GB (MemoryError at 4 GB) -> 2.63 GB, 75 mm BATES
+    (est 16.7M rows, needs 4.4M) 8+ GB -> 3.73 GB with the one growth. Table: `docs/pyrogen_realism/results/mem1_sweep*.jsonl`.
+- **IG4:** the ignition fallback's success test is now "after the igniter is spent the GRAIN's gas-generation rate exceeds,
+  at some step, the igniter's PEAK gas-generation rate of that attempt" (new per-step `mdot_grain` history; summary
+  `igniter_peak_mdot_kg_s`, `grain_mdot_after_igniter_kg_s`). It replaces the weaker "a cell is burning after the igniter"
+  that let pathfin54 hang-fire at 0.585 g (1 of 100 cells lit, 0.11 MPa until the pressure cutoff) and report success.
+  A failed explicit charge returns `ignited=False` with a "did not reach self-sustaining combustion" warning (hang-fire
+  noted when the pressure cutoff ended it); the plugin raises its ERROR alert when `summary['ignited']` is False.
+  Canonical auto charges are unchanged (Chunc 2.62 g, BALLSstick 4.83 g, Hasegawa A 14.98 g). `_run_time_loop` gained the
+  `mdot_grain_hist` output array (after `mdot_ig_hist`).
+- Finding: `motors/hlbl38.ric` raises `PyrogenAutoSizeError` (10 attempts, 0.184-1.37 g all fail) -- it needs more than 7.5x
+  the DeMar charge or has a head-end it cannot ignite with a forward plenum; not investigated.
+
 ### Compute safeguards (unreleased, 2026-10-21) -- sweep default workers 2; guarded_run
 
 - `srm_1d.tools.sensitivity.run_lhs_sweep(n_workers=None)` now means

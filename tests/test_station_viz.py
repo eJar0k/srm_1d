@@ -346,7 +346,7 @@ class TestEndToEndContract:
         result = run_simulation(
             geo, prop, nozzle, chamber,
             roughness=20e-6, T_ignition=294.0, P_cutoff=0.5e6,
-            snapshot_interval=0.5, print_interval=1e9, t_max=6.0,
+            snapshot_interval=0.25, print_interval=1e9, t_max=1.0,  # MEM1: was 6 s (5.3M steps, ~3.7 GB history); the payload contract needs no burnout
         )
 
         # Contract fields present.
