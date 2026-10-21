@@ -40,7 +40,8 @@ def base():
 class TestNoFloor:
     def test_capacity_is_the_estimate(self, base):
         s = base["summary"]
-        assert s["history_capacity"] == s["history_estimated_steps"]
+        assert s["history_capacity"] == min(s["history_estimated_steps"],
+                                            sim._HISTORY_ROWS_INITIAL_MAX)
         assert s["history_capacity"] < 5_000_000
         assert s["steps"] <= s["history_capacity"]
         assert len(base["time"]) == s["steps"]
@@ -80,6 +81,20 @@ class TestFullHistory:
         msgs = [str(x.message) for x in w if issubclass(x.category, RuntimeWarning)]
         assert any("re-running once" in m for m in msgs)
         assert not any("history arrays filled" in m for m in msgs)    # superseded
+        assert np.array_equal(np.asarray(res["P_head"]), np.asarray(base["P_head"]))
+
+    def test_initial_capacity_is_bounded_and_grows_once(self, base, monkeypatch):
+        steps = base["summary"]["steps"]
+        cap0 = int(0.7 * steps)
+        monkeypatch.setattr(sim, "_estimate_history_steps", lambda *a, **k: 100 * steps)
+        monkeypatch.setattr(sim, "_HISTORY_ROWS_INITIAL_MAX", cap0)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            res = _run()
+        s = res["summary"]
+        assert s["history_estimated_steps"] == 100 * steps       # the huge estimate was NOT allocated
+        assert s["history_capacity"] == 2 * cap0 and s["termination_code"] != 3
+        assert any("re-running once" in str(x.message) for x in w)
         assert np.array_equal(np.asarray(res["P_head"]), np.asarray(base["P_head"]))
 
     def test_second_overflow_still_truncates_with_warning(self, base, monkeypatch):

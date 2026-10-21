@@ -2818,6 +2818,15 @@ def _run_time_loop(
 # (solver-verification T8, 2026-10-06).
 _HISTORY_WAVE_SPEED_MARGIN = 1.5
 
+# MEM1: memory bound on the AUTO-sized history. Each run keeps ~60 per-step arrays
+# (~480 B per row), so 3,000,000 rows is ~1.4 GB. A run whose CFL estimate exceeds this
+# (a long t_max, e.g. the GUI's 10 s default for a 3 s burn, or a fine grid) starts at
+# this size and, if it really needs more, is re-run ONCE with double (~2.9 GB) by
+# run_simulation instead of preallocating the whole worst case (pathfin54 at t_max 10 s
+# needed 9.3M rows = 4.5 GB; a 75 mm BATES 16.7M rows = 8 GB). Past 2x this, pass an
+# explicit ``history_capacity`` (honoured as given).
+_HISTORY_ROWS_INITIAL_MAX = 3_000_000
+
 
 def _shrink_hist(a, n):
     """MEM1: trim a pre-allocated history array to exactly ``n`` rows IN PLACE
@@ -3515,7 +3524,7 @@ def _run_simulation_once(
     # even a 6 ms test). A run that outgrows the estimate is re-run once with double
     # the capacity by run_simulation (never silently truncated); an explicit
     # history_capacity is honoured as given.
-    max_hist = est_steps
+    max_hist = min(est_steps, _HISTORY_ROWS_INITIAL_MAX)
     if history_capacity is not None:
         if int(history_capacity) != history_capacity or history_capacity < 1:
             raise ValueError(
