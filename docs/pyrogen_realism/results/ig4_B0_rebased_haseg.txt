@@ -1,0 +1,25 @@
+C:\tmp\sv\ig3\srm_1d\grain_geometry.py:1138: UserWarning: Integer-snapping altered total motor length by more than 10mm. Check segment proportions.
+  warnings.warn(f"Integer-snapping altered total motor length by more than 10mm. Check segment proportions.")
+[provenance] srm_1d imported from C:\tmp\sv\ig3\srm_1d
+[provenance] git HEAD 5b502472a2d5a5953f28a657c532395e55cdda48  dirty=False
+[provenance] numpy 2.2.6  numba 0.63.1  python 3.10.5
+[ric-source] motors/hasegawa_a.ric: unmodified -> using working-tree copy
+[provenance] hasegawa_a.ric sha256 ccb7fccc972fd6074beff0b0099d1fdd2f731549d4628ea0eccbef97ca69185d  (C:\tmp\sv\ig3\motors\hasegawa_a.ric)
+[ric-source] motors/hasegawa_a.ric: unmodified -> using working-tree copy
+Traceback (most recent call last):
+  File "C:\tmp\sv\ig3\docs\solver_verification\probes\baseline_gate.py", line 233, in <module>
+    main()
+  File "C:\tmp\sv\ig3\docs\solver_verification\probes\baseline_gate.py", line 207, in main
+    row = ROWS[name]('ma2020', 0.0)
+  File "C:\tmp\sv\ig3\docs\v0_7_4\probes\mp_cap_crossmotor.py", line 149, in haseg_row
+    t, P, summary = run(ric, erosive_model, cap, 10.0, p_cutoff=0.05e6)
+  File "C:\tmp\sv\ig3\docs\v0_7_4\probes\mp_cap_crossmotor.py", line 113, in run
+    res = run_from_ric(str(ric), erosive_model=erosive_model,
+  File "C:\tmp\sv\ig3\srm_1d\openmotor_adapter.py", line 1555, in run_from_ric
+    result = run_simulation(geo, prop, **args)
+  File "C:\tmp\sv\ig3\srm_1d\simulation.py", line 4379, in run_simulation
+    res = _run_simulation_once(*bound.args, **bound.kwargs)
+  File "C:\tmp\sv\ig3\srm_1d\simulation.py", line 3798, in _run_simulation_once
+    max_pressure_arr = max_pressure_hist[:n_steps].copy()
+numpy._core._exceptions._ArrayMemoryError: Unable to allocate 17.9 MiB for an array with shape (2347427,) and data type float64
+[guarded_run] exit=1 timed_out=False wall_s=82.4 peak_job_gb=4.0 mem_cap_gb=4.0 timeout_min=30.0

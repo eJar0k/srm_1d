@@ -1,0 +1,40 @@
+C:\tmp\sv\ig3\srm_1d\grain_geometry.py:1138: UserWarning: Integer-snapping altered total motor length by more than 10mm. Check segment proportions.
+  warnings.warn(f"Integer-snapping altered total motor length by more than 10mm. Check segment proportions.")
+C:\tmp\sv\ig3\srm_1d\openmotor_adapter.py:1555: RuntimeWarning: auto-sized BPNV charge raised from 1.07 g to 2.62 g (5 attempts, factor 1.25) to light the motor. Set the charge explicitly to fix it.
+  result = run_simulation(geo, prop, **args)
+C:\tmp\sv\ig3\srm_1d\grain_geometry.py:1138: UserWarning: Integer-snapping altered total motor length by more than 10mm. Check segment proportions.
+  warnings.warn(f"Integer-snapping altered total motor length by more than 10mm. Check segment proportions.")
+[provenance] srm_1d imported from C:\tmp\sv\ig3\srm_1d
+[provenance] git HEAD 5b502472a2d5a5953f28a657c532395e55cdda48  dirty=False
+[provenance] numpy 2.2.6  numba 0.63.1  python 3.10.5
+[ric-source] motors/machbusterNew.ric: unmodified -> using working-tree copy
+[provenance] machbusterNew.ric sha256 a234a1dcf054dfb337e508360170e504228e9be85dfbd984940ea8326819df0e  (C:\tmp\sv\ig3\motors\machbusterNew.ric)
+[ric-source] motors/BALLSstick.ric: unmodified -> using working-tree copy
+[provenance] BALLSstick.ric sha256 7fd189d62aabcdc5a5a788611d7b2c3cd94b91fbcc3e111f15e89423074cbd73  (C:\tmp\sv\ig3\motors\BALLSstick.ric)
+[ric-source] motors/hasegawa_a.ric: unmodified -> using working-tree copy
+[provenance] hasegawa_a.ric sha256 ccb7fccc972fd6074beff0b0099d1fdd2f731549d4628ea0eccbef97ca69185d  (C:\tmp\sv\ig3\motors\hasegawa_a.ric)
+[ric-source] motors/machbusterNew.ric: unmodified -> using working-tree copy
+
+[chunc] wall 61.9 s, termination='t_max reached'
+  peak     got         8.69844570373737  ref        8.698445703737404  rel 3.880e-15  OK
+  t_peak   got      0.02452937488713819  ref     0.024529374887138196  rel 2.829e-16  OK
+  plateau  got        8.066193145745387  ref         8.06619314574538  rel 8.809e-16  OK
+  n_steps  got                   533513  ref                   533513  rel 0.000e+00  OK
+[ric-source] motors/BALLSstick.ric: unmodified -> using working-tree copy
+Traceback (most recent call last):
+  File "C:\tmp\sv\ig3\docs\solver_verification\probes\baseline_gate.py", line 233, in <module>
+    main()
+  File "C:\tmp\sv\ig3\docs\solver_verification\probes\baseline_gate.py", line 207, in main
+    row = ROWS[name]('ma2020', 0.0)
+  File "C:\tmp\sv\ig3\docs\v0_7_4\probes\mp_cap_crossmotor.py", line 134, in balls_row
+    t, P, summary = run(ric, erosive_model, cap, 2.0)
+  File "C:\tmp\sv\ig3\docs\v0_7_4\probes\mp_cap_crossmotor.py", line 113, in run
+    res = run_from_ric(str(ric), erosive_model=erosive_model,
+  File "C:\tmp\sv\ig3\srm_1d\openmotor_adapter.py", line 1555, in run_from_ric
+    result = run_simulation(geo, prop, **args)
+  File "C:\tmp\sv\ig3\srm_1d\simulation.py", line 4379, in run_simulation
+    res = _run_simulation_once(*bound.args, **bound.kwargs)
+  File "C:\tmp\sv\ig3\srm_1d\simulation.py", line 3826, in _run_simulation_once
+    normal_sidewall_thermal_power_arr
+numpy._core._exceptions._ArrayMemoryError: Unable to allocate 6.49 MiB for an array with shape (850245,) and data type float64
+[guarded_run] exit=1 timed_out=False wall_s=110.5 peak_job_gb=4.0 mem_cap_gb=4.0 timeout_min=30.0
