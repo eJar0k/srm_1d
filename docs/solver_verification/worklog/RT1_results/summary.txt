@@ -1,0 +1,72 @@
+
+## chunc | solid=goodman | charge=fixed
+sensible   static   charge 2.62 g att 1 | first 4.44 t90 16.31 ms | never lit 0 None ignited True | peak 8.698 MPa @ 24.5 ms plateau 8.066 ratio 1.078
+sensible   recovery charge 2.62 g att 1 | first 3.47 t90 12.14 ms | never lit 1 [3, 3] ignited True | peak 10.138 MPa @ 26.4 ms plateau 7.990 ratio 1.269
+total_cons static   charge 2.62 g att 1 | first 5.23 t90 5.83 ms | never lit 7 [3, 9] ignited True | peak 9.080 MPa @ 24.3 ms plateau 7.160 ratio 1.268
+total_cons recovery charge 2.62 g att 1 | first 4.24 t90 4.94 ms | never lit 10 [3, 12] ignited True | peak 8.572 MPa @ 22.3 ms plateau 6.766 ratio 1.267
+
+## chunc | solid=goodman | charge=auto
+sensible   static   charge 2.62 g att 5 | first 4.44 t90 16.31 ms | never lit 0 None ignited True | peak 8.698 MPa @ 24.5 ms plateau 8.066 ratio 1.078
+sensible   recovery charge 2.10 g att 4 | first 5.22 t90 7.43 ms | never lit 0 None ignited True | peak 10.351 MPa @ 27.7 ms plateau 8.138 ratio 1.272
+total_cons static   charge 2.62 g att 5 | first 5.23 t90 5.83 ms | never lit 7 [3, 9] ignited True | peak 9.080 MPa @ 24.3 ms plateau 7.160 ratio 1.268
+total_cons recovery charge 2.62 g att 5 | first 4.24 t90 4.94 ms | never lit 10 [3, 12] ignited True | peak 8.572 MPa @ 22.3 ms plateau 6.766 ratio 1.267
+
+## chunc | solid=conduction | charge=fixed
+sensible   static   charge 2.62 g att 1 | first 5.31 t90 7.01 ms | never lit 10 [3, 12] ignited True | peak 8.211 MPa @ 26.3 ms plateau 6.766 ratio 1.214
+sensible   recovery charge 2.62 g att 1 | first 4.34 t90 6.04 ms | never lit 12 [3, 14] ignited True | peak 7.951 MPa @ 24.4 ms plateau 6.511 ratio 1.221
+total_cons static   charge 2.62 g att 1 | first 5.56 t90 7.84 ms | never lit 7 [3, 9] ignited True | peak 8.807 MPa @ 25.3 ms plateau 7.158 ratio 1.230
+total_cons recovery charge 2.62 g att 1 | first 4.91 t90 6.81 ms | never lit 9 [3, 11] ignited True | peak 8.529 MPa @ 25.4 ms plateau 6.894 ratio 1.237
+
+## chunc | solid=conduction | charge=auto
+sensible   static   charge 2.10 g att 4 | first 8.34 t90 11.48 ms | never lit 1 [3, 3] ignited True | peak 9.745 MPa @ 35.4 ms plateau 7.991 ratio 1.219
+sensible   recovery charge 2.10 g att 4 | first 6.16 t90 9.10 ms | never lit 11 [3, 13] ignited True | peak 7.396 MPa @ 31.2 ms plateau 6.632 ratio 1.115
+total_cons static   charge 2.62 g att 5 | first 5.56 t90 7.84 ms | never lit 7 [3, 9] ignited True | peak 8.807 MPa @ 25.3 ms plateau 7.158 ratio 1.230
+total_cons recovery charge 2.10 g att 4 | first 8.48 t90 11.75 ms | never lit 1 [3, 3] ignited True | peak 9.805 MPa @ 33.3 ms plateau 7.988 ratio 1.227
+
+## balls | solid=goodman | charge=fixed
+sensible   static   charge 4.83 g att 1 | first 5.02 t90 5.68 ms | never lit 9 [3, 11] ignited True | peak 7.193 MPa @ 22.4 ms trough 3.522 mid 3.888 pk/tr 2.042
+sensible   recovery charge 4.83 g att 1 | first 4.18 t90 4.79 ms | never lit 11 [3, 13] ignited True | peak 7.069 MPa @ 21.0 ms trough 3.360 mid 3.695 pk/tr 2.104
+total_cons static   charge 4.83 g att 1 | first 5.03 t90 5.84 ms | never lit 7 [3, 9] ignited True | peak 7.803 MPa @ 21.6 ms trough 3.689 mid 4.090 pk/tr 2.115
+total_cons recovery charge 4.83 g att 1 | first 4.16 t90 4.93 ms | never lit 8 [3, 10] ignited True | peak 7.922 MPa @ 20.2 ms trough 3.604 mid 3.990 pk/tr 2.198
+
+## balls | solid=goodman | charge=auto
+sensible   static   charge 4.83 g att 5 | first 5.02 t90 5.68 ms | never lit 9 [3, 11] ignited True | peak 7.193 MPa @ 22.4 ms trough 3.522 mid 3.888 pk/tr 2.042
+sensible   recovery charge 3.86 g att 4 | first 8.25 t90 8.96 ms | never lit 0 None ignited True | peak 6.230 MPa @ 28.4 ms trough 4.137 mid 4.696 pk/tr 1.506
+total_cons static   charge 4.83 g att 5 | first 5.03 t90 5.84 ms | never lit 7 [3, 9] ignited True | peak 7.803 MPa @ 21.6 ms trough 3.689 mid 4.090 pk/tr 2.115
+total_cons recovery charge 4.83 g att 5 | first 4.16 t90 4.93 ms | never lit 8 [3, 10] ignited True | peak 7.922 MPa @ 20.2 ms trough 3.604 mid 3.990 pk/tr 2.198
+
+## balls | solid=conduction | charge=fixed
+sensible   static   charge 4.83 g att 1 | first 6.02 t90 8.08 ms | never lit 9 [3, 11] ignited True | peak 6.812 MPa @ 24.4 ms trough 3.523 mid 3.884 pk/tr 1.933
+sensible   recovery charge 4.83 g att 1 | first 5.34 t90 6.78 ms | never lit 10 [3, 12] ignited True | peak 6.855 MPa @ 23.0 ms trough 3.441 mid 3.788 pk/tr 1.992
+total_cons static   charge 4.83 g att 1 | first 5.81 t90 8.61 ms | never lit 7 [3, 9] ignited True | peak 7.340 MPa @ 23.9 ms trough 3.690 mid 4.086 pk/tr 1.989
+total_cons recovery charge 4.83 g att 1 | first 5.15 t90 7.22 ms | never lit 8 [3, 10] ignited True | peak 7.442 MPa @ 22.2 ms trough 3.604 mid 3.986 pk/tr 2.065
+
+## balls | solid=conduction | charge=auto
+sensible   static   charge 3.86 g att 4 | first 9.59 t90 12.93 ms | never lit 8 [3, 10] ignited True | peak 5.815 MPa @ 32.9 ms trough 3.607 mid 3.971 pk/tr 1.612
+sensible   recovery charge 3.86 g att 4 | first 8.00 t90 10.02 ms | never lit 9 [3, 11] ignited True | peak 5.931 MPa @ 31.2 ms trough 3.523 mid 3.875 pk/tr 1.684
+total_cons static   charge 3.86 g att 4 | first 12.33 t90 18.76 ms | never lit 1 [3, 3] ignited True | peak 6.861 MPa @ 42.4 ms trough 4.242 mid 4.723 pk/tr 1.617
+total_cons recovery charge 3.86 g att 4 | first 8.44 t90 11.69 ms | never lit 7 [3, 9] ignited True | peak 6.213 MPa @ 29.8 ms trough 3.690 mid 4.075 pk/tr 1.684
+
+## haseg | solid=goodman | charge=fixed
+sensible   static   charge 14.98 g att 1 | first 4.20 t90 5.75 ms | never lit 8 [3, 10] ignited True | peak 4.654 MPa @ 31.1 ms (t_max 0.3 s)
+sensible   recovery charge 14.98 g att 1 | first 3.87 t90 5.49 ms | never lit 0 None ignited True | peak 5.441 MPa @ 31.9 ms (t_max 0.3 s)
+total_cons static   charge 14.98 g att 1 | first 8.82 t90 10.04 ms | never lit 12 [3, 14] ignited True | peak 4.003 MPa @ 60.7 ms (t_max 0.3 s)
+total_cons recovery charge 14.98 g att 1 | first 3.91 t90 5.15 ms | never lit 8 [3, 11] ignited True | peak 4.787 MPa @ 28.5 ms (t_max 0.3 s)
+
+## haseg | solid=goodman | charge=auto
+sensible   static   charge 14.98 g att 3 | first 4.20 t90 5.75 ms | never lit 8 [3, 10] ignited True | peak 4.654 MPa @ 31.1 ms (t_max 0.3 s)
+sensible   recovery charge 14.98 g att 3 | first 3.87 t90 5.49 ms | never lit 0 None ignited True | peak 5.441 MPa @ 31.9 ms (t_max 0.3 s)
+total_cons static   charge 14.98 g att 3 | first 8.82 t90 10.04 ms | never lit 12 [3, 14] ignited True | peak 4.003 MPa @ 60.7 ms (t_max 0.3 s)
+total_cons recovery charge 14.98 g att 3 | first 3.91 t90 5.15 ms | never lit 8 [3, 11] ignited True | peak 4.787 MPa @ 28.5 ms (t_max 0.3 s)
+
+## haseg | solid=conduction | charge=fixed
+sensible   static   charge 14.98 g att 1 | first 5.88 t90 10.05 ms | never lit 8 [3, 10] ignited True | peak 4.465 MPa @ 61.0 ms (t_max 0.3 s)
+sensible   recovery charge 14.98 g att 1 | first 5.42 t90 9.32 ms | never lit 8 [3, 10] ignited True | peak 4.478 MPa @ 55.9 ms (t_max 0.3 s)
+total_cons static   charge 14.98 g att 1 | first 5.93 t90 10.36 ms | never lit 7 [3, 9] ignited True | peak 4.574 MPa @ 61.3 ms (t_max 0.3 s)
+total_cons recovery charge 14.98 g att 1 | first 5.31 t90 9.55 ms | never lit 8 [3, 10] ignited True | peak 4.472 MPa @ 54.4 ms (t_max 0.3 s)
+
+## haseg | solid=conduction | charge=auto
+sensible   static   charge 14.98 g att 3 | first 5.88 t90 10.05 ms | never lit 8 [3, 10] ignited True | peak 4.465 MPa @ 61.0 ms (t_max 0.3 s)
+sensible   recovery charge 14.98 g att 3 | first 5.42 t90 9.32 ms | never lit 8 [3, 10] ignited True | peak 4.478 MPa @ 55.9 ms (t_max 0.3 s)
+total_cons static   charge 14.98 g att 3 | first 5.93 t90 10.36 ms | never lit 7 [3, 9] ignited True | peak 4.574 MPa @ 61.3 ms (t_max 0.3 s)
+total_cons recovery charge 14.98 g att 3 | first 5.31 t90 9.55 ms | never lit 8 [3, 10] ignited True | peak 4.472 MPa @ 54.4 ms (t_max 0.3 s)

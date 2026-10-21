@@ -557,6 +557,16 @@ in geometry/burn rate/ignition (called every step or every N steps).
   (not 7 MPa), SI `a = 2.08e-5` for `n = 0.589` (not 3.50e-5).
 - Report: `docs/pyrogen_realism/OB1_REPORT.md`. Tests: `tests/test_ob1_pyrogen_bed.py` (28).
 
+### Solver verification RT1 (unreleased, 2026-10-21) -- opt-in ignition driver temperature (adiabatic-wall recovery T)
+
+No change to defaults. New `run_simulation` / `run_from_ric` kwarg `ignition_driver_temperature='static'|'recovery'`
+(ValueError otherwise; summary stamps it). `'recovery'` drives the convective ignition heating AND its matching wall-loss sink
+with `T_aw = T + r u^2/(2 Cp)`, `r = Pr^(1/3)` (bulk Re > 2300) or `Pr^(1/2)`; Pr = the active closure's (Peretz
+`gamma/(1.77 gamma - 0.45)`, else the run Pr). h itself is still evaluated at the static/film state.
+Hard API changes (internal): `_goodman_ignition_sources_and_mass` and `_run_time_loop` take a trailing/after-`rec_k`
+int `ign_driver_code`; `ignition_diag` is now (N, 14) (cols 10-13: driver T, r, Re, turbulent flag at ignition); tests that call
+the kernel directly were updated. Report: `docs/solver_verification/worklog/RT1.md`.
+
 ### Solver verification EN1 (unreleased, 2026-10-13) -- opt-in conservative total energy + conservative momentum
 
 No change to defaults (B0 PASS, rel diff 0; `energy_formulation='sensible'`, `momentum_formulation='legacy'`).

@@ -1,0 +1,14 @@
+[provenance] srm_1d from C:\tmp\sv\en1\srm_1d
+Traceback (most recent call last):
+  File "C:\tmp\sv\en1\docs\solver_verification\probes\en1_motor_tables.py", line 221, in <module>
+    
+  File "C:\tmp\sv\en1\docs\solver_verification\probes\en1_motor_tables.py", line 154, in main
+    res = run_from_ric(str(ROOT / 'motors' / cfg['ric']), t_max=t_max,
+  File "C:\tmp\sv\en1\srm_1d\openmotor_adapter.py", line 1555, in run_from_ric
+    result = run_simulation(geo, prop, **args)
+  File "C:\tmp\sv\en1\srm_1d\simulation.py", line 4507, in run_simulation
+    res = _run_simulation_once(*bound.args, **bound.kwargs)
+  File "C:\tmp\sv\en1\srm_1d\simulation.py", line 3947, in _run_simulation_once
+    jump_eos_kg_arr = jump_eos_kg_hist[:n_steps].copy()
+numpy._core._exceptions._ArrayMemoryError: Unable to allocate 17.9 MiB for an array with shape (2347427,) and data type float64
+[guarded_run] exit=1 timed_out=False wall_s=100.1 peak_job_gb=4.01 mem_cap_gb=4.0 timeout_min=30.0

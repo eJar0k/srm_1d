@@ -1,0 +1,160 @@
+{
+ "motor": "chunc",
+ "case": "sensible",
+ "mass": "2.6225688088052457",
+ "t_max": 1.0,
+ "driver": "static",
+ "solid": "goodman",
+ "energy": "sensible",
+ "momentum": "legacy",
+ "wall_total_s": 14.247974157333374,
+ "wall_time_s": 12.270520448684692,
+ "steps": 533513,
+ "termination": "t_max reached",
+ "pyrogen_mass_final_g": 2.622568808805246,
+ "ignition_attempts": 1,
+ "pyrogen_mass_auto": false,
+ "pyrogen_mass_initial_g": 2.622568808805246,
+ "warnings": [],
+ "peak": 8.698445703737406,
+ "t_peak": 0.024529374887138182,
+ "plateau": 8.066193145745377,
+ "ratio": 1.0783830174368585,
+ "fill_mach_max": 1.9498104628921176,
+ "mach_max_all": 1.9498104628921176,
+ "floor_activations": 0,
+ "min_P_Pa_first_50ms": 75707.89633183747,
+ "ignition": {
+  "n_lit": 100,
+  "n_cells": 106,
+  "t_first_ms": 4.437785547942244,
+  "t90_ms": 16.30907060252692,
+  "first_cell": 16,
+  "grain_cells_never_lit": 0,
+  "grain_never_lit_cell_range": null,
+  "grain_fraction_lit": 1.0,
+  "ignited": true
+ },
+ "first_cell_T": {
+  "T_before_K": [
+   4.003235169222204,
+   2261.4909370615537
+  ],
+  "T_after_K": [
+   5.004452458695479,
+   2458.13620011734
+  ]
+ },
+ "fill_map": [
+  {
+   "t_ms": 0.0,
+   "M_max": 0.0011281916456911615,
+   "x_Mmax_mm": 12.19202438404877,
+   "n_supersonic": 0,
+   "supersonic_extent_mm": 0.0,
+   "x_shock_mm": null,
+   "T_max": 293.0,
+   "T_min": 293.0,
+   "P_max_MPa": 0.10036389620183724
+  },
+  {
+   "t_ms": 1.0008764922731541,
+   "M_max": 1.039708035956073,
+   "x_Mmax_mm": 386.0807721615444,
+   "n_supersonic": 5,
+   "supersonic_extent_mm": 40.64008128016257,
+   "x_shock_mm": 406.40081280162565,
+   "T_max": 2689.6981551963513,
+   "T_min": 293.0000030676832,
+   "P_max_MPa": 0.9707192417140589
+  },
+  {
+   "t_ms": 2.0018298338156866,
+   "M_max": 1.6965985085255526,
+   "x_Mmax_mm": 824.9936499873,
+   "n_supersonic": 29,
+   "supersonic_extent_mm": 235.71247142494286,
+   "x_shock_mm": 829.0576581153163,
+   "T_max": 2284.3954769550696,
+   "T_min": 293.0,
+   "P_max_MPa": 1.4800018554380914
+  },
+  {
+   "t_ms": 3.0021936249646917,
+   "M_max": 1.2779288122300023,
+   "x_Mmax_mm": 264.1605283210567,
+   "n_supersonic": 28,
+   "supersonic_extent_mm": 227.58445516891035,
+   "x_shock_mm": 365.76073152146313,
+   "T_max": 2233.557216059011,
+   "T_min": 369.2326883034649,
+   "P_max_MPa": 1.5974245696098366
+  },
+  {
+   "t_ms": 4.003235169222204,
+   "M_max": 1.3369214278234218,
+   "x_Mmax_mm": 386.0807721615444,
+   "n_supersonic": 42,
+   "supersonic_extent_mm": 341.3766827533655,
+   "x_shock_mm": 479.55295910591826,
+   "T_max": 2290.945094378983,
+   "T_min": 1069.112810076544,
+   "P_max_MPa": 1.5318248364853495
+  },
+  {
+   "t_ms": 5.004452458695479,
+   "M_max": 0.7774345940742675,
+   "x_Mmax_mm": 678.6893573787148,
+   "n_supersonic": 0,
+   "supersonic_extent_mm": 0.0,
+   "x_shock_mm": null,
+   "T_max": 3136.05,
+   "T_min": 1589.5122211282041,
+   "P_max_MPa": 1.426523621996672
+  },
+  {
+   "t_ms": 6.004602050455757,
+   "M_max": 0.3555080515645804,
+   "x_Mmax_mm": 824.9936499873,
+   "n_supersonic": 0,
+   "supersonic_extent_mm": 0.0,
+   "x_shock_mm": null,
+   "T_max": 3136.05,
+   "T_min": 2391.779153170785,
+   "P_max_MPa": 2.1949451576925303
+  },
+  {
+   "t_ms": 7.005987027551289,
+   "M_max": 0.388624529235371,
+   "x_Mmax_mm": 816.8656337312675,
+   "n_supersonic": 0,
+   "supersonic_extent_mm": 0.0,
+   "x_shock_mm": null,
+   "T_max": 3136.05,
+   "T_min": 2471.9351549118965,
+   "P_max_MPa": 3.0454948480089765
+  },
+  {
+   "t_ms": 8.007056541948483,
+   "M_max": 0.3635844286316638,
+   "x_Mmax_mm": 824.9936499873,
+   "n_supersonic": 0,
+   "supersonic_extent_mm": 0.0,
+   "x_shock_mm": null,
+   "T_max": 3136.05,
+   "T_min": 2193.8426894347062,
+   "P_max_MPa": 3.697230762449674
+  },
+  {
+   "t_ms": 9.007416903552864,
+   "M_max": 0.34941757980955884,
+   "x_Mmax_mm": 824.9936499873,
+   "n_supersonic": 0,
+   "supersonic_extent_mm": 0.0,
+   "x_shock_mm": null,
+   "T_max": 3136.05,
+   "T_min": 2360.38364607163,
+   "P_max_MPa": 4.39983041237259
+  }
+ ]
+}
