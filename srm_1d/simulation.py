@@ -2819,6 +2819,14 @@ def _run_time_loop(
 _HISTORY_WAVE_SPEED_MARGIN = 1.5
 
 
+def _shrink_hist(a, n):
+    """MEM1: trim a pre-allocated history array to exactly ``n`` rows IN PLACE
+    (``ndarray.resize``), instead of ``a[:n].copy()`` which held the full buffer
+    and the copy at once (a 2x peak across ~60 arrays). Values are untouched."""
+    a.resize(int(n), refcheck=False)
+    return a
+
+
 def _estimate_history_steps(t_max, cfl_target, dx, dt_max, species_params_arr):
     """Estimated flow-step count for a run (history pre-allocation only)."""
     a_hot = 0.0
@@ -3503,7 +3511,11 @@ def _run_simulation_once(
     # Pre-allocate output arrays
     est_steps = _estimate_history_steps(
         t_max, cfl_target, dx, dt_max, species_params_arr)
-    max_hist = max(est_steps, 5_000_000)
+    # MEM1: no fixed floor (it was 5,000,000 rows x ~60 arrays = 2.4 GB for every run,
+    # even a 6 ms test). A run that outgrows the estimate is re-run once with double
+    # the capacity by run_simulation (never silently truncated); an explicit
+    # history_capacity is honoured as given.
+    max_hist = est_steps
     if history_capacity is not None:
         if int(history_capacity) != history_capacity or history_capacity < 1:
             raise ValueError(
@@ -3755,68 +3767,68 @@ def _run_simulation_once(
     # ============================================================
     # TRIM AND WRAP RESULTS
     # ============================================================
-    time_arr = time_hist[:n_steps].copy()
-    P_head_arr = P_head_hist[:n_steps].copy()
-    P_exit_arr = P_exit_hist[:n_steps].copy()
-    D_throat_arr = D_throat_hist[:n_steps].copy()
-    Kn_arr = Kn_hist[:n_steps].copy()
-    massflow_arr = massflow_hist[:n_steps].copy()
-    P_ig_arr = P_ig_hist[:n_steps].copy()
-    T_ig_arr = T_ig_hist[:n_steps].copy()
-    mdot_ig_arr = mdot_ig_hist[:n_steps].copy()
-    mdot_grain_arr = mdot_grain_hist[:n_steps].copy()
-    m_pyrogen_arr = m_pyrogen_hist[:n_steps].copy()
-    gas_sensible_energy_before_arr = gas_sensible_energy_before_hist[:n_steps].copy()
-    gas_sensible_energy_arr = gas_sensible_energy_hist[:n_steps].copy()
-    gas_sensible_dE_dt_arr = gas_sensible_dE_dt_hist[:n_steps].copy()
-    normal_sidewall_thermal_power_arr = normal_sidewall_thermal_power_hist[:n_steps].copy()
-    erosive_sidewall_thermal_power_arr = erosive_sidewall_thermal_power_hist[:n_steps].copy()
-    endface_thermal_power_arr = endface_thermal_power_hist[:n_steps].copy()
-    convective_scalar_flux_power_arr = convective_scalar_flux_power_hist[:n_steps].copy()
-    clipping_correction_power_arr = clipping_correction_power_hist[:n_steps].copy()
-    pyrogen_enthalpy_power_arr = pyrogen_enthalpy_power_hist[:n_steps].copy()
-    pyrogen_surface_heat_power_arr = pyrogen_surface_heat_power_hist[:n_steps].copy()
-    gas_surface_heat_sink_power_arr = gas_surface_heat_sink_power_hist[:n_steps].copy()
-    radiation_heat_power_arr = radiation_heat_power_hist[:n_steps].copy()
-    radiation_sink_power_arr = radiation_sink_power_hist[:n_steps].copy()
-    nozzle_enthalpy_power_arr = nozzle_enthalpy_power_hist[:n_steps].copy()
-    thermal_source_power_arr = thermal_source_power_hist[:n_steps].copy()
-    energy_residual_arr = energy_residual_hist[:n_steps].copy()
-    pyrogen_momentum_expected_arr = pyrogen_momentum_expected_hist[:n_steps].copy()
-    pyrogen_momentum_deposited_arr = pyrogen_momentum_deposited_hist[:n_steps].copy()
-    pyrogen_momentum_residual_arr = pyrogen_momentum_residual_hist[:n_steps].copy()
-    dt_arr = dt_hist[:n_steps].copy()
-    n_burning_arr = n_burning_hist[:n_steps].copy()
-    n_ignited_arr = n_ignited_hist[:n_steps].copy()
-    radiation_emitter_count_arr = radiation_emitter_count_hist[:n_steps].copy()
-    radiation_receiver_count_arr = radiation_receiver_count_hist[:n_steps].copy()
-    min_gas_temperature_arr = min_gas_temperature_hist[:n_steps].copy()
-    max_gas_temperature_arr = max_gas_temperature_hist[:n_steps].copy()
-    min_surface_temperature_arr = min_surface_temperature_hist[:n_steps].copy()
-    max_surface_temperature_arr = max_surface_temperature_hist[:n_steps].copy()
-    min_pressure_arr = min_pressure_hist[:n_steps].copy()
-    max_pressure_arr = max_pressure_hist[:n_steps].copy()
-    max_mach_arr = max_mach_hist[:n_steps].copy()
-    pressure_floor_cells_arr = pressure_floor_cells_hist[:n_steps].copy()
-    pressure_floor_mass_arr = pressure_floor_mass_hist[:n_steps].copy()
+    time_arr = _shrink_hist(time_hist, n_steps)
+    P_head_arr = _shrink_hist(P_head_hist, n_steps)
+    P_exit_arr = _shrink_hist(P_exit_hist, n_steps)
+    D_throat_arr = _shrink_hist(D_throat_hist, n_steps)
+    Kn_arr = _shrink_hist(Kn_hist, n_steps)
+    massflow_arr = _shrink_hist(massflow_hist, n_steps)
+    P_ig_arr = _shrink_hist(P_ig_hist, n_steps)
+    T_ig_arr = _shrink_hist(T_ig_hist, n_steps)
+    mdot_ig_arr = _shrink_hist(mdot_ig_hist, n_steps)
+    mdot_grain_arr = _shrink_hist(mdot_grain_hist, n_steps)
+    m_pyrogen_arr = _shrink_hist(m_pyrogen_hist, n_steps)
+    gas_sensible_energy_before_arr = _shrink_hist(gas_sensible_energy_before_hist, n_steps)
+    gas_sensible_energy_arr = _shrink_hist(gas_sensible_energy_hist, n_steps)
+    gas_sensible_dE_dt_arr = _shrink_hist(gas_sensible_dE_dt_hist, n_steps)
+    normal_sidewall_thermal_power_arr = _shrink_hist(normal_sidewall_thermal_power_hist, n_steps)
+    erosive_sidewall_thermal_power_arr = _shrink_hist(erosive_sidewall_thermal_power_hist, n_steps)
+    endface_thermal_power_arr = _shrink_hist(endface_thermal_power_hist, n_steps)
+    convective_scalar_flux_power_arr = _shrink_hist(convective_scalar_flux_power_hist, n_steps)
+    clipping_correction_power_arr = _shrink_hist(clipping_correction_power_hist, n_steps)
+    pyrogen_enthalpy_power_arr = _shrink_hist(pyrogen_enthalpy_power_hist, n_steps)
+    pyrogen_surface_heat_power_arr = _shrink_hist(pyrogen_surface_heat_power_hist, n_steps)
+    gas_surface_heat_sink_power_arr = _shrink_hist(gas_surface_heat_sink_power_hist, n_steps)
+    radiation_heat_power_arr = _shrink_hist(radiation_heat_power_hist, n_steps)
+    radiation_sink_power_arr = _shrink_hist(radiation_sink_power_hist, n_steps)
+    nozzle_enthalpy_power_arr = _shrink_hist(nozzle_enthalpy_power_hist, n_steps)
+    thermal_source_power_arr = _shrink_hist(thermal_source_power_hist, n_steps)
+    energy_residual_arr = _shrink_hist(energy_residual_hist, n_steps)
+    pyrogen_momentum_expected_arr = _shrink_hist(pyrogen_momentum_expected_hist, n_steps)
+    pyrogen_momentum_deposited_arr = _shrink_hist(pyrogen_momentum_deposited_hist, n_steps)
+    pyrogen_momentum_residual_arr = _shrink_hist(pyrogen_momentum_residual_hist, n_steps)
+    dt_arr = _shrink_hist(dt_hist, n_steps)
+    n_burning_arr = _shrink_hist(n_burning_hist, n_steps)
+    n_ignited_arr = _shrink_hist(n_ignited_hist, n_steps)
+    radiation_emitter_count_arr = _shrink_hist(radiation_emitter_count_hist, n_steps)
+    radiation_receiver_count_arr = _shrink_hist(radiation_receiver_count_hist, n_steps)
+    min_gas_temperature_arr = _shrink_hist(min_gas_temperature_hist, n_steps)
+    max_gas_temperature_arr = _shrink_hist(max_gas_temperature_hist, n_steps)
+    min_surface_temperature_arr = _shrink_hist(min_surface_temperature_hist, n_steps)
+    max_surface_temperature_arr = _shrink_hist(max_surface_temperature_hist, n_steps)
+    min_pressure_arr = _shrink_hist(min_pressure_hist, n_steps)
+    max_pressure_arr = _shrink_hist(max_pressure_hist, n_steps)
+    max_mach_arr = _shrink_hist(max_mach_hist, n_steps)
+    pressure_floor_cells_arr = _shrink_hist(pressure_floor_cells_hist, n_steps)
+    pressure_floor_mass_arr = _shrink_hist(pressure_floor_mass_hist, n_steps)
 
     # ---- Energy audit (solver-verification T6): trim + derived ledgers ----
-    pressure_floor_energy_arr = pressure_floor_energy_hist[:n_steps].copy()
-    convective_wall_sink_power_arr = convective_wall_sink_power_hist[:n_steps].copy()
-    fill_debit_massflow_arr = fill_debit_massflow_hist[:n_steps].copy()
-    fill_debit_power_arr = fill_debit_power_hist[:n_steps].copy()
-    nozzle_enthalpy_power_post_arr = nozzle_enthalpy_power_post_hist[:n_steps].copy()
-    nozzle_massflow_piso_arr = nozzle_massflow_piso_hist[:n_steps].copy()
-    coupling_passes_arr = coupling_passes_hist[:n_steps].copy()
-    coupling_rel_dT_arr = coupling_rel_dT_hist[:n_steps].copy()
-    eos_jump_p2_kg_arr = eos_jump_p2_kg_hist[:n_steps].copy()
-    jump_eos_J_arr = jump_eos_J_hist[:n_steps].copy()
-    jump_mixture_J_arr = jump_mixture_J_hist[:n_steps].copy()
-    jump_geometry_J_arr = jump_geometry_J_hist[:n_steps].copy()
-    jump_eos_kg_arr = jump_eos_kg_hist[:n_steps].copy()
-    jump_mixture_kg_arr = jump_mixture_kg_hist[:n_steps].copy()
-    jump_geometry_kg_arr = jump_geometry_kg_hist[:n_steps].copy()
-    jump_total_kg_arr = jump_total_kg_hist[:n_steps].copy()
+    pressure_floor_energy_arr = _shrink_hist(pressure_floor_energy_hist, n_steps)
+    convective_wall_sink_power_arr = _shrink_hist(convective_wall_sink_power_hist, n_steps)
+    fill_debit_massflow_arr = _shrink_hist(fill_debit_massflow_hist, n_steps)
+    fill_debit_power_arr = _shrink_hist(fill_debit_power_hist, n_steps)
+    nozzle_enthalpy_power_post_arr = _shrink_hist(nozzle_enthalpy_power_post_hist, n_steps)
+    nozzle_massflow_piso_arr = _shrink_hist(nozzle_massflow_piso_hist, n_steps)
+    coupling_passes_arr = _shrink_hist(coupling_passes_hist, n_steps)
+    coupling_rel_dT_arr = _shrink_hist(coupling_rel_dT_hist, n_steps)
+    eos_jump_p2_kg_arr = _shrink_hist(eos_jump_p2_kg_hist, n_steps)
+    jump_eos_J_arr = _shrink_hist(jump_eos_J_hist, n_steps)
+    jump_mixture_J_arr = _shrink_hist(jump_mixture_J_hist, n_steps)
+    jump_geometry_J_arr = _shrink_hist(jump_geometry_J_hist, n_steps)
+    jump_eos_kg_arr = _shrink_hist(jump_eos_kg_hist, n_steps)
+    jump_mixture_kg_arr = _shrink_hist(jump_mixture_kg_hist, n_steps)
+    jump_geometry_kg_arr = _shrink_hist(jump_geometry_kg_hist, n_steps)
+    jump_total_kg_arr = _shrink_hist(jump_total_kg_hist, n_steps)
 
     # Source ledger: sum of the per-channel thermal-source powers vs the
     # PISO's own sum(thermal_source * dx) [W]. Positive channels inject,
@@ -3993,6 +4005,8 @@ def _run_simulation_once(
         'steps': n_steps,
         'cells': N,
         'history_capacity': int(max_hist),
+        'history_estimated_steps': int(est_steps),
+        'history_capacity_explicit': history_capacity is not None,
         'history_estimated_steps': int(est_steps),
         'termination_code': int(termination_code),
         'history_cap_reached': bool(termination_code == 3),
@@ -4317,6 +4331,41 @@ def _self_sustaining(res):
                 and grain > peak_ig)
 
 
+def _run_once_growing_history(bound):
+    """One simulation attempt. MEM1: if the AUTO-sized history (no explicit
+    ``history_capacity``) fills before the run ends (termination code 3), the
+    attempt is re-run ONCE with double the capacity and a ``RuntimeWarning``
+    instead of returning a truncated result. An explicit ``history_capacity`` is
+    honoured as given (the 'history array full' warning of the single run stays).
+    """
+    import warnings
+    explicit = bound.arguments.get('history_capacity') is not None
+    if explicit:
+        return _run_simulation_once(*bound.args, **bound.kwargs)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        res = _run_simulation_once(*bound.args, **bound.kwargs)
+    full = int(res['summary']['termination_code']) == 3
+    for w in caught:                         # re-emit, except the superseded one
+        if full and 'history arrays filled' in str(w.message):
+            continue
+        warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)
+    if not full:
+        return res
+    cap = int(res['summary']['history_capacity'])
+    res = None                               # free the truncated run before the re-run
+    warnings.warn(
+        f"the auto-sized history ({cap} rows, estimated from the CFL wave-speed "
+        f"bound) filled before the run ended; re-running once with {2 * cap} rows. "
+        "Pass history_capacity explicitly to avoid the re-run.",
+        RuntimeWarning, stacklevel=3)
+    bound.arguments['history_capacity'] = 2 * cap
+    try:
+        return _run_simulation_once(*bound.args, **bound.kwargs)
+    finally:
+        bound.arguments['history_capacity'] = None
+
+
 def run_simulation(*args, ignition_retry_factor=1.25,
                    ignition_retry_max_attempts=10, **kwargs):
     """Run a complete transient simulation (all parameters as
@@ -4376,7 +4425,7 @@ def run_simulation(*args, ignition_retry_factor=1.25,
         masses.append(float(getattr(chamber, 'm_pyrogen_initial', 0.0)))
         bound.arguments['pyrogen_chamber'] = chamber
         t0 = clock.time()
-        res = _run_simulation_once(*bound.args, **bound.kwargs)
+        res = _run_once_growing_history(bound)
         t_wall.append(clock.time() - t0)
         summ = res['summary']
         ignited = _self_sustaining(res)
