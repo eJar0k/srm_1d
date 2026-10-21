@@ -194,6 +194,35 @@ repo root (siblings, dev-only — NOT in the package/wheel):
   after edits to @njit functions (Numba cache persistence is the #1
   source of "the fix didn't work" bugs — see DEVNOTES gotchas).
 
+## Compute budget for agents and long runs (user rule, 2026-10-21)
+
+The user works on this machine while agents run (16 logical CPUs, ~39 GB RAM).
+On 2026-10-13 an unattended agent job grew a per-step Python list for ~2.4 h
+until RAM hit 99 % (20-30+ GB) and the page file ran out, after the agent that
+started it had stopped.
+
+- **Default = coexist mode.** Assume the user is working. Per agent, at most
+  **4 GB** RAM across all your processes, **2** simulation processes at once,
+  and **30 min** per job.
+- **Run every simulation job, sweep or long probe through the guard:**
+  `python -m srm_1d.tools.guarded_run --mem-gb 4 --timeout-min 30 -- <cmd>`.
+  It caps the whole process tree's memory (overruns become `MemoryError`),
+  enforces the timeout, and kills the tree if the guard dies, so nothing
+  outlives you. Never start fire-and-forget background jobs without it.
+- **Heavy work needs the user's OK first.** That means anything over the
+  budget: more processes, fine grids, big sweeps, or an estimate above 4 GB or
+  30 min. Measure one small instance first (the guard prints `peak_job_gb` and
+  `wall_s`) and extrapolate. Then, as a subagent, do NOT start the heavy work:
+  commit, and end your turn with a **HEAVY-COMPUTE REQUEST** giving what, why,
+  and the estimate (peak GB, processes, wall time). The coordinator asks the
+  user. Heavy runs go ahead only if the user confirms the machine will be
+  idle; otherwise cut the work down to fit the budget.
+- **Write memory-bounded probes.** No per-step `list.append` in long loops:
+  preallocate or decimate. Every time-marching probe has a max-steps or dt-floor
+  stop, so a dt collapse cannot run forever.
+- **Before you finish, or when interrupted,** check that none of your
+  processes are still running.
+
 ## Critical gotchas (concentrated, full list in DEVNOTES)
 
 1. **Numba cache** — delete `srm_1d/__pycache__/` after any @njit

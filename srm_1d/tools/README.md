@@ -2,12 +2,18 @@
 
 Dev/analysis helpers that ship with the package (`import srm_1d.tools`) but
 are **not** part of the simulation core — nothing here runs inside the time
-loop. Two modules:
+loop. Main modules:
 
 | Module | Purpose |
 |---|---|
-| [`sensitivity.py`](sensitivity.py) | Latin-Hypercube parameter sweeps with parallel execution + trace-fitting fitness functions |
+| [`sensitivity.py`](sensitivity.py) | Latin-Hypercube parameter sweeps with parallel execution + trace-fitting fitness functions. **Default 2 workers** (`DEFAULT_WORKERS`); pass more only when the machine is confirmed idle |
 | [`ignition_diagnostics.py`](ignition_diagnostics.py) | Post-processing of a completed run to dissect the ignition/startup transient |
+| [`guarded_run.py`](guarded_run.py) | Run any command under a hard memory cap + wall-clock timeout (Windows Job Object; kills the whole tree if the guard dies). **Required for agent jobs** — see the CLAUDE.md compute budget |
+
+```bash
+python -m srm_1d.tools.guarded_run --mem-gb 4 --timeout-min 30 -- python my_probe.py
+# last line: [guarded_run] exit=0 timed_out=False wall_s=... peak_job_gb=... mem_cap_gb=4.0 timeout_min=30.0
+```
 
 Both consume the plain results **dict** returned by `run_simulation` /
 `run_from_ric` (the source of truth — see the contributor guide

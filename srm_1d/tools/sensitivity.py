@@ -53,6 +53,11 @@ from srm_1d.openmotor_adapter import run_from_ric
 
 
 # ================================================================
+# Default worker count: the CLAUDE.md coexist budget (2 simulation processes).
+# Raise it per call only when the user has confirmed the machine is idle.
+DEFAULT_WORKERS = 2
+
+
 # Fitness functors (picklable for ProcessPoolExecutor)
 # ================================================================
 #
@@ -473,7 +478,10 @@ def run_lhs(
         Optional ``(result_dict) -> dict``. Returned keys are added to
         each result row and CSV output.
     n_workers : int or None
-        Worker process count; defaults to ``os.cpu_count()``.
+        Worker process count. ``None`` (default) = ``DEFAULT_WORKERS`` (2):
+        the CLAUDE.md coexist budget, so a sweep leaves the machine usable.
+        Pass a larger integer only when the user has confirmed the machine
+        will be idle (each worker is a full simulation process, ~0.5-2 GB).
     seed : int
         RNG seed for the LHS sampler — locks reproducibility.
     csv_path : str or None
@@ -543,8 +551,10 @@ def run_lhs(
         else:
             print('  ' + msg)
 
+    if n_workers is None:
+        n_workers = DEFAULT_WORKERS
     if progress_mode != 'none':
-        workers = n_workers if n_workers is not None else 'auto'
+        workers = n_workers
         print(
             f"sensitivity.run_lhs: {n_samples} samples, {len(keys)} dims, "
             f"workers={workers}, sim_verbose={sim_kwargs.get('verbose', True)}"
