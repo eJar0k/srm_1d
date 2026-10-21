@@ -205,9 +205,9 @@ def _peretz_ap_code(mode):
 
 
 # SM1 (docs/pyrogen_realism/SM1_REPORT.md): solid-heating model of the ignition
-# gate. 'goodman' (default, bit-identical to pre-SM1) = algebraic-in-h cubic
-# heat-balance integral; 'peretz' = Peretz's T_s ODE (III-50); 'conduction' =
-# exact 1-D transient conduction on a graded grid.
+# gate. 'conduction' (DEFAULT since the 2026-10-13 user decision) = exact 1-D
+# transient conduction on a graded grid; 'goodman' (the pre-flip default) =
+# algebraic-in-h cubic heat-balance integral; 'peretz' = Peretz's T_s ODE (III-50).
 SOLID_GOODMAN = 0
 SOLID_PERETZ = 1
 SOLID_CONDUCTION = 2
@@ -2942,11 +2942,11 @@ def _run_simulation_once(
     # grain cell) or 'aft' (aft-most grain cell); instantaneous values.
     peretz_ap_reference='local',
     # SM1 (docs/pyrogen_realism/SM1_REPORT.md): solid-phase heating model of
-    # the ignition gate. 'goodman' (default; algebraic-in-h cubic heat-balance
-    # integral, bit-identical to pre-SM1), 'peretz' (Peretz's integral-method
-    # T_s ODE, III-50: T_s is carried, not recomputed from h) or 'conduction'
-    # (exact 1-D transient conduction in the solid, graded grid, implicit).
-    solid_heating_model='goodman',
+    # the ignition gate. 'conduction' (DEFAULT since 2026-10-13: exact 1-D
+    # transient conduction in the solid, graded grid, implicit), 'goodman' (the
+    # pre-flip default: algebraic-in-h cubic heat-balance integral) or 'peretz'
+    # (Peretz's integral-method T_s ODE, III-50: T_s is carried, not recomputed from h).
+    solid_heating_model='conduction',
     # SM2: record the per-cell surface forcing (h_total, T_driver per step) of the first
     # n steps into result['forcing'] for an offline open-loop replay of the solid
     # models (0 = off). The per-cell ignition-event diagnostics (result['ignition_diag'])
@@ -3078,16 +3078,17 @@ def _run_simulation_once(
         of the three is stated for a non-uniform bore (R9_SOURCES.md).
     solid_heating_model : str
         How the unignited propellant surface temperature is advanced toward
-        ``T_ignition``. ``'goodman'`` (default): Goodman cubic heat-balance
-        integral with an algebraic T_s(h, delta) -- a drop in h instantly
-        lowers T_s. ``'peretz'``: Peretz's T_s ODE (thesis Eq. III-50), same
-        profile, T_s carried as state (held when h falls); identical to
-        goodman at constant h. ``'conduction'``: exact 1-D transient
-        conduction in the solid (graded grid of ``solid_thermal.
+        ``T_ignition``. ``'conduction'`` (default since 2026-10-13): exact 1-D
+        transient conduction in the solid (graded grid of ``solid_thermal.
         CONDUCTION_DY0/CONDUCTION_RATIO``, backward Euler sub-stepped against
-        the heating age; uses only k_solid and alpha). All three see the same
-        combined surface flux (convective + pyrogen + radiation). T_ignition /
-        k_solid were calibrated with goodman. See SM1_REPORT.md.
+        the heating age; uses only k_solid and alpha). ``'goodman'`` (the
+        pre-flip default): Goodman cubic heat-balance integral with an
+        algebraic T_s(h, delta) -- a drop in h instantly lowers T_s.
+        ``'peretz'``: Peretz's T_s ODE (thesis Eq. III-50), same profile, T_s
+        carried as state (held when h falls); identical to goodman at constant
+        h. All three see the same combined surface flux (convective + pyrogen
+        + radiation). T_ignition / k_solid were calibrated with goodman (and
+        the old ignition h); the re-fit is pending. See SM1_REPORT.md.
     record_forcing_steps : int
         SM2. If > 0, record the per-cell surface forcing (``h_total``, ``T_driver``; ``-1`` =
         not a heated grain cell) of the first n steps into ``result['forcing']`` (keys
@@ -4306,7 +4307,12 @@ def _run_simulation_once(
 # ---------------------------------------------------------------------------
 class PyrogenAutoSizeError(RuntimeError):
     """An auto-sized pyrogen charge failed to light the motor within the
-    allowed number of attempts (see :func:`run_simulation`)."""
+    allowed number of attempts (see :func:`run_simulation`). ``masses_kg`` lists
+    the charges tried (the last is the largest)."""
+
+    def __init__(self, message, masses_kg=()):
+        super().__init__(message)
+        self.masses_kg = tuple(masses_kg)
 
 
 def _self_sustaining(res):
@@ -4459,7 +4465,7 @@ def run_simulation(*args, ignition_retry_factor=1.25,
             f"attempts (charges tried: "
             f"{', '.join(f'{m * 1e3:.3g}' for m in masses)} g, factor "
             f"{ignition_retry_factor:g}). Check the igniter topology / "
-            f"propellant, or set the charge explicitly.")
+            f"propellant, or set the charge explicitly.", masses_kg=masses)
     if ignited and auto and attempt > 1:
         warnings.warn(
             f"auto-sized {name} charge raised from {masses[0] * 1e3:.3g} g "

@@ -125,18 +125,19 @@ class TestSimIntegration:
                             roughness=32e-6, kappa=0.44, T_ignition=756.0, t_max=0.006,
                             print_interval=0.0, verbose=False, **kw)[0]
 
-    def test_default_is_goodman(self):
+    def test_default_is_conduction(self):
+        # the user flipped the default from 'goodman' on 2026-10-13
         import inspect
         assert inspect.signature(sim.run_simulation).parameters[
-            "solid_heating_model"].default == "goodman"
+            "solid_heating_model"].default == "conduction"
 
-    def test_default_equals_explicit_goodman_bitwise(self):
+    def test_default_equals_explicit_conduction_bitwise(self):
         a = self._run()
-        b = self._run(solid_heating_model="goodman")
+        b = self._run(solid_heating_model="conduction")
         assert np.array_equal(np.asarray(a["P_head"]), np.asarray(b["P_head"]))
         assert np.array_equal(np.asarray(a["ignition_time_by_cell"]),
                               np.asarray(b["ignition_time_by_cell"]))
-        assert a["summary"]["solid_heating_model"] == "goodman"
+        assert a["summary"]["solid_heating_model"] == "conduction"
 
     def test_codes_and_unknown(self):
         assert sim._solid_model_code("goodman") == sim.SOLID_GOODMAN
@@ -147,7 +148,7 @@ class TestSimIntegration:
         with pytest.raises(ValueError, match="solid_heating_model"):
             self._run(solid_heating_model="nope")
 
-    @pytest.mark.parametrize("model", ["peretz", "conduction"])
+    @pytest.mark.parametrize("model", ["peretz", "goodman"])
     def test_models_run_and_ignite(self, model):
         a = self._run()
         b = self._run(solid_heating_model=model)

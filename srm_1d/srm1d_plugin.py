@@ -37,6 +37,9 @@ IGN_H_KEY = 'ignition_heat_transfer'   # choice field; default read from run_sim
 # Allowed values of ``ignition_heat_transfer`` (srm_1d.simulation._IGN_H_MODES;
 # pinned by tests/test_solver_config_upgrade.py). Default first = the GUI default.
 _IGNITION_H_CHOICES = ('peretz', 'gnielinski', 'keller')
+SOLID_KEY = 'solid_heating_model'      # choice field; default read from run_simulation
+# srm_1d.simulation._SOLID_MODES (pinned by tests/test_solver_config_upgrade.py); default first.
+_SOLID_HEATING_CHOICES = ('conduction', 'peretz', 'goodman')
 
 # The transient solver emits one sample per solver step (10^5+ for a typical
 # burn). openMotor's graph widget re-converts (per-point, in Python) and
@@ -85,6 +88,10 @@ def _transient_config_schema():
     # erosive burn-rate path is unaffected by this choice.
     schema.props[IGN_H_KEY] = EnumProperty(
         'Ignition Heat Transfer', list(_IGNITION_H_CHOICES))
+    # How the unignited propellant surface temperature is advanced toward T_ignition
+    # (conduction = exact 1-D transient conduction, the default since 2026-10-13).
+    schema.props[SOLID_KEY] = EnumProperty(
+        'Solid Heating Model', list(_SOLID_HEATING_CHOICES))
     # Seed defaults: DERIVED from run_simulation's signature (so they cannot
     # drift from the solver again -- they once did, 50 um / 0.45 / 850 K were
     # the pre-v0.7.5 values), roughness converted m -> um at this boundary.
@@ -117,6 +124,7 @@ def _solver_config_defaults():
     out = {k: float(params[k].default) for k in keys}
     out[ROUGHNESS_KEY] = round(out[ROUGHNESS_KEY] * 1.0e6, 9)   # m -> um
     out[IGN_H_KEY] = str(params[IGN_H_KEY].default)             # IG3 choice field
+    out[SOLID_KEY] = str(params[SOLID_KEY].default)             # choice field
     return out
 
 
@@ -327,10 +335,16 @@ def simulate_motor(motor, igniter_pyrogen=None, callback=None, **sim_overrides):
     t_max_eff = float(args.get('t_max', 10.0))
     args.setdefault('snapshot_interval', max(0.001, t_max_eff / 20000.0))
 
-    if callback is None:
-        result = run_simulation(geo, prop, **args)
-    else:
-        result = _run_with_progress(run_simulation, geo, prop, args, callback)
+    from .simulation import PyrogenAutoSizeError
+    try:
+        if callback is None:
+            result = run_simulation(geo, prop, **args)
+        else:
+            result = _run_with_progress(run_simulation, geo, prop, args, callback)
+    except PyrogenAutoSizeError as exc:
+        # The auto-sized igniter charge never lit the motor: return a failed result with an
+        # ERROR alert instead of letting the exception reach the GUI.
+        return _failed_igniter_result(motor, exc)
 
     perf = compute_motor_performance(result, nozzle, prop)
 
@@ -577,6 +591,26 @@ def _axial_payload_for_gui(result):
             for s in stations
         ],
     }
+
+
+def _failed_igniter_result(motor, exc):
+    """A failed openMotor SimulationResult (``success=False``) with an ERROR alert naming
+    the last (largest) auto charge tried; used when the igniter auto-sizing gave up."""
+    _, _, SimulationResult = _om()
+    from motorlib.simResult import SimAlert, SimAlertLevel, SimAlertType  # type: ignore
+    sr = SimulationResult(motor)
+    sr.success = False
+    masses = getattr(exc, 'masses_kg', ())
+    last = ("{:.3g} g".format(masses[-1] * 1e3) if masses else "an unknown charge")
+    first = ("{:.3g} g".format(masses[0] * 1e3) if masses else "?")
+    sr.addAlert(SimAlert(
+        SimAlertLevel.ERROR, SimAlertType.VALUE,
+        "srm_1d: the igniter never lit the motor -- the auto-sized charge was raised "
+        "from {} to {} ({} attempts) without success. Set the pyrogen charge explicitly "
+        "in the igniter settings (the motor may need a much larger charge, or an igniter "
+        "topology that reaches the head end) and re-run.".format(first, last, len(masses)),
+        'srm_1d'))
+    return sr
 
 
 def _result_to_om_simresult(motor, result, perf, geo=None, prop=None):

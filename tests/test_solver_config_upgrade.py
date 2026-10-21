@@ -36,14 +36,18 @@ def test_schema_defaults_equal_run_simulation_defaults(solver):
     params = inspect.signature(run_simulation).parameters
     got = schema.getProperties()
     assert set(got) == {'t_max', 'P_cutoff', 'cfl_target', 'roughness',
-                        'kappa', 'T_ignition', 'ignition_heat_transfer'}
+                        'kappa', 'T_ignition', 'ignition_heat_transfer',
+                        'solid_heating_model'}
     # IG3: the ignition-h closure is a choice field whose default is read from
     # run_simulation and whose choices are exactly srm_1d's validated modes.
     from srm_1d import simulation as _sim
     assert got['ignition_heat_transfer'] == params['ignition_heat_transfer'].default == 'peretz'
     assert set(schema.props['ignition_heat_transfer'].values) == set(_sim._IGN_H_MODES)
+    # the solid-heating model is a choice field generated the same way (default 'conduction')
+    assert got['solid_heating_model'] == params['solid_heating_model'].default == 'conduction'
+    assert set(schema.props['solid_heating_model'].values) == set(_sim._SOLID_MODES)
     for key, value in got.items():
-        if key == 'ignition_heat_transfer':
+        if key in ('ignition_heat_transfer', 'solid_heating_model'):
             continue
         want = params[key].default
         if key == 'roughness':

@@ -101,3 +101,32 @@ class TestPluginAlert:
         assert sr.success is False
         texts = [str(getattr(a, "description", a)) for a in sr.alerts]
         assert any("self-sustaining" in t for t in texts), texts
+
+
+class TestAutoSizeFailureInThePlugin:
+    """The plugin returns a failed result + ERROR alert instead of letting PyrogenAutoSizeError reach the GUI."""
+
+    def test_auto_size_error_becomes_a_failed_result(self, monkeypatch):
+        from srm_1d.fmm_grain import _setup_openmotor_path
+        pytest.importorskip("skfmm")
+        _setup_openmotor_path()
+        import srm_1d.simulation as sim
+        import srm_1d.srm1d_plugin as pl
+        from motorlib import solvers, motor as om_motor  # type: ignore
+
+        def boom(*a, **k):
+            raise sim.PyrogenAutoSizeError("did not light", masses_kg=[0.184e-3, 0.23e-3, 1.37e-3])
+
+        cfg = pl._solver_config_defaults()      # (introspects the real run_simulation signature)
+        monkeypatch.setattr(sim, "run_simulation", boom)
+        motor = om_motor.Motor(oma.load_ric(PATHFIN))
+        sr = solvers.get_solver("srm_1d-transient").simulate(motor, config=cfg)
+        assert sr.success is False
+        texts = [str(getattr(a, "description", a)) for a in sr.alerts]
+        assert any("1.37 g" in t and "Set the pyrogen charge explicitly" in t and "0.184 g" in t for t in texts), texts
+        assert any("3 attempts" in t for t in texts)
+
+    def test_exception_carries_the_charges(self):
+        import srm_1d.simulation as sim
+        e = sim.PyrogenAutoSizeError("x", masses_kg=[1e-3, 2e-3])
+        assert e.masses_kg == (1e-3, 2e-3)
