@@ -16,10 +16,12 @@ Tests: `tests/test_total_energy.py` (19).
   runs were lost to Windows temp-file/cache races (no usable count); `tests/test_total_energy.py` 19 passed,
   `test_solver` + `test_energy_coupling` + `test_pressure_floor` 34 passed on the rebased base. **HEAVY-COMPUTE REQUEST** is
   in the final report.
-* BALLSstick and Hasegawa A motor rows below were produced on the PRE-rebase base (`c5f4af9` + EN1, default history).
-  Chunc rows were re-run on the rebased base and are identical. SM2's changes are diagnostics only and B0's baseline is
-  unchanged between the bases, so the sensible rows must be unchanged; the total/conservative rows should be re-run on
-  the rebased base when the budget allows.
+* **Rebased-base motor rows (2026-10-21, pairs, guarded, 4 GB cap):** all 7 BALLSstick rows (auto and fixed charge, 4 forms)
+  were re-run on the rebased base (peak 2.3 GB each) and are IDENTICAL to the pre-rebase rows (same peaks, trough/mid and
+  step counts to the digit). Hasegawa A: the non-igniting `total`, 14.98 g row was re-run and reproduces (0/106 lit); the other
+  Hasegawa A rows hit `MemoryError` at the 4 GB cap (peak 4.0 GB; the run's trimmed history arrays plus the pre-allocated
+  history exceed it even with `history_capacity` 3.3M), so they remain the pre-rebase rows (c5f4af9 + EN1) until MEM1 lands.
+  SM2's changes are diagnostics only and B0's baseline is unchanged between the bases.
 * Supersonic-exit isentropic nozzle: not verifiable with the existing nozzle boundary (see section 2.2).
 
 ## 1. Formulation (opt-in kwargs, defaults bit-identical)
