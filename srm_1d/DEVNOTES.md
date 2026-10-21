@@ -331,6 +331,16 @@ in geometry/burn rate/ignition (called every step or every N steps).
 
 ## API Breaking Changes Log
 
+### Compute safeguards (unreleased, 2026-10-21) -- sweep default workers 2; guarded_run
+
+- `srm_1d.tools.sensitivity.run_lhs_sweep(n_workers=None)` now means
+  `DEFAULT_WORKERS` = 2 (was `os.cpu_count()`, i.e. 16 here). Pass an explicit
+  integer for a wider sweep, only once the user has confirmed the machine will be
+  idle (CLAUDE.md "Compute budget").
+- New `srm_1d.tools.guarded_run`: runs a command under a job-wide memory cap and
+  a timeout, and kills the whole process tree if the guard dies. Agent jobs must
+  use it. Test: `tests/test_guarded_run.py`.
+
 ### run_from_ric igniter-sizing precedence (unreleased, 2026-10-13) -- explicit kwargs now win over the .ric block
 
 - **Bug fixed:** when the motor file carried an igniter block, `run_from_ric` used
