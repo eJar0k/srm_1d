@@ -155,6 +155,50 @@ def _bare_heat_transfer_coeff(
 
 
 # ---------------------------------------------------------------------------
+# RT1: opt-in ignition DRIVER temperature.  The convective ignition heating is
+# q = h (T_driver - T_s).  'static' (default, shipped) uses the cell's static gas
+# temperature.  'recovery' uses the adiabatic-wall temperature of a boundary layer
+# in a moving gas, T_aw = T + r u^2/(2 Cp) (Schlichting, Boundary-Layer Theory;
+# White, Viscous Fluid Flow; Kays & Crawford, Convective Heat and Mass Transfer),
+# with the textbook recovery factor r = Pr^(1/3) (turbulent) or Pr^(1/2) (laminar).
+# Regime per cell: turbulent when the bulk Reynolds number Re = rho |u| D_h / mu of
+# the cell exceeds the pipe-flow transition value 2300, else laminar.  Pr is the one
+# the active ignition closure uses: Peretz -> gamma/(1.77 gamma - 0.45) (Eq. III-25,
+# local mixture gamma); Gnielinski and Keller -> the propellant-gas Pr of the run.
+IGN_DRIVER_STATIC = 0
+IGN_DRIVER_RECOVERY = 1
+_IGN_DRIVER_MODES = {'static': IGN_DRIVER_STATIC, 'recovery': IGN_DRIVER_RECOVERY}
+RE_TRANSITION = 2300.0
+
+
+def _ignition_driver_code(mode):
+    try:
+        return _IGN_DRIVER_MODES[mode]
+    except (KeyError, TypeError):
+        raise ValueError(
+            f"unknown ignition_driver_temperature: {mode!r} "
+            f"(expected one of {sorted(_IGN_DRIVER_MODES)})") from None
+
+
+@njit(cache=True, fastmath=True)
+def _driver_temperature(driver_code, ign_h_code, T, u, Cp, Pr_run, gamma, Re):
+    """(T_driver, r, turbulent) for the ignition heating of one cell (RT1)."""
+    if driver_code == 0:
+        return T, 0.0, 0.0
+    if ign_h_code == 1:
+        Pr = gamma / (1.77 * gamma - 0.45)
+    else:
+        Pr = Pr_run
+    if Re > RE_TRANSITION:
+        r = Pr ** (1.0 / 3.0)
+        turb = 1.0
+    else:
+        r = Pr ** 0.5
+        turb = 0.0
+    return T + r * 0.5 * u * u / Cp, r, turb
+
+
+# ---------------------------------------------------------------------------
 # IG2: opt-in ignition heat-transfer closures (docs/pyrogen_realism/IG2_REPORT.md).
 # They replace ONLY the h used to heat the UNIGNITED propellant surface in the
 # Goodman ignition kernel (and its matching convective wall-loss sink). The Ma
@@ -1312,6 +1356,8 @@ def _goodman_ignition_sources_and_mass(
     # SM2: ignition-event diagnostics (always on, bookkeeping only) and the opt-in
     # open-loop surface-forcing recorder
     ign_diag, rec_on, rec_h, rec_Td, rec_t, rec_dt, rec_k,
+    # RT1: ignition driver temperature (0 static, 1 recovery)
+    ign_driver_code,
 ):
     """Goodman surface-temperature ignition and propellant source assembly.
 
@@ -1461,7 +1507,10 @@ def _goodman_ignition_sources_and_mass(
                         rho_gas[i], u_cell[i], T[i], D_hyd[i],
                     )
                 rec_h[rec_idx, i] = h_v
-                rec_Td[rec_idx, i] = T[i]
+                T_drv_v, _r_v, _turb_v = _driver_temperature(
+                    ign_driver_code, ignition_h_code, T[i], u_cell[i],
+                    Cp_mix_gas[i], Pr, gamma_mix_gas[i], Re[i])
+                rec_Td[rec_idx, i] = T_drv_v
             if (not has_ignited[i]) and heat_cell:
                 if ignition_h_code == 0:
                     h_c = _bare_heat_transfer_coeff(
@@ -1491,7 +1540,11 @@ def _goodman_ignition_sources_and_mass(
                 if flame_spread_enabled:
                     h_c = h_c * flame_spread_augment[i]
                 h_total = h_c
-                h_driver_num = h_c * T[i]
+                # RT1: driver temperature (static T unless 'recovery')
+                T_drv, r_rec, turb_rec = _driver_temperature(
+                    ign_driver_code, ignition_h_code, T[i], u_cell[i],
+                    Cp_mix_gas[i], Pr, gamma_mix_gas[i], Re[i])
+                h_driver_num = h_c * T_drv
                 # v0.7.4 energy-balance fix: capture the BARE convective
                 # coefficient and the gas-wall ΔT (pre-Goodman-update) for
                 # the convective wall heat-loss sink applied after the
@@ -1500,7 +1553,7 @@ def _goodman_ignition_sources_and_mass(
                 # (radiation_sink_power) and the pyrogen flux is the
                 # pyrogen's energy budget (handled separately).
                 h_conv = h_c
-                dT_conv = T[i] - T_surf[i]
+                dT_conv = T_drv - T_surf[i]
                 # v0.7.3 Phase B.4: consume the pre-computed per-cell
                 # pyrogen heat flux (already topology/mode-dispatched
                 # and sensible-capped by _compute_pyrogen_heat_flux_arr).
@@ -1566,7 +1619,7 @@ def _goodman_ignition_sources_and_mass(
                         h_total += h_rad
                         h_driver_num += h_rad * rad_driver_T
 
-                h_driver = T[i]
+                h_driver = T_drv
                 if h_total > 0.0:
                     h_driver = h_driver_num / h_total
                     h_c = h_total
@@ -1637,6 +1690,10 @@ def _goodman_ignition_sources_and_mass(
                     ign_diag[i, 7] = P[i]
                     ign_diag[i, 8] = t
                     ign_diag[i, 9] = h_c * (h_driver - T_surf[i])
+                    ign_diag[i, 10] = T_drv
+                    ign_diag[i, 11] = r_rec
+                    ign_diag[i, 12] = Re[i]
+                    ign_diag[i, 13] = turb_rec
 
             if has_ignited[i]:
                 is_burning[i] = True
@@ -1859,6 +1916,7 @@ def _run_time_loop(
     solid_y, solid_T, solid_age, solid_nact, solid_work, solid_age_fraction,
     # --- SM2: ignition-event diagnostics + open-loop forcing recorder ---
     ign_diag, rec_on, rec_h, rec_Td, rec_t, rec_dt, rec_k,
+    ign_driver_code,              # RT1: 0 static, 1 recovery
     # --- v0.8.0 Phase 6: live progress / cooperative cancel ---
     progress_state,               # [2] float64: [0]=progress 0..1 (written),
                                   #              [1]=cancel flag (read; >0.5 aborts)
@@ -2411,6 +2469,7 @@ def _run_time_loop(
             solid_model_code, solid_y, solid_T, solid_age, solid_nact,
             solid_work, solid_age_fraction,
             ign_diag, rec_on, rec_h, rec_Td, rec_t, rec_dt, rec_k,
+            ign_driver_code,
         )
 
         # v0.7.1 Phase 3.5: pyrogen mass injection uses pyrogen Cp for the
@@ -3024,6 +3083,9 @@ def _run_simulation_once(
     # Rankine-Hugoniot jump conditions.
     energy_formulation='sensible',
     momentum_formulation='legacy',
+    # RT1 (opt-in): ignition driver temperature 'static' (default, shipped) |
+    # 'recovery' (adiabatic-wall T_aw = T + r u^2/(2 Cp), see _driver_temperature).
+    ignition_driver_temperature='static',
     burn_update_interval=None,
     geometry_update_interval=None,
     # --- Ignition ---
@@ -3199,6 +3261,15 @@ def _run_simulation_once(
         conservative momentum law in a transient). ``'conservative'`` solves
         ``(rho u)_t + (rho u u)_x = -P_x`` with the face density predicted
         from the old-state continuity. Opt-in; steady flow is unchanged.
+    ignition_driver_temperature : {'static', 'recovery'}
+        RT1. Gas temperature that drives the convective ignition heating
+        ``q = h (T_driver - T_s)`` and its matching wall-loss sink. ``'static'``
+        (default) = the cell's static T. ``'recovery'`` = the adiabatic-wall
+        temperature ``T + r u^2/(2 Cp)``, ``r = Pr^(1/3)`` (turbulent, bulk
+        Re > 2300) or ``Pr^(1/2)`` (laminar); Pr is the active ignition
+        closure's. Only the ignition heating changes (h itself is still
+        evaluated at the static/film state). ``ignition_diag`` columns 10-13
+        hold the driver T, r, Re and the turbulent flag at each cell's ignition.
     history_capacity : int or None
         Number of preallocated per-step history rows. ``None`` (default)
         sizes them from the hottest species' sound speed (see
@@ -3242,6 +3313,7 @@ def _run_simulation_once(
         raise ValueError(
             "momentum_formulation must be 'legacy' or 'conservative', "
             f"got {momentum_formulation!r}")
+    _ign_driver_code = _ignition_driver_code(ignition_driver_temperature)
     _total_energy_flag = energy_formulation == 'total'
     _conservative_momentum_flag = momentum_formulation == 'conservative'
     if burn_update_interval is not None and (
@@ -3482,7 +3554,7 @@ def _run_simulation_once(
     solid_nact = np.full(N, 3, dtype=np.int64)
     # SM2: what lit each cell (always recorded; bookkeeping only) and the opt-in
     # open-loop forcing recorder (record_forcing_steps > 0 = first n steps).
-    ign_diag = np.full((N, 10), np.nan)
+    ign_diag = np.full((N, 14), np.nan)
     _rec_n = int(record_forcing_steps)
     rec_h = np.full((max(_rec_n, 1), N if _rec_n > 0 else 1), -1.0)
     rec_Td = np.zeros_like(rec_h)
@@ -3834,6 +3906,7 @@ def _run_simulation_once(
         float(CONDUCTION_AGE_FRACTION),
         # SM2: ignition-event diagnostics + open-loop forcing recorder
         ign_diag, bool(_rec_n > 0), rec_h, rec_Td, rec_t, rec_dt, rec_k,
+        int(_ign_driver_code),
         # v0.8.0 Phase 6: live progress / cooperative cancel
         progress_state,
     )
@@ -4106,6 +4179,7 @@ def _run_simulation_once(
         # unlabeled as to which erosive closure produced them.
         'erosive_model': erosive_model,
         'energy_formulation': energy_formulation,
+        'ignition_driver_temperature': ignition_driver_temperature,
         'momentum_formulation': momentum_formulation,
         'ignition_heat_transfer': ignition_heat_transfer,
         'peretz_ap_reference': peretz_ap_reference,

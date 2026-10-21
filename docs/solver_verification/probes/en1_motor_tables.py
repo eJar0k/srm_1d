@@ -137,6 +137,11 @@ def main():
     ap.add_argument('--cells', type=int, default=100)
     ap.add_argument('--out', default=None)
     ap.add_argument('--no-ledger', action='store_true')
+    ap.add_argument('--driver', default='static', choices=('static', 'recovery'),
+                    help='RT1 ignition driver temperature')
+    ap.add_argument('--solid', default=None, choices=(None, 'goodman', 'peretz', 'conduction'),
+                    help='solid_heating_model (None = the base default)')
+    ap.add_argument('--hist', type=int, default=None, help='history_capacity override')
     a = ap.parse_args()
     cfg = MOTORS[a.motor]
     ef, mf = CASES[a.case]
@@ -150,13 +155,16 @@ def main():
                            P_cutoff=cfg['P_cutoff'], pyrogen_mass=mass,
                            energy_formulation=ef, momentum_formulation=mf,
                            snapshot_interval=a.snap,
-                           history_capacity=int(cfg['hist'] * max(1.0, t_max / cfg['t_max'])),
+                           history_capacity=(a.hist or int(cfg['hist'] * max(1.0, t_max / cfg['t_max']))),
+                           ignition_driver_temperature=a.driver,
+                           **({} if a.solid is None else dict(solid_heating_model=a.solid)),
                            target_propellant_cells=a.cells, **CANON)[0]
     wall = time.time() - t0
     s = res['summary']
     t = np.asarray(res['time'])
     P = np.asarray(res['P_head']) / 1e6
     row = dict(motor=a.motor, case=a.case, mass=a.mass, t_max=t_max,
+               driver=a.driver, solid=a.solid or s.get('solid_heating_model', 'default'),
                energy=ef, momentum=mf, wall_total_s=wall,
                wall_time_s=float(s['wall_time']), steps=int(s['steps']),
                termination=s['termination'],
@@ -186,6 +194,9 @@ def main():
         # run_from_ric on c5f4af9 ignores an explicit charge when the .ric block says
         # mass -1 unless pyrogen='bpnv' is passed (CANON does); verify it was honoured.
         assert not row['pyrogen_mass_auto'] and abs(row['pyrogen_mass_initial_g'] - float(a.mass)) < 1e-6, row
+    if a.motor == 'haseg' and (t > 0.5).any():
+        row['late_peak'] = float(P[t > 0.5].max())   # the progressive late peak (exp ~6.44 MPa)
+        row['t_late_peak'] = float(t[t > 0.5][int(P[t > 0.5].argmax())])
     mm = np.asarray(res['max_mach'])
     pre = t <= (row['t_peak'] if a.motor != 'haseg' else 0.05)
     row['fill_mach_max'] = float(mm[t <= row['t_peak']].max()) if (t <= row['t_peak']).any() else None

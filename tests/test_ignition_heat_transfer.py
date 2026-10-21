@@ -180,8 +180,9 @@ class TestPeretzApReference:
             np.full(N, 290.0), np.full(N, 1.2), ap_code,
             0, np.array([0.0, 1.0e-6]), np.full((1, 2), 293.0), np.zeros(N),   # SM1: goodman, dummy conduction state
             np.full(N, 3, dtype=np.int64), np.zeros((2, 2)), 0.0125,
-            np.zeros((N, 10)), False, np.zeros((1, 1)), np.zeros((1, 1)), np.zeros(1), np.zeros(1),
+            np.zeros((N, 14)), False, np.zeros((1, 1)), np.zeros((1, 1)), np.zeros(1), np.zeros(1),
             np.zeros(1, dtype=np.int64),   # SM2: diag, recorder off
+            0,                             # RT1: static ignition driver temperature
         )
         sim._goodman_ignition_sources_and_mass(*args)
         return T_surf
