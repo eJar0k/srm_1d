@@ -208,7 +208,7 @@ def short_motor_runs():
             ric, target_propellant_cells=60, t_max=0.012, roughness=32e-6, kappa=0.44,
             T_ignition=756.0, print_interval=0.0, verbose=False, pyrogen='bpnv',
             pyrogen_mass=2.623e-3, energy_formulation=ef,
-            momentum_formulation=mf)[0]
+            momentum_formulation=mf, history_capacity=100000)[0]
     return out
 
 

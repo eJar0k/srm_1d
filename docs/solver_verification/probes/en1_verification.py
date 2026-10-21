@@ -77,7 +77,10 @@ class Tube:
         self.t = 0.0
         self.n = 0
         self.diverged = False
-        self.max_wall_s = 60.0           # per advance_to call; flags runaway runs
+        self.max_wall_s = 120.0          # per advance_to call; flags runaway runs
+        self.max_steps = 400000          # total step cap (stall guard)
+        self.dt_floor = 1.0e-10
+        self.stall_reason = ''
         self.p_amb_fn = None            # optional back-pressure schedule P_amb(t)
         self._gam = np.full(N, gamma)
         self._R = np.full(N, R)
@@ -113,19 +116,26 @@ class Tube:
         return out
 
     def advance_to(self, t_end):
+        """March to ``t_end``.  Bounded: a total step cap, a wall-clock cap and a dt floor
+        stop the run and set ``diverged`` / ``stall_reason`` (a result, not a hang)."""
         t_wall = time.time()
-        while self.t < t_end - 1e-12:
-            if time.time() - t_wall > self.max_wall_s:   # runaway guard
-                self.diverged = True
+        while self.t < t_end:
+            if self.n >= self.max_steps:
+                self.diverged, self.stall_reason = True, 'max_steps'
+                return
+            if time.time() - t_wall > self.max_wall_s:
+                self.diverged, self.stall_reason = True, 'max_wall'
                 return
             dt_cfl = self.dt()
-            if not (dt_cfl > 1.0e-10):   # NaN or collapsed time step: the run diverged
-                self.diverged = True
+            if not (dt_cfl > self.dt_floor):   # NaN or collapsed time step
+                self.diverged, self.stall_reason = True, 'dt_floor'
                 return
             dt = min(dt_cfl, t_end - self.t)
             self.step(dt)
+            if t_end - self.t < 1.0e-9 * dt_cfl:     # land exactly (no sliver steps)
+                self.t = t_end
             if not np.isfinite(self.T).all() or float(self.T.max()) > 2.0e4:
-                self.diverged = True
+                self.diverged, self.stall_reason = True, 'T_blowup'
                 return
 
     def u_cell(self):
@@ -496,23 +506,26 @@ def duct_case(N, total, shock_ar=None, throat_M=None, cfl=0.3, K=1, S=True, P0=5
                 A_throat=A_bc, P_ambient=P_back0, T_ambient=T_amb,
                 total_energy=total, cfl=cfl, K=K, S=S, cons_mom=cons_mom)
     last_P = tube.P.copy()
-    resid = []
+    n_chunks = int(math.ceil(t_end / check_every - 1e-9))
+    resid = np.full((n_chunks + 1, 2), np.nan)         # bounded: one row per chunk
+    n_res = 0
     if shock_ar is not None:
         tube.p_amb_fn = lambda t: P_back0 + (P_back - P_back0) * min(1.0, t / ramp_s)
-    while tube.t < t_end:
-        tube.advance_to(min(tube.t + check_every, t_end))
+    for k in range(n_chunks):
+        tube.advance_to(min((k + 1) * check_every, t_end))
         r = float(np.max(np.abs(tube.P - last_P) / tube.P))
-        resid.append((tube.t, r))
+        resid[n_res] = (tube.t, r)
+        n_res += 1
         last_P = tube.P.copy()
         if verbose:
             print(f"   t={tube.t:.4f} resid={r:.3e} Tmax={tube.T.max():.0f}", flush=True)
         if tube.diverged:
-            resid.append((tube.t, float('nan')))
             break
+    resid = [tuple(map(float, row)) for row in resid[:n_res]]
     return dict(N=N, total=total, x=x, A=A, duct=duct, tube=tube, P0=P0, T0=T0,
                 M=tube.mach(), T=tube.T, P=tube.P, M_e=M_ex, T_e=T_ex, P_e=P_ex,
                 info=info, mdot=mdot, resid=resid, steps=tube.n, P_back=P_back,
-                diverged=tube.diverged)
+                diverged=tube.diverged, stall_reason=tube.stall_reason)
 
 
 def duct_metrics(res, exclude_shock_cells=6):

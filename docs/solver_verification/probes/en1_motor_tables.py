@@ -50,10 +50,12 @@ CASES = {
     'total_cons': ('total', 'conservative'),
     'sens_cons': ('sensible', 'conservative'),
 }
+# hist = preallocated per-step history rows (default 5e6 rows ~ 2.3 GB, over the 4 GB
+# coexist budget when two jobs overlap); sized ~1.4x the step count of each motor.
 MOTORS = {
-    'chunc': dict(ric='machbusterNew.ric', t_max=1.0, P_cutoff=0.01e6),
-    'balls': dict(ric='BALLSstick.ric', t_max=2.0, P_cutoff=0.01e6),
-    'haseg': dict(ric='hasegawa_a.ric', t_max=10.0, P_cutoff=0.05e6),
+    'chunc': dict(ric='machbusterNew.ric', t_max=1.0, P_cutoff=0.01e6, hist=800_000),
+    'balls': dict(ric='BALLSstick.ric', t_max=2.0, P_cutoff=0.01e6, hist=1_300_000),
+    'haseg': dict(ric='hasegawa_a.ric', t_max=10.0, P_cutoff=0.05e6, hist=3_300_000),
 }
 
 
@@ -148,6 +150,7 @@ def main():
                            P_cutoff=cfg['P_cutoff'], pyrogen_mass=mass,
                            energy_formulation=ef, momentum_formulation=mf,
                            snapshot_interval=a.snap,
+                           history_capacity=int(cfg['hist'] * max(1.0, t_max / cfg['t_max'])),
                            target_propellant_cells=a.cells, **CANON)[0]
     wall = time.time() - t0
     s = res['summary']
