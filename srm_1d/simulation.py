@@ -4005,7 +4005,6 @@ def _run_simulation_once(
         'steps': n_steps,
         'cells': N,
         'history_capacity': int(max_hist),
-        'history_estimated_steps': int(est_steps),
         'history_capacity_explicit': history_capacity is not None,
         'history_estimated_steps': int(est_steps),
         'termination_code': int(termination_code),
