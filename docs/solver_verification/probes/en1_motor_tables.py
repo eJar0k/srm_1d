@@ -141,6 +141,8 @@ def main():
                     help='RT1 ignition driver temperature')
     ap.add_argument('--solid', default=None, choices=(None, 'goodman', 'peretz', 'conduction'),
                     help='solid_heating_model (None = the base default)')
+    ap.add_argument('--jet', default='off', choices=('off', 'max', 'replace'),
+                    help='HE1 head_end_jet_h')
     ap.add_argument('--hist', type=int, default=None, help='history_capacity override')
     a = ap.parse_args()
     cfg = MOTORS[a.motor]
@@ -157,6 +159,7 @@ def main():
                            snapshot_interval=a.snap,
                            **({} if a.hist is None else dict(history_capacity=a.hist)),   # default: MEM1 auto-sized history
                            ignition_driver_temperature=a.driver,
+                           head_end_jet_h=a.jet,
                            **({} if a.solid is None else dict(solid_heating_model=a.solid)),
                            target_propellant_cells=a.cells, **CANON)[0]
     wall = time.time() - t0
@@ -164,7 +167,7 @@ def main():
     t = np.asarray(res['time'])
     P = np.asarray(res['P_head']) / 1e6
     row = dict(motor=a.motor, case=a.case, mass=a.mass, t_max=t_max,
-               driver=a.driver, solid=a.solid or s.get('solid_heating_model', 'default'),
+               driver=a.driver, jet=a.jet, solid=a.solid or s.get('solid_heating_model', 'default'),
                energy=ef, momentum=mf, wall_total_s=wall,
                wall_time_s=float(s['wall_time']), steps=int(s['steps']),
                termination=s['termination'],
@@ -206,6 +209,10 @@ def main():
         if 'min_pressure' in res else None
     ign = ignition_stats(res)
     row['ignition'] = ign
+    row['ign_time_ms_by_cell'] = [None if v >= 1.0e9 else float(v) * 1e3
+                                  for v in np.asarray(res['ignition_time_by_cell'])]
+    d14 = np.asarray(res['ignition_diag'])[:, 14]
+    row['jet_h_at_ignition_max'] = float(np.nanmax(d14)) if np.isfinite(d14).any() else None
     row['first_cell_T'] = first_cell_temperature(res, ign)
     row['fill_map'] = fill_map(res)
     # EOS / storage-jump channels (whole run and fill phase) for the T6 table

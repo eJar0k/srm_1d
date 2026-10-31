@@ -199,6 +199,66 @@ def _driver_temperature(driver_code, ign_h_code, T, u, Cp, Pr_run, gamma, Re):
 
 
 # ---------------------------------------------------------------------------
+# HE1: opt-in head-end igniter-jet heat transfer (docs/pyrogen_realism/HE1_REPORT.md).
+# Cohen, Derr & Price's reduction of the Rocketdyne igniter-duct data, as reproduced by
+# Peretz et al. 1973 (Princeton AMS Rep. 1100, Eqs. III-28..III-30), for the convective
+# heat transfer from an axial igniter with a sonic nozzle:
+#   III-29 (x < x_im, upstream of impingement):
+#       Nu_d = 0.7 Re_d^0.8 (Ap/At)^0.4 (0.022 + 0.066 x/x_im)
+#   III-28 (at impingement; = III-29 at x = x_im to 0.2 %): Nu_d = 0.0615 Re_d^0.8 (Ap/At)^0.4
+#   III-30 (x > x_im, downstream):
+#       Nu_d = 0.7 Re_d^0.8 (Ap/At)^0.4 [0.031 + 0.057 exp(-0.5 x_r/d)],   x_r = x - x_im
+# Inputs (no new constants):
+#   Re_d = 4 mdot_ig / (pi D mu)   Carlson & Seader 1967: Reynolds number from the IGNITER mass
+#          flow and the port diameter. Peretz does not define Re_d for III-28..30 (CPIA 220 pending).
+#   mu, Pr, k at the film temperature, as the Peretz bore closure (Eqs. III-24, III-25).
+#   x from the igniter exit (head end), x_im = one port diameter (Peretz citing Love et al.),
+#   Ap/At as the bore closure reads it. No Pr^0.4 factor, as published (a Carlson & Seader
+#   Dittus-Boelter reference form would carry Pr^0.4 ~ 0.88).
+#   Range: the duct data extend to x/d ~ 10 only (Peretz p. 40): no jet term beyond x/D = 10.
+HE_JET_OFF = 0
+HE_JET_MAX = 1       # h = max(h_bore, h_jet) while the igniter flows (primary)
+HE_JET_REPLACE = 2   # h = h_jet in the jet region (sensitivity)
+HE_JET_XD_MAX = 10.0
+_HE_JET_MODES = {False: 0, None: 0, 'off': 0, True: 1, 'max': 1, 'replace': 2}
+
+
+def _head_end_jet_code(mode):
+    try:
+        return _HE_JET_MODES[mode]
+    except (KeyError, TypeError):
+        raise ValueError(
+            f"unknown head_end_jet_h: {mode!r} (expected False/True or 'off','max','replace')"
+        ) from None
+
+
+@njit(cache=True, fastmath=True)
+def _head_end_jet_h(mdot_ig, T_gas, T_wall, R_gas, Cp_gas, gamma_gas,
+                    D_hyd, x_from_head, A_port, A_throat):
+    """Igniter-jet head-end heat-transfer coefficient [W/(m^2 K)] (HE1), 0 outside the data range."""
+    if (mdot_ig <= 0.0 or D_hyd <= 1e-10 or A_throat <= 0.0 or A_port <= 0.0
+            or R_gas <= 0.0):
+        return 0.0
+    if x_from_head > HE_JET_XD_MAX * D_hyd:
+        return 0.0
+    T_af = 0.5 * (T_gas + T_wall)
+    if T_af <= 0.0:
+        return 0.0
+    W_gmol = 8314.462618 / R_gas
+    mu = 0.87e-7 * W_gmol ** 0.5 * T_af ** 0.65
+    Re = 4.0 * mdot_ig / (3.141592653589793 * D_hyd * mu)
+    Pr = gamma_gas / (1.77 * gamma_gas - 0.45)
+    k_af = Cp_gas * mu / Pr
+    x_im = D_hyd
+    if x_from_head < x_im:
+        mult = 0.022 + 0.066 * x_from_head / x_im
+    else:
+        mult = 0.031 + 0.057 * np.exp(-0.5 * (x_from_head - x_im) / D_hyd)
+    Nu = 0.7 * Re ** 0.8 * (A_port / A_throat) ** 0.4 * mult
+    return Nu * k_af / D_hyd
+
+
+# ---------------------------------------------------------------------------
 # IG2: opt-in ignition heat-transfer closures (docs/pyrogen_realism/IG2_REPORT.md).
 # They replace ONLY the h used to heat the UNIGNITED propellant surface in the
 # Goodman ignition kernel (and its matching convective wall-loss sink). The Ma
@@ -1358,6 +1418,8 @@ def _goodman_ignition_sources_and_mass(
     ign_diag, rec_on, rec_h, rec_Td, rec_t, rec_dt, rec_k,
     # RT1: ignition driver temperature (0 static, 1 recovery)
     ign_driver_code,
+    # HE1: head-end igniter-jet h (0 off, 1 max(bore, jet), 2 jet replaces bore)
+    head_end_jet_code,
 ):
     """Goodman surface-temperature ignition and propellant source assembly.
 
@@ -1539,6 +1601,20 @@ def _goodman_ignition_sources_and_mass(
                 # skips the multiply entirely → byte-for-byte Phase A.
                 if flame_spread_enabled:
                     h_c = h_c * flame_spread_augment[i]
+                h_jet = 0.0
+                if head_end_jet_code > 0 and topology_code == 0 and is_grain[i]:
+                    if ap_ref_idx >= 0:
+                        A_apj = A_port[ap_ref_idx]
+                    else:
+                        A_apj = A_port[i]
+                    h_jet = _head_end_jet_h(
+                        mdot_igniter, T[i], T_surf[i], R_mix_gas[i], Cp_mix_gas[i],
+                        gamma_mix_gas[i], D_hyd[i], x_centers[i], A_apj, A_throat)
+                    if head_end_jet_code == 1:
+                        if h_jet > h_c:
+                            h_c = h_jet
+                    elif h_jet > 0.0:
+                        h_c = h_jet
                 h_total = h_c
                 # RT1: driver temperature (static T unless 'recovery')
                 T_drv, r_rec, turb_rec = _driver_temperature(
@@ -1694,6 +1770,7 @@ def _goodman_ignition_sources_and_mass(
                     ign_diag[i, 11] = r_rec
                     ign_diag[i, 12] = Re[i]
                     ign_diag[i, 13] = turb_rec
+                    ign_diag[i, 14] = h_jet
 
             if has_ignited[i]:
                 is_burning[i] = True
@@ -1917,6 +1994,7 @@ def _run_time_loop(
     # --- SM2: ignition-event diagnostics + open-loop forcing recorder ---
     ign_diag, rec_on, rec_h, rec_Td, rec_t, rec_dt, rec_k,
     ign_driver_code,              # RT1: 0 static, 1 recovery
+    head_end_jet_code,            # HE1: 0 off, 1 max, 2 replace
     # --- v0.8.0 Phase 6: live progress / cooperative cancel ---
     progress_state,               # [2] float64: [0]=progress 0..1 (written),
                                   #              [1]=cancel flag (read; >0.5 aborts)
@@ -2469,7 +2547,7 @@ def _run_time_loop(
             solid_model_code, solid_y, solid_T, solid_age, solid_nact,
             solid_work, solid_age_fraction,
             ign_diag, rec_on, rec_h, rec_Td, rec_t, rec_dt, rec_k,
-            ign_driver_code,
+            ign_driver_code, head_end_jet_code,
         )
 
         # v0.7.1 Phase 3.5: pyrogen mass injection uses pyrogen Cp for the
@@ -3086,6 +3164,9 @@ def _run_simulation_once(
     # RT1 (opt-in): ignition driver temperature 'static' (default, shipped) |
     # 'recovery' (adiabatic-wall T_aw = T + r u^2/(2 Cp), see _driver_temperature).
     ignition_driver_temperature='static',
+    # HE1 (opt-in): head-end igniter-jet heat transfer (forward_plenum only, while the igniter
+    # flows, x/D <= 10): False (default) | True / 'max' = max(h_bore, h_jet) | 'replace'.
+    head_end_jet_h=False,
     burn_update_interval=None,
     geometry_update_interval=None,
     # --- Ignition ---
@@ -3270,6 +3351,13 @@ def _run_simulation_once(
         closure's. Only the ignition heating changes (h itself is still
         evaluated at the static/film state). ``ignition_diag`` columns 10-13
         hold the driver T, r, Re and the turbulent flag at each cell's ignition.
+    head_end_jet_h : bool or {'off', 'max', 'replace'}
+        HE1. Opt-in igniter-jet head-end heat transfer for the ``forward_plenum``
+        topology: while the igniter flows, unlit grain cells within x/D <= 10 of the
+        igniter exit get the Cohen-Derr-Price / Peretz Eqs. III-28..30 coefficient with
+        ``Re_d = 4 mdot_igniter / (pi D mu)``. ``True``/``'max'``: ``h = max(h_bore, h_jet)``;
+        ``'replace'``: ``h = h_jet`` there. No effect on the head baskets. ``ignition_diag``
+        column 14 holds the jet h used at each cell's ignition.
     history_capacity : int or None
         Number of preallocated per-step history rows. ``None`` (default)
         sizes them from the hottest species' sound speed (see
@@ -3314,6 +3402,7 @@ def _run_simulation_once(
             "momentum_formulation must be 'legacy' or 'conservative', "
             f"got {momentum_formulation!r}")
     _ign_driver_code = _ignition_driver_code(ignition_driver_temperature)
+    _head_jet_code = _head_end_jet_code(head_end_jet_h)
     _total_energy_flag = energy_formulation == 'total'
     _conservative_momentum_flag = momentum_formulation == 'conservative'
     if burn_update_interval is not None and (
@@ -3554,7 +3643,7 @@ def _run_simulation_once(
     solid_nact = np.full(N, 3, dtype=np.int64)
     # SM2: what lit each cell (always recorded; bookkeeping only) and the opt-in
     # open-loop forcing recorder (record_forcing_steps > 0 = first n steps).
-    ign_diag = np.full((N, 14), np.nan)
+    ign_diag = np.full((N, 15), np.nan)
     _rec_n = int(record_forcing_steps)
     rec_h = np.full((max(_rec_n, 1), N if _rec_n > 0 else 1), -1.0)
     rec_Td = np.zeros_like(rec_h)
@@ -3906,7 +3995,7 @@ def _run_simulation_once(
         float(CONDUCTION_AGE_FRACTION),
         # SM2: ignition-event diagnostics + open-loop forcing recorder
         ign_diag, bool(_rec_n > 0), rec_h, rec_Td, rec_t, rec_dt, rec_k,
-        int(_ign_driver_code),
+        int(_ign_driver_code), int(_head_jet_code),
         # v0.8.0 Phase 6: live progress / cooperative cancel
         progress_state,
     )
@@ -4180,6 +4269,7 @@ def _run_simulation_once(
         'erosive_model': erosive_model,
         'energy_formulation': energy_formulation,
         'ignition_driver_temperature': ignition_driver_temperature,
+        'head_end_jet_h': head_end_jet_h,
         'momentum_formulation': momentum_formulation,
         'ignition_heat_transfer': ignition_heat_transfer,
         'peretz_ap_reference': peretz_ap_reference,
