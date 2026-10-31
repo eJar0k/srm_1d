@@ -61,7 +61,23 @@ _spec = importlib.util.spec_from_file_location(
 _probe = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_probe)
 
-# RE-RECORDED 2026-10-12 by pyrogen-realism IG3 (stage 2, user decision "self-sustaining +
+# RE-RECORDED 2026-10-21 by the conduction default flip (user decision 2026-10-13):
+# run_simulation(solid_heating_model='conduction') is the default (was 'goodman'): the
+# unignited surface is advanced by exact 1-D transient conduction instead of Goodman's
+# algebraic cubic-profile integral (T_ignition / k_solid were fit with Goodman). Ignition is
+# later and the fallback needs smaller charges: auto charges Chunc 2.623 -> 2.098 g (4
+# attempts; 1 head-end cell never lit), BALLSstick 4.829 -> 3.863 g (4; 8 never lit),
+# Hasegawa A 14.98 g (3; 8 never lit, unchanged). Chunc peak 8.698 -> 9.745 MPa (pk/pl 1.22),
+# BALLSstick peak 7.193 -> 5.815 (pk/trough 2.04 -> 1.61), Hasegawa A late peak 5.362 -> 5.363.
+# Values recorded from a cold-compile run (docs/pyrogen_realism/results/cond_B0_*). The previous
+# (Goodman, IG4+MEM1) BASELINE was:
+#   chunc: peak 8.698445703737404, t_peak 0.024529374887138196,
+#          plateau 8.06619314574538, n_steps 533513
+#   balls: peak 7.193312409822636, trough 3.522240937005205,
+#          mid 3.8878973484404313, n_steps 850245
+#   haseg: peak 5.362271099044967, t_peak 2.6818221964560043, n_steps 2347427
+#
+# (earlier) RE-RECORDED 2026-10-12 by pyrogen-realism IG3 (stage 2, user decision "self-sustaining +
 # warn"): the fallback's success test is no longer >= 99 % of the grain lit; it is "the grain
 # lit and keeps burning after the igniter is spent", and grain cells that never light are only
 # WARNED about (convective-only ignition model, not an igniter-size problem). Final auto
@@ -149,12 +165,12 @@ _spec.loader.exec_module(_probe)
 #          mid 4.913378178011638, n_steps 842922
 #   haseg: peak 6.143912554793205, t_peak 2.3816074267208034, n_steps 2335770
 BASELINE = {
-    'chunc': dict(peak=8.698445703737404, t_peak=0.024529374887138196,
-                  plateau=8.06619314574538, n_steps=533513),
-    'balls': dict(peak=7.193312409822636, trough=3.522240937005205,
-                  mid=3.8878973484404313, n_steps=850245),
-    'haseg': dict(peak=5.362271099044967, t_peak=2.6818221964560043,
-                  n_steps=2347427),
+    'chunc': dict(peak=9.744849573359163, t_peak=0.035353187954651435,
+                  plateau=7.99119980103874, n_steps=534236),
+    'balls': dict(peak=5.8149312202096075, trough=3.6073917578343226,
+                  mid=3.97139852072466, n_steps=852772),
+    'haseg': dict(peak=5.363255636176837, t_peak=2.6881129738957537,
+                  n_steps=2347930),
 }
 RIC_FILE = {'chunc': 'machbusterNew.ric', 'balls': 'BALLSstick.ric',
             'haseg': 'hasegawa_a.ric'}

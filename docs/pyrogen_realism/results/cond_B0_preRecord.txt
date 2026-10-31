@@ -1,0 +1,50 @@
+C:\tmp\sv\ig3\srm_1d\grain_geometry.py:1138: UserWarning: Integer-snapping altered total motor length by more than 10mm. Check segment proportions.
+  warnings.warn(f"Integer-snapping altered total motor length by more than 10mm. Check segment proportions.")
+C:\tmp\sv\ig3\srm_1d\openmotor_adapter.py:1555: RuntimeWarning: auto-sized BPNV charge raised from 1.07 g to 2.1 g (4 attempts, factor 1.25) to light the motor. Set the charge explicitly to fix it.
+  result = run_simulation(geo, prop, **args)
+C:\tmp\sv\ig3\srm_1d\openmotor_adapter.py:1555: RuntimeWarning: 1 of 100 grain cells never ignited (cells 3-3, x = 28-28 mm; 99 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+  result = run_simulation(geo, prop, **args)
+C:\tmp\sv\ig3\srm_1d\grain_geometry.py:1138: UserWarning: Integer-snapping altered total motor length by more than 10mm. Check segment proportions.
+  warnings.warn(f"Integer-snapping altered total motor length by more than 10mm. Check segment proportions.")
+C:\tmp\sv\ig3\srm_1d\openmotor_adapter.py:1555: RuntimeWarning: auto-sized BPNV charge raised from 1.98 g to 3.86 g (4 attempts, factor 1.25) to light the motor. Set the charge explicitly to fix it.
+  result = run_simulation(geo, prop, **args)
+C:\tmp\sv\ig3\srm_1d\openmotor_adapter.py:1555: RuntimeWarning: 8 of 100 grain cells never ignited (cells 3-10, x = 36-107 mm; 92 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+  result = run_simulation(geo, prop, **args)
+C:\tmp\sv\ig3\srm_1d\grain_geometry.py:1138: UserWarning: Integer-snapping altered total motor length by more than 10mm. Check segment proportions.
+  warnings.warn(f"Integer-snapping altered total motor length by more than 10mm. Check segment proportions.")
+C:\tmp\sv\ig3\srm_1d\openmotor_adapter.py:1555: RuntimeWarning: auto-sized BPNV charge raised from 9.58 g to 15 g (3 attempts, factor 1.25) to light the motor. Set the charge explicitly to fix it.
+  result = run_simulation(geo, prop, **args)
+C:\tmp\sv\ig3\srm_1d\openmotor_adapter.py:1555: RuntimeWarning: 8 of 100 grain cells never ignited (cells 3-10, x = 59-176 mm; 92 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+  result = run_simulation(geo, prop, **args)
+[provenance] srm_1d imported from C:\tmp\sv\ig3\srm_1d
+[provenance] git HEAD 130afc2c22e0188cc9ee20aef5153209fee455ca  dirty=False
+[provenance] numpy 2.2.6  numba 0.63.1  python 3.10.5
+[ric-source] motors/machbusterNew.ric: unmodified -> using working-tree copy
+[provenance] machbusterNew.ric sha256 a234a1dcf054dfb337e508360170e504228e9be85dfbd984940ea8326819df0e  (C:\tmp\sv\ig3\motors\machbusterNew.ric)
+[ric-source] motors/BALLSstick.ric: unmodified -> using working-tree copy
+[provenance] BALLSstick.ric sha256 7fd189d62aabcdc5a5a788611d7b2c3cd94b91fbcc3e111f15e89423074cbd73  (C:\tmp\sv\ig3\motors\BALLSstick.ric)
+[ric-source] motors/hasegawa_a.ric: unmodified -> using working-tree copy
+[provenance] hasegawa_a.ric sha256 ccb7fccc972fd6074beff0b0099d1fdd2f731549d4628ea0eccbef97ca69185d  (C:\tmp\sv\ig3\motors\hasegawa_a.ric)
+[ric-source] motors/machbusterNew.ric: unmodified -> using working-tree copy
+
+[chunc] wall 77.7 s, termination='t_max reached'
+  peak     got        9.744849573359163  ref        8.698445703737404  rel 1.203e-01  MISMATCH
+  t_peak   got     0.035353187954651435  ref     0.024529374887138196  rel 4.413e-01  MISMATCH
+  plateau  got         7.99119980103874  ref         8.06619314574538  rel 9.297e-03  MISMATCH
+  n_steps  got                   534236  ref                   533513  rel 1.355e-03  MISMATCH
+[ric-source] motors/BALLSstick.ric: unmodified -> using working-tree copy
+
+[balls] wall 70.9 s, termination='t_max reached'
+  peak     got       5.8149312202096075  ref        7.193312409822636  rel 1.916e-01  MISMATCH
+  trough   got       3.6073917578343226  ref        3.522240937005205  rel 2.418e-02  MISMATCH
+  mid      got         3.97139852072466  ref       3.8878973484404313  rel 2.148e-02  MISMATCH
+  n_steps  got                   852772  ref                   850245  rel 2.972e-03  MISMATCH
+[ric-source] motors/hasegawa_a.ric: unmodified -> using working-tree copy
+
+[haseg] wall 142.9 s, termination='t_max reached'
+  peak     got        5.363255636176837  ref        5.362271099044967  rel 1.836e-04  MISMATCH
+  t_peak   got       2.6881129738957537  ref       2.6818221964560043  rel 2.346e-03  MISMATCH
+  n_steps  got                  2347930  ref                  2347427  rel 2.143e-04  OK
+
+B0 RESULT: FAIL
+[guarded_run] exit=1 timed_out=False wall_s=294.0 peak_job_gb=2.85 mem_cap_gb=4.0 timeout_min=30.0

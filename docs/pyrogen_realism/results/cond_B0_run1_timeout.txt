@@ -1,0 +1,15 @@
+C:\tmp\sv\ig3\srm_1d\grain_geometry.py:1138: UserWarning: Integer-snapping altered total motor length by more than 10mm. Check segment proportions.
+  warnings.warn(f"Integer-snapping altered total motor length by more than 10mm. Check segment proportions.")
+C:\tmp\sv\ig3\srm_1d\openmotor_adapter.py:1555: RuntimeWarning: auto-sized BPNV charge raised from 1.07 g to 2.1 g (4 attempts, factor 1.25) to light the motor. Set the charge explicitly to fix it.
+  result = run_simulation(geo, prop, **args)
+C:\tmp\sv\ig3\srm_1d\openmotor_adapter.py:1555: RuntimeWarning: 1 of 100 grain cells never ignited (cells 3-3, x = 28-28 mm; 99 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+  result = run_simulation(geo, prop, **args)
+C:\tmp\sv\ig3\srm_1d\grain_geometry.py:1138: UserWarning: Integer-snapping altered total motor length by more than 10mm. Check segment proportions.
+  warnings.warn(f"Integer-snapping altered total motor length by more than 10mm. Check segment proportions.")
+C:\tmp\sv\ig3\srm_1d\openmotor_adapter.py:1555: RuntimeWarning: auto-sized BPNV charge raised from 1.98 g to 3.86 g (4 attempts, factor 1.25) to light the motor. Set the charge explicitly to fix it.
+  result = run_simulation(geo, prop, **args)
+C:\tmp\sv\ig3\srm_1d\openmotor_adapter.py:1555: RuntimeWarning: 8 of 100 grain cells never ignited (cells 3-10, x = 36-107 mm; 92 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+  result = run_simulation(geo, prop, **args)
+C:\tmp\sv\ig3\srm_1d\grain_geometry.py:1138: UserWarning: Integer-snapping altered total motor length by more than 10mm. Check segment proportions.
+  warnings.warn(f"Integer-snapping altered total motor length by more than 10mm. Check segment proportions.")
+[guarded_run] exit=124 timed_out=True wall_s=3878.1 peak_job_gb=2.48 mem_cap_gb=4.0 timeout_min=30.0
