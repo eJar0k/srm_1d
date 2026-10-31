@@ -3,6 +3,7 @@ Usage: python docs/pyrogen_realism/probes/gs1_run.py <phase A|B|C> <out.jsonl> <
 Phases (one cold-compile warm-up job should have been run first so the numba cache is warm):
   A  N in {100,200,400}: clean rows (t_max 0.15) + threshold rows (t_max 0.3)
   B  N = 800: clean rows (t_max 0.15) + threshold rows (t_max 0.2)
+  P  profile rows (t_max 0.5 and 0.9 ms) for the contact-front width, clean rows, N in {100,200,400,800}
   C  full burns at N in {100,200} for the threshold charges (plateau / late peak): chunc 1 s, balls 2 s, haseg 10 s
 Job output goes to <out.jsonl>; the guard line (wall_s, peak_job_gb) is appended to <out>.guard.jsonl."""
 import json
@@ -35,12 +36,19 @@ def specs():
             out_.append(dict(tag=f'{nm}_N800', motor=m, g=g, topo=tp, N=800, t_max=0.15, plateau_win=[0.1, 0.15]))
         for nm, m, g, tp in THRESH:
             out_.append(dict(tag=f'{nm}_N800', motor=m, g=g, topo=tp, N=800, t_max=0.2, plateau_win=[0.15, 0.2]))
+    elif phase == 'P':        # final-state profiles at two pre-ignition times (contact-front analysis)
+        for N in (100, 200, 400, 800):
+            for nm, m, g, tp in CLEAN:
+                for tms in (0.5, 0.9):
+                    out_.append(dict(tag=f'{nm}_N{N}_prof{str(tms).replace(".", "p")}', motor=m, g=g, topo=tp, N=N,
+                                     t_max=tms * 1e-3, prof=True, plateau_win=[0.0, tms * 1e-3]))
     elif phase == 'C':
         for N in (100, 200):
             for nm, m, g, tp in THRESH:
                 t = FULL_T[m]
                 out_.append(dict(tag=f'{nm}_N{N}_full', motor=m, g=g, topo=tp, N=N, t_max=t,
-                                 plateau_win=[0.4 * t, 0.9 * t] if m == 'chunc' else [0.5 * t, 0.9 * t]))
+                                 plateau_win=[0.4 * t, 0.9 * t] if m == 'chunc' else [0.5 * t, 0.9 * t],
+                                 snap=0.005 if m == 'haseg' else 2e-4))
     return out_
 
 

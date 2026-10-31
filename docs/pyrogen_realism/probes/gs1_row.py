@@ -53,9 +53,11 @@ def _front_width(x, T, T_amb=293.0):
 
 def run(spec):
     kw = dict(roughness=32e-6, kappa=0.44, T_ignition=756.0, print_interval=0.0, verbose=False,
-              t_max=spec['t_max'], snapshot_interval=SNAP, injection_topology=spec['topo'],
+              t_max=spec['t_max'], snapshot_interval=spec.get('snap', SNAP), injection_topology=spec['topo'],
               target_propellant_cells=int(spec['N']), pyrogen='bpnv', pyrogen_mass=spec['g'] * 1e-3,
               P_cutoff=spec.get('P_cutoff', 0.05e6))
+    if spec.get('prof'):
+        kw['snapshot_interval'] = 1.0e-5      # last snapshot within 10 us of t_end (profiles aligned with Y_species_final)
     kw.update(spec.get('extra', {}))
     t0 = time.time()
     with warnings.catch_warnings(record=True) as w:
@@ -105,6 +107,9 @@ def run(spec):
     m = (t >= pw[0]) & (t <= pw[1])
     out.update(peak_MPa=float(P[k]), t_peak_ms=float(t[k] * 1e3),
                plateau_MPa=float(np.median(P[m])) if m.any() else None)
+    late = t > 0.5
+    out['late_peak_MPa'] = float(P[late].max()) if late.any() else None
+    out['t_late_peak_s'] = float(t[late][int(np.argmax(P[late]))]) if late.any() else None
     if out['plateau_MPa']:
         out['peak_over_plateau'] = out['peak_MPa'] / out['plateau_MPa']
     # contact front: width of the gas-T rise along the bore before the first light
@@ -118,9 +123,18 @@ def run(spec):
             cf.append([float(sn['t'] * 1e3), r[0] * 1e3, r[1] * 1e3, r[2] * 1e3, float(np.asarray(sn['T']).max())])
     out['contact_front'] = cf          # [t_ms, width_mm, x90_mm, x10_mm, Tmax]
     out['warn'] = [str(x.message)[:100] for x in w if issubclass(x.category, RuntimeWarning)][:3]
-    if spec.get('save_ign'):
-        out['ign_ms'] = [float(v * 1e3) if v < 1e8 else None for v in ign]
-        out['x_grain_mm'] = [float(v * 1e3) for v in xg]
+    # per-grain-cell ignition times (for the dark-zone position and front-speed profile)
+    out['ign_ms'] = [round(float(v * 1e3), 4) if v < 1e8 else None for v in ign]
+    out['x_grain_mm'] = [round(float(v * 1e3), 3) for v in xg]
+    # 'prof' rows: the final-state profiles (T, u, P, rho, species) at t = t_max, for the contact-front analysis
+    if spec.get('prof'):
+        sn = snaps[-1]
+        Y = np.asarray(res['Y_species_final'])
+        out['prof'] = dict(t_ms=float(t[-1] * 1e3), x_mm=[round(float(v) * 1e3, 3) for v in x_all],
+                           T=[round(float(v), 2) for v in np.asarray(res['T_final'])] if 'T_final' in res else [round(float(v), 2) for v in sn['T']],
+                           Y=[[round(float(v), 5) for v in row] for row in Y], species=list(res['species_names']),
+                           rho=[round(float(v), 4) for v in np.asarray(res['rho_final'])])
+        out['prof']['snap_t_ms'] = float(sn['t'] * 1e3)
     return out
 
 
