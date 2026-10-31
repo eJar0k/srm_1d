@@ -1,0 +1,18 @@
+chunc off 1.0 0.0
+chunc off 2.0 0.99
+chunc off 1.0 0.0
+chunc off 1.4142 0.0
+chunc off 1.6818 0.0
+chunc off 1.834 0.0
+chunc off 1.9152 0.0
+chunc off 1.9571 0.0
+chunc max 1.0 0.0
+chunc max 2.0 1.0
+chunc max 1.0 0.0
+chunc max 1.4142 1.0
+chunc max 1.1892 0.01
+chunc max 1.2968 0.02
+chunc max 1.3543 0.02
+chunc max 1.3839 1.0
+{'off': {'threshold_g': 2.0, 'bracket': [1.9571441241754002, 2.0]}, 'max': {'threshold_g': 1.383909881963832, 'bracket': [1.3542555469368929, 1.383909881963832]}}
+[guarded_run] exit=0 timed_out=False wall_s=185.3 peak_job_gb=1.12 mem_cap_gb=2.6 timeout_min=40.0

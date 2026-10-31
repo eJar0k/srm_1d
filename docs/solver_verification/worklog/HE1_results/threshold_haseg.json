@@ -1,0 +1,181 @@
+{
+ "result": {
+  "off": {
+   "threshold_g": 21.20378629055586,
+   "bracket": [
+    20.749432874416154,
+    21.20378629055586
+   ]
+  },
+  "max": {
+   "threshold_g": 9.30979887022062,
+   "bracket": [
+    9.110309078053533,
+    9.30979887022062
+   ]
+  }
+ },
+ "rows": [
+  {
+   "motor": "haseg",
+   "jet": "off",
+   "g": 1.0,
+   "frac": 0.0,
+   "never": 100
+  },
+  {
+   "motor": "haseg",
+   "jet": "off",
+   "g": 2.0,
+   "frac": 0.0,
+   "never": 100
+  },
+  {
+   "motor": "haseg",
+   "jet": "off",
+   "g": 4.0,
+   "frac": 0.0,
+   "never": 100
+  },
+  {
+   "motor": "haseg",
+   "jet": "off",
+   "g": 8.0,
+   "frac": 0.0,
+   "never": 100
+  },
+  {
+   "motor": "haseg",
+   "jet": "off",
+   "g": 16.0,
+   "frac": 0.93,
+   "never": 7
+  },
+  {
+   "motor": "haseg",
+   "jet": "off",
+   "g": 32.0,
+   "frac": 1.0,
+   "never": 0
+  },
+  {
+   "motor": "haseg",
+   "jet": "off",
+   "g": 16.0,
+   "frac": 0.93,
+   "never": 7
+  },
+  {
+   "motor": "haseg",
+   "jet": "off",
+   "g": 22.627416997969522,
+   "frac": 0.99,
+   "never": 1
+  },
+  {
+   "motor": "haseg",
+   "jet": "off",
+   "g": 19.027313840043536,
+   "frac": 0.97,
+   "never": 3
+  },
+  {
+   "motor": "haseg",
+   "jet": "off",
+   "g": 20.749432874416154,
+   "frac": 0.98,
+   "never": 2
+  },
+  {
+   "motor": "haseg",
+   "jet": "off",
+   "g": 21.668088750990286,
+   "frac": 0.99,
+   "never": 1
+  },
+  {
+   "motor": "haseg",
+   "jet": "off",
+   "g": 21.20378629055586,
+   "frac": 0.99,
+   "never": 1
+  },
+  {
+   "motor": "haseg",
+   "jet": "max",
+   "g": 1.0,
+   "frac": 0.0,
+   "never": 100
+  },
+  {
+   "motor": "haseg",
+   "jet": "max",
+   "g": 2.0,
+   "frac": 0.0,
+   "never": 100
+  },
+  {
+   "motor": "haseg",
+   "jet": "max",
+   "g": 4.0,
+   "frac": 0.0,
+   "never": 100
+  },
+  {
+   "motor": "haseg",
+   "jet": "max",
+   "g": 8.0,
+   "frac": 0.02,
+   "never": 98
+  },
+  {
+   "motor": "haseg",
+   "jet": "max",
+   "g": 16.0,
+   "frac": 1.0,
+   "never": 0
+  },
+  {
+   "motor": "haseg",
+   "jet": "max",
+   "g": 8.0,
+   "frac": 0.02,
+   "never": 98
+  },
+  {
+   "motor": "haseg",
+   "jet": "max",
+   "g": 11.313708498984761,
+   "frac": 1.0,
+   "never": 0
+  },
+  {
+   "motor": "haseg",
+   "jet": "max",
+   "g": 9.513656920021768,
+   "frac": 1.0,
+   "never": 0
+  },
+  {
+   "motor": "haseg",
+   "jet": "max",
+   "g": 8.724061861322062,
+   "frac": 0.03,
+   "never": 97
+  },
+  {
+   "motor": "haseg",
+   "jet": "max",
+   "g": 9.110309078053533,
+   "frac": 0.03,
+   "never": 97
+  },
+  {
+   "motor": "haseg",
+   "jet": "max",
+   "g": 9.30979887022062,
+   "frac": 1.0,
+   "never": 0
+  }
+ ]
+}

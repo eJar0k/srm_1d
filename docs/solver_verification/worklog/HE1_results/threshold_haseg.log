@@ -1,0 +1,25 @@
+haseg off 1.0 0.0
+haseg off 2.0 0.0
+haseg off 4.0 0.0
+haseg off 8.0 0.0
+haseg off 16.0 0.93
+haseg off 32.0 1.0
+haseg off 16.0 0.93
+haseg off 22.6274 0.99
+haseg off 19.0273 0.97
+haseg off 20.7494 0.98
+haseg off 21.6681 0.99
+haseg off 21.2038 0.99
+haseg max 1.0 0.0
+haseg max 2.0 0.0
+haseg max 4.0 0.0
+haseg max 8.0 0.02
+haseg max 16.0 1.0
+haseg max 8.0 0.02
+haseg max 11.3137 1.0
+haseg max 9.5137 1.0
+haseg max 8.7241 0.03
+haseg max 9.1103 0.03
+haseg max 9.3098 1.0
+{'off': {'threshold_g': 21.20378629055586, 'bracket': [20.749432874416154, 21.20378629055586]}, 'max': {'threshold_g': 9.30979887022062, 'bracket': [9.110309078053533, 9.30979887022062]}}
+[guarded_run] exit=0 timed_out=False wall_s=102.7 peak_job_gb=1.09 mem_cap_gb=2.6 timeout_min=40.0

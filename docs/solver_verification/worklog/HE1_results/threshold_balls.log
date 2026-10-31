@@ -1,0 +1,22 @@
+balls off 1.0 0.0
+balls off 2.0 0.0
+balls off 4.0 0.92
+balls off 8.0 0.98
+balls off 16.0 1.0
+balls off 8.0 0.98
+balls off 11.3137 0.99
+balls off 9.5137 0.99
+balls off 8.7241 0.99
+balls off 8.3542 0.99
+balls off 8.1752 0.98
+balls max 1.0 0.0
+balls max 2.0 0.0
+balls max 4.0 1.0
+balls max 2.0 0.0
+balls max 2.8284 1.0
+balls max 2.3784 0.01
+balls max 2.5937 0.01
+balls max 2.7085 0.02
+balls max 2.7678 0.02
+{'off': {'threshold_g': 8.35419025941931, 'bracket': [8.175177189232933, 8.35419025941931]}, 'max': {'threshold_g': 2.8284271247461903, 'bracket': [2.767819763927664, 2.8284271247461903]}}
+[guarded_run] exit=0 timed_out=False wall_s=369.3 peak_job_gb=1.2 mem_cap_gb=2.6 timeout_min=40.0

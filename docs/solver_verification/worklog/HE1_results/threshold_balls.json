@@ -1,0 +1,160 @@
+{
+ "result": {
+  "off": {
+   "threshold_g": 8.35419025941931,
+   "bracket": [
+    8.175177189232933,
+    8.35419025941931
+   ]
+  },
+  "max": {
+   "threshold_g": 2.8284271247461903,
+   "bracket": [
+    2.767819763927664,
+    2.8284271247461903
+   ]
+  }
+ },
+ "rows": [
+  {
+   "motor": "balls",
+   "jet": "off",
+   "g": 1.0,
+   "frac": 0.0,
+   "never": 100
+  },
+  {
+   "motor": "balls",
+   "jet": "off",
+   "g": 2.0,
+   "frac": 0.0,
+   "never": 100
+  },
+  {
+   "motor": "balls",
+   "jet": "off",
+   "g": 4.0,
+   "frac": 0.92,
+   "never": 8
+  },
+  {
+   "motor": "balls",
+   "jet": "off",
+   "g": 8.0,
+   "frac": 0.98,
+   "never": 2
+  },
+  {
+   "motor": "balls",
+   "jet": "off",
+   "g": 16.0,
+   "frac": 1.0,
+   "never": 0
+  },
+  {
+   "motor": "balls",
+   "jet": "off",
+   "g": 8.0,
+   "frac": 0.98,
+   "never": 2
+  },
+  {
+   "motor": "balls",
+   "jet": "off",
+   "g": 11.313708498984761,
+   "frac": 0.99,
+   "never": 1
+  },
+  {
+   "motor": "balls",
+   "jet": "off",
+   "g": 9.513656920021768,
+   "frac": 0.99,
+   "never": 1
+  },
+  {
+   "motor": "balls",
+   "jet": "off",
+   "g": 8.724061861322062,
+   "frac": 0.99,
+   "never": 1
+  },
+  {
+   "motor": "balls",
+   "jet": "off",
+   "g": 8.35419025941931,
+   "frac": 0.99,
+   "never": 1
+  },
+  {
+   "motor": "balls",
+   "jet": "off",
+   "g": 8.175177189232933,
+   "frac": 0.98,
+   "never": 2
+  },
+  {
+   "motor": "balls",
+   "jet": "max",
+   "g": 1.0,
+   "frac": 0.0,
+   "never": 100
+  },
+  {
+   "motor": "balls",
+   "jet": "max",
+   "g": 2.0,
+   "frac": 0.0,
+   "never": 100
+  },
+  {
+   "motor": "balls",
+   "jet": "max",
+   "g": 4.0,
+   "frac": 1.0,
+   "never": 0
+  },
+  {
+   "motor": "balls",
+   "jet": "max",
+   "g": 2.0,
+   "frac": 0.0,
+   "never": 100
+  },
+  {
+   "motor": "balls",
+   "jet": "max",
+   "g": 2.8284271247461903,
+   "frac": 1.0,
+   "never": 0
+  },
+  {
+   "motor": "balls",
+   "jet": "max",
+   "g": 2.378414230005442,
+   "frac": 0.01,
+   "never": 99
+  },
+  {
+   "motor": "balls",
+   "jet": "max",
+   "g": 2.5936791093020193,
+   "frac": 0.01,
+   "never": 99
+  },
+  {
+   "motor": "balls",
+   "jet": "max",
+   "g": 2.7085110938737857,
+   "frac": 0.02,
+   "never": 98
+  },
+  {
+   "motor": "balls",
+   "jet": "max",
+   "g": 2.767819763927664,
+   "frac": 0.02,
+   "never": 98
+  }
+ ]
+}
