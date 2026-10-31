@@ -1,0 +1,61 @@
+{
+ "motor": "haseg",
+ "case": "total_cons",
+ "mass": "14.976521608656354",
+ "t_max": 10.0,
+ "driver": "recovery",
+ "solid": "goodman",
+ "energy": "total",
+ "momentum": "conservative",
+ "wall_total_s": 69.89982414245605,
+ "wall_time_s": 62.9174268245697,
+ "steps": 2346748,
+ "termination": "t_max reached",
+ "pyrogen_mass_final_g": 14.976521608656354,
+ "ignition_attempts": 1,
+ "pyrogen_mass_auto": false,
+ "pyrogen_mass_initial_g": 14.976521608656354,
+ "warnings": [],
+ "peak": 6.069091542483019,
+ "t_peak": 2.4746146668464837,
+ "late_peak": 6.069091542483019,
+ "t_late_peak": 2.4746146668464837,
+ "fill_mach_max": 4.090451180293074,
+ "mach_max_all": 4.090451180293074,
+ "floor_activations": 0,
+ "min_P_Pa_first_50ms": 64718.02443790323,
+ "ignition": {
+  "n_lit": 100,
+  "n_cells": 106,
+  "t_first_ms": 3.913596667041063,
+  "t90_ms": 5.277050985378665,
+  "first_cell": 13,
+  "grain_cells_never_lit": 0,
+  "grain_never_lit_cell_range": null,
+  "grain_fraction_lit": 1.0,
+  "ignited": true
+ },
+ "first_cell_T": {
+  "T_before_K": [
+   0.0,
+   293.0
+  ],
+  "T_after_K": [
+   10.000115204217236,
+   2841.8554052149193
+  ]
+ },
+ "fill_map": [
+  {
+   "t_ms": 0.0,
+   "M_max": 0.002842902388852963,
+   "x_Mmax_mm": 25.2,
+   "n_supersonic": 0,
+   "supersonic_extent_mm": 0.0,
+   "x_shock_mm": null,
+   "T_max": 293.0,
+   "T_min": 293.0,
+   "P_max_MPa": 0.10158939096956202
+  }
+ ]
+}

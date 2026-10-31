@@ -1,0 +1,66 @@
+{
+ "motor": "haseg",
+ "case": "total_cons",
+ "mass": "14.976521608656354",
+ "t_max": 10.0,
+ "driver": "static",
+ "solid": "conduction",
+ "energy": "total",
+ "momentum": "conservative",
+ "wall_total_s": 91.91840553283691,
+ "wall_time_s": 84.70382761955261,
+ "steps": 2343012,
+ "termination": "t_max reached",
+ "pyrogen_mass_final_g": 14.976521608656354,
+ "ignition_attempts": 1,
+ "pyrogen_mass_auto": false,
+ "pyrogen_mass_initial_g": 14.976521608656354,
+ "warnings": [
+  "7 of 100 grain cells never ignited (cells 3-9, x = 59-160 mm; 93 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off"
+ ],
+ "peak": 5.448648056466203,
+ "t_peak": 2.652251780331294,
+ "late_peak": 5.448648056466203,
+ "t_late_peak": 2.652251780331294,
+ "fill_mach_max": 4.079350963214196,
+ "mach_max_all": 4.079350963214196,
+ "floor_activations": 0,
+ "min_P_Pa_first_50ms": 64404.74771089632,
+ "ignition": {
+  "n_lit": 93,
+  "n_cells": 106,
+  "t_first_ms": 5.9326088038427915,
+  "t90_ms": 10.36415821189259,
+  "first_cell": 11,
+  "grain_cells_never_lit": 7,
+  "grain_never_lit_cell_range": [
+   3,
+   9
+  ],
+  "grain_fraction_lit": 0.93,
+  "ignited": true
+ },
+ "first_cell_T": {
+  "T_before_K": [
+   0.0,
+   293.0
+  ],
+  "T_after_K": [
+   10.002803834982632,
+   2785.5188812574806
+  ]
+ },
+ "fill_map": [
+  {
+   "t_ms": 0.0,
+   "M_max": 0.002842902388852963,
+   "x_Mmax_mm": 25.2,
+   "n_supersonic": 0,
+   "supersonic_extent_mm": 0.0,
+   "x_shock_mm": null,
+   "T_max": 293.0,
+   "T_min": 293.0,
+   "P_max_MPa": 0.10158939096956202
+  }
+ ]
+}

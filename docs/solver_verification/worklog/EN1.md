@@ -8,20 +8,17 @@ Tests: `tests/test_total_energy.py` (19).
 
 ## STATUS / what is NOT done
 
-* **B0 and the full suite are NOT run on the rebased base** (they need the default 5e6-row history, about 3.3 GB per
-  process plus the trim copy, over the 4 GB coexist budget; the coordinator said not to retry them above 4 GB). Evidence
+* **B0 PASSED on the rebased base d592779 (MEM1) and the full suite is pending a single gate after the conduction-default flip** (see the report). Earlier evidence
   that the defaults are untouched: B0 PASSED on `c5f4af9` + EN1 (fresh compile, rel diff <= 1.6e-11, `n_steps` exact;
   Chunc/BALLS/Hasegawa A: 3.9e-15 / 3.2e-15 / 1.6e-11), and the Chunc fixed-charge sensible row on the rebased base
   reproduces the B0 Chunc row to the digit (8.698445703737, 533513 steps). Full suite before/after on `c5f4af9`: baseline
   runs were lost to Windows temp-file/cache races (no usable count); `tests/test_total_energy.py` 19 passed,
   `test_solver` + `test_energy_coupling` + `test_pressure_floor` 34 passed on the rebased base. **HEAVY-COMPUTE REQUEST** is
   in the final report.
-* **Rebased-base motor rows (2026-10-21, pairs, guarded, 4 GB cap):** all 7 BALLSstick rows (auto and fixed charge, 4 forms)
-  were re-run on the rebased base (peak 2.3 GB each) and are IDENTICAL to the pre-rebase rows (same peaks, trough/mid and
-  step counts to the digit). Hasegawa A: the non-igniting `total`, 14.98 g row was re-run and reproduces (0/106 lit); the other
-  Hasegawa A rows hit `MemoryError` at the 4 GB cap (peak 4.0 GB; the run's trimmed history arrays plus the pre-allocated
-  history exceed it even with `history_capacity` 3.3M), so they remain the pre-rebase rows (c5f4af9 + EN1) until MEM1 lands.
-  SM2's changes are diagnostics only and B0's baseline is unchanged between the bases.
+* **Rebased-base motor rows (2026-10-21 / 10-31, guarded):** all BALLSstick rows and ALL Hasegawa A rows (auto and fixed charge,
+  4 forms) were re-run on the rebased base (BALLSstick 2.3 GB peak; Hasegawa A 2.4 GB with the MEM1 history and 10 ms snapshots)
+  and are IDENTICAL to the pre-rebase rows (same peaks, step counts, first light, never-lit counts to the digit). SM2/MEM1 changes
+  are diagnostics/memory only. Every fixed-charge row has `pyrogen_mass_auto = False`.
 * Supersonic-exit isentropic nozzle: not verifiable with the existing nozzle boundary (see section 2.2).
 
 ## 1. Formulation (opt-in kwargs, defaults bit-identical)

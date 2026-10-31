@@ -88,6 +88,25 @@ current default) and `conduction`. `auto` = the IG3 auto-size + upsize fallback 
 
 (The Hasegawa A auto charge is 14.98 g in all four form/solid combinations, identical to the fixed rows.)
 
+### Hasegawa A full length (10 s, fixed charge 14.9765 g; the global peak IS the late progressive peak; exp 6.44 MPa at about 1.1 s)
+
+| solid | form | driver | late peak [MPa] @ s | vs exp | first / t90 [ms] | never lit |
+|---|---|---|---|---|---|---|
+| goodman | sensible | static | 5.362 @ 2.68 | 0.83 | 4.20 / 5.75 | 8 |
+| goodman | sensible | recovery | **6.105 @ 2.40** | 0.95 | 3.87 / 5.49 | 0 |
+| goodman | total_cons | static | 5.010 @ 2.84 | 0.78 | 8.82 / 10.04 | 12 |
+| goodman | total_cons | recovery | **6.069 @ 2.47** | 0.94 | 3.91 / 5.28 | 0 |
+| conduction | sensible | static | 5.363 @ 2.69 | 0.83 | 5.88 / 10.05 | 8 |
+| conduction | sensible | recovery | 5.363 @ 2.69 | 0.83 | 5.42 / 9.32 | 8 |
+| conduction | total_cons | static | 5.449 @ 2.65 | 0.85 | 5.93 / 10.36 | 7 |
+| conduction | total_cons | recovery | 5.359 @ 2.69 | 0.83 | 5.31 / 9.55 | 8 |
+
+Reading: the late peak is set by how much of the head end burns. With the goodman solid the recovery driver lights the whole grain
+(0 cells unlit, vs 8 / 12) and lifts the late peak from 5.36 / 5.01 to 6.1 MPa (0.94-0.95 of experiment; the T11 B0 value before
+IG3 was 6.107). With the conduction solid the same 7-8 head-end cells stay unlit with or without recovery, and the late peak stays 5.36-5.45.
+So under the current default solid model the recovery driver helps Hasegawa A only through the cells it lights; under conduction the dead
+zone is untouched, consistent with the cells sitting just under the ignition threshold.
+
 ## Reading
 
 1. **The recovery driver advances first light by 0.3-1.0 ms in every motor/form/solid combination** (shipped form, goodman: Chunc 4.44 -> 3.47,
@@ -107,10 +126,8 @@ current default) and `conduction`. `auto` = the IG3 auto-size + upsize fallback 
 
 ## Not done / decisions
 
-* **Hasegawa A late peak vs 6.44 MPa** needs the full 10 s run (2.3M steps). That run exceeds the 4 GB cap (MemoryError at 4.0 GB at the trimmed-history stage, even with
-  an explicit `history_capacity`), so it is blocked on MEM1: HEAVY-COMPUTE REQUEST. The 0.3 s rows above are the startup part only.
 * **Nozzle boundary treating the cell T as stagnation T (optional): NOT done.** A clean fix needs the stagnation (P0, T0) of the cell built from (P, T, u) in every
   boundary evaluation (6 call sites in the PISO step plus the implicit `dmdp`, which then depends on u), for about 0.1 % effect (T6: nozzle-inlet KE is 0.1 % of
   the enthalpy at Chunc). Not clean for its size; left as an open item.
-* B0 and the full suite are not run (MEM1). The default path is unchanged by construction (`T_driver = T` when `static`), and the Chunc goodman/static/sensible/fixed
+* The single B0 + full-suite gate is deferred until the conduction-default flip is on the base (B0 passed on the MEM1 base d592779 with RT1 in the tree). The default path is unchanged by construction (`T_driver = T` when `static`), and the Chunc goodman/static/sensible/fixed
   row above reproduces the B0 Chunc row to all digits (8.698445703737 MPa, 533513 steps).

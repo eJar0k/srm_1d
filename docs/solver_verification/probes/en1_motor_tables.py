@@ -155,7 +155,7 @@ def main():
                            P_cutoff=cfg['P_cutoff'], pyrogen_mass=mass,
                            energy_formulation=ef, momentum_formulation=mf,
                            snapshot_interval=a.snap,
-                           history_capacity=(a.hist or int(cfg['hist'] * max(1.0, t_max / cfg['t_max']))),
+                           **({} if a.hist is None else dict(history_capacity=a.hist)),   # default: MEM1 auto-sized history
                            ignition_driver_temperature=a.driver,
                            **({} if a.solid is None else dict(solid_heating_model=a.solid)),
                            target_propellant_cells=a.cells, **CANON)[0]
