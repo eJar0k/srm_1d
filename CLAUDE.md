@@ -376,9 +376,13 @@ you're changing):**
    - The solid model is exact 1-D conduction (`solid_heating_model='conduction'`);
      Goodman's algebraic T_s jumped hundreds of K whenever h changed.
    - History memory is bounded (no 5M-row floor).
-   - Opt-in, on branches: total energy + conservative momentum + recovery
-     driver temperature (`docs/solver_verification/worklog/EN1.md`, `RT1.md`),
-     head-end jet heat transfer (HE1).
+   - Opt-in on main (2026-10-31), defaults unchanged:
+     - `energy_formulation='total'` + `momentum_formulation='conservative'`,
+       the only pair verified against the exact Sod / shock / vessel
+       solutions (`docs/solver_verification/worklog/EN1.md`);
+     - `ignition_driver_temperature='recovery'` (`RT1.md`);
+     - `head_end_jet_h='max'` (Peretz III-28..30 with the igniter-flow Re). It
+       removes every head-end dead zone (`docs/pyrogen_realism/HE1_REPORT.md`).
    - Findings:
      - No ignition-h or pyrogen fix removes the realistic-charge spike.
      - Under conduction, head-end dead zones remain: Hasegawa A late peak
