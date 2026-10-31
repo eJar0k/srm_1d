@@ -557,14 +557,19 @@ def test_energy_momentum_timeseries_preserves_result_ledgers():
 
 
 def test_ambient_initial_gas_ignites_from_pyrogen_surface_heating():
+    # Pinned to the Goodman solid model: the single-heated-cell count asserted below is a property of
+    # Goodman's algebraic surface temperature under the DeMar step (the conduction default
+    # heats three cells in this tiny motor); the test is about the pyrogen surface-heating switch.
     ambient, _geo, prop = _run_small(
         T_ignition=500.0,
         initial_gas_temperature=propellant_initial_temperature(),
+        solid_heating_model='goodman',
     )
     disabled, _geo, _prop = _run_small(
         T_ignition=500.0,
         initial_gas_temperature=propellant_initial_temperature(),
         diagnostic_disable_pyrogen_surface_heating=True,
+        solid_heating_model='goodman',
     )
     ambient_spread = ignition_spread_metrics(ambient)
     disabled_spread = ignition_spread_metrics(disabled)

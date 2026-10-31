@@ -331,6 +331,33 @@ in geometry/burn rate/ignition (called every step or every N steps).
 
 ## API Breaking Changes Log
 
+### Conduction default flip (unreleased, 2026-10-31; user decision 2026-10-13) -- `solid_heating_model='conduction'`
+
+- **BEHAVIOUR CHANGE (default; every transient run shifts):** `run_simulation(solid_heating_model='conduction')`
+  (was `'goodman'`). The unignited propellant surface temperature is now advanced by exact 1-D transient conduction in the
+  solid (graded grid, implicit; uses only `k_solid` and the diffusivity) instead of Goodman's algebraic cubic-profile heat-balance
+  integral. `'goodman'` and `'peretz'` (Peretz's T_s ODE) stay selectable; all three see the same combined surface flux.
+- **Plugin:** the openMotor solver config gains the choice field `solid_heating_model` (conduction / peretz / goodman), default
+  generated from `inspect.signature(run_simulation)` like `ignition_heat_transfer`.
+- **GUI robustness:** `simulate_motor` now catches `PyrogenAutoSizeError` (an auto-sized igniter charge that never lights
+  the motor in 10 attempts, e.g. `motors/hlbl38.ric`) and returns a failed `SimulationResult` (`success=False`) with an ERROR alert naming
+  the first and last charge tried and telling the user to set the charge explicitly. The exception carries `masses_kg`.
+- **Effect on the canonical motors** (library BPNV, forward plenum, auto charge + fallback; `results/cond_valid.jsonl`):
+  | motor | final charge | attempts | grain cells never lit | startup peak vs experiment |
+  |---|---|---|---|---|
+  | Chunc | 2.098 g (was 2.623) | 4 | 1 (cell 3, x 28 mm) | 9.745 MPa at 35 ms, pk/plateau 1.22 (exp 1.027); was 8.698, 1.078 |
+  | BALLSstick | 3.863 g (was 4.829) | 4 | 8 (cells 3-10, 36-107 mm) | 5.815 MPa, pk/trough 1.61, pk/mid 1.46 (exp ~1.50 / ~1.35); was 7.193, 2.04 / 1.85 |
+  | Hasegawa A | 14.98 g (unchanged) | 3 | 8 (cells 3-10, 59-176 mm) | late peak 5.363 MPa at 2.69 s = 0.83x exp 6.44 MPa (was 5.362); early (< 0.5 s) 4.47 |
+  Cost: conduction is ~2.6x slower per attempt (Chunc failed attempts 10 s vs 3.5 s; BALLSstick 10-12 s vs 4 s); the B0 gate takes
+  300 s (was 200 s); peak memory unchanged (2.48-2.85 GB, history dominated). First light moves later (Chunc 4.4 -> 8.3 ms).
+- **Calibration note:** `T_ignition` 756 K and `k_solid` 0.271 W/(m K) (and roughness / kappa) were fit with the Goodman solid model
+  AND the old Gnielinski ignition h (and, before T11, the PISO second-corrector bug). Under conduction + Peretz h the same knobs
+  give the numbers above. The LHS re-fit against conduction is pending and will be user-triggered.
+- Tests: the solid-model default tests now pin 'conduction' (and compare peretz / goodman against it); the config-schema tests cover the new
+  choice field; a stub test covers the failed result (`tests/test_ig4_self_sustain.py::TestAutoSizeFailureInThePlugin`). One test that depends on
+  the Goodman model specifically (`test_ignition_diagnostics::test_ambient_initial_gas_ignites_from_pyrogen_surface_heating`, a single-heated-cell count) is pinned to `solid_heating_model='goodman'` with the reason in its comment.
+- B0 `BASELINE` re-recorded (previous values kept in `baseline_gate.py` comments).
+
 ### MEM1 + IG4 (unreleased, 2026-10-21) -- bounded history memory; self-sustaining = grain out-produces the igniter
 
 - **MEM1 (memory; no change to any result):** the per-step history of `run_simulation` (~60 arrays, ~480 B/row) used

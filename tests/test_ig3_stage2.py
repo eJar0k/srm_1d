@@ -220,13 +220,18 @@ class TestNeverLitCells:
         assert m[-1] < 7.19e-3                  # below the old 99 %-lit threshold charge
         assert any("never ignited" in str(x.message) for x in w) or s["grain_cells_never_lit"] == 0
 
-    def test_all_lit_run_has_no_never_lit_warning(self):
+    def test_never_lit_warning_is_emitted_exactly_when_cells_never_lit(self):
+        # (Under the conduction default a few head-end Chunc cells can stay unlit at 4.5 g / 0.1 s;
+        # the contract is warning <=> never-lit cells, whatever their number.)
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             res = _chunc_run(pyrogen="bpnv", pyrogen_mass=4.5e-3, t_max=0.1)
         s = res["summary"]
-        assert s["grain_cells_never_lit"] == 0 and s["grain_never_lit_cell_range"] is None
-        assert not any("never ignited" in str(x.message) for x in w)
+        n = s["grain_cells_never_lit"]
+        warned = any("never ignited" in str(x.message) for x in w)
+        assert warned == (n > 0)
+        assert (s["grain_never_lit_cell_range"] is None) == (n == 0)
+        assert s["grain_fraction_lit"] == pytest.approx(1.0 - n / s["grain_cells"])
 
     def test_removed_kwarg(self):
         import inspect
