@@ -387,7 +387,14 @@ you're changing):**
      - No ignition-h or pyrogen fix removes the realistic-charge spike.
      - Under conduction, head-end dead zones remain: Hasegawa A late peak
        0.83x. HE1 targets that.
-     - The 100-cell grid is too coarse for the startup (GS1 picks the LHS grid).
+     - The startup's grid dependence is the HEAD GAP, not resolution. The
+       head and aft gas buffers are `MIN_BUFFER_CELLS = 3` cells, so the
+       injector-to-grain gap shrinks with dx (Chunc: 24 mm at N=100, 3 mm at
+       800). With a fixed physical gap the startup is grid-converged at N=100
+       (MU1, branch `mu1/muscl`, `docs/solver_verification/worklog/MU1.md`;
+       supersedes GS1's "not converged"). The startup peak depends strongly
+       on that gap, which needs a physical value. The T8 "grid-converged spike"
+       numbers are contaminated by the same effect.
      - T_ignition/k_solid were fit under Goodman; the LHS re-fit is pending and
        user-triggered.
 2. **Core-loop performance (held).** `fastmath` shipped (+~30%,
