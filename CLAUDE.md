@@ -364,14 +364,28 @@ you're changing):**
    (ρ_p − ρ_g)·r·A. The v0.7.5 knobs were fit WITH the PISO bug — re-fitting
    is a pending user decision; the §10 Ma-vs-MP table predates the fix
    (re-measured in `worklog/T11.md`).
-   **2026-10-12 pyrogen realism (`docs/pyrogen_realism/`, IG1–IG3, OB1):** the
-   ignition h default is now Peretz 1973 (`ignition_heat_transfer='peretz'`,
-   local port area; the Ma/Gnielinski chain was 3–5× high at a cold wall).
-   In progress: drop the DeMar flux (not a measured flux), DeMar M=V·P/W igniter
-   sizing at 300 psi + auto-upsize fallback, MIL-P-46994B Type I-A pellets with
-   exact cylinder burn-back, shrinking-area head basket. Finding: no
-   ignition-h or pyrogen fix removes the realistic-charge spike — the residual
-   is the Ma erosive response + whole-grain ignition cascade.
+   **2026-10-12..31 pyrogen realism + ignition (`docs/pyrogen_realism/`,
+   IG1-IG4, OB1, SM1-SM2, MEM1) CHANGED THE DEFAULTS:**
+   - Ignition h is Peretz 1973 (`ignition_heat_transfer='peretz'`, local port
+     area); the Ma/Gnielinski chain was 3-5x high at a cold wall.
+   - DeMar flux OFF (it is not a measured flux).
+   - Auto igniter charge = DeMar M=V*P/W at 300 psi, plus a x1.25 auto-upsize
+     fallback until the grain's own gas generation exceeds the igniter's peak.
+   - MIL-P-46994B Type I-A pellets with exact cylinder burn-back; the head
+     basket area shrinks as the pellets burn.
+   - The solid model is exact 1-D conduction (`solid_heating_model='conduction'`);
+     Goodman's algebraic T_s jumped hundreds of K whenever h changed.
+   - History memory is bounded (no 5M-row floor).
+   - Opt-in, on branches: total energy + conservative momentum + recovery
+     driver temperature (`docs/solver_verification/worklog/EN1.md`, `RT1.md`),
+     head-end jet heat transfer (HE1).
+   - Findings:
+     - No ignition-h or pyrogen fix removes the realistic-charge spike.
+     - Under conduction, head-end dead zones remain: Hasegawa A late peak
+       0.83x. HE1 targets that.
+     - The 100-cell grid is too coarse for the startup (GS1 picks the LHS grid).
+     - T_ignition/k_solid were fit under Goodman; the LHS re-fit is pending and
+       user-triggered.
 2. **Core-loop performance (held).** `fastmath` shipped (+~30%,
    result-identical). Lever B (IMEX acoustic-CFL escape) and `A2` bisection
    warm-start are no longer the only candidates — the user has other new
