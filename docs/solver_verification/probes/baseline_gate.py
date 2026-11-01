@@ -61,7 +61,23 @@ _spec = importlib.util.spec_from_file_location(
 _probe = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_probe)
 
-# RE-RECORDED 2026-10-21 by the conduction default flip (user decision 2026-10-13):
+# RE-RECORDED 2026-10-31 by D1 (user decision "keep total energy opt-in, build the next piece",
+# then "approved as DEFAULTS"): run_simulation now defaults to energy_formulation='total',
+# momentum_formulation='conservative', ignition_driver_temperature='recovery',
+# head_end_jet_h='max' (docs/solver_verification/worklog/{EN1,RT1}.md,
+# docs/pyrogen_realism/HE1_REPORT.md). The jet lights the head-end dead zones, so the IG3 auto-size
+# fallback now stops at smaller charges (Chunc 2.10 -> 1.34 g, BALLSstick 3.86 -> 3.09 g,
+# Hasegawa A 14.98 -> 9.58 g); Chunc's peak is a late progressive hump (t_peak 0.488 s, t90 455 ms).
+# Recorded from a fresh-compile run (reproduced by a warm run). The conduction-default values
+# (the previous BASELINE; reproduce them with energy_formulation='sensible',
+# momentum_formulation='legacy', ignition_driver_temperature='static', head_end_jet_h=False) were:
+#   chunc: peak 9.744849573359163, t_peak 0.035353187954651435,
+#          plateau 7.99119980103874, n_steps 534236
+#   balls: peak 5.8149312202096075, trough 3.6073917578343226,
+#          mid 3.97139852072466, n_steps 852772
+#   haseg: peak 5.363255636176837, t_peak 2.6881129738957537, n_steps 2347930
+#
+# (earlier) RE-RECORDED 2026-10-21 by the conduction default flip (user decision 2026-10-13):
 # run_simulation(solid_heating_model='conduction') is the default (was 'goodman'): the
 # unignited surface is advanced by exact 1-D transient conduction instead of Goodman's
 # algebraic cubic-profile integral (T_ignition / k_solid were fit with Goodman). Ignition is
@@ -165,12 +181,12 @@ _spec.loader.exec_module(_probe)
 #          mid 4.913378178011638, n_steps 842922
 #   haseg: peak 6.143912554793205, t_peak 2.3816074267208034, n_steps 2335770
 BASELINE = {
-    'chunc': dict(peak=9.744849573359163, t_peak=0.035353187954651435,
-                  plateau=7.99119980103874, n_steps=534236),
-    'balls': dict(peak=5.8149312202096075, trough=3.6073917578343226,
-                  mid=3.97139852072466, n_steps=852772),
-    'haseg': dict(peak=5.363255636176837, t_peak=2.6881129738957537,
-                  n_steps=2347930),
+    'chunc': dict(peak=9.95509537258403, t_peak=0.48826256590025513,
+                  plateau=8.108865458753694, n_steps=541753),
+    'balls': dict(peak=7.56231250893722, trough=4.3417299619930585,
+                  mid=4.8594671206858635, n_steps=844549),
+    'haseg': dict(peak=6.10855599581484, t_peak=2.6393309440372743,
+                  n_steps=2343883),
 }
 RIC_FILE = {'chunc': 'machbusterNew.ric', 'balls': 'BALLSstick.ric',
             'haseg': 'hasegawa_a.ric'}

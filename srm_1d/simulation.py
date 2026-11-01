@@ -3152,21 +3152,20 @@ def _run_simulation_once(
     # transient pressure increment was applied ~twice). False = pre-T11 step.
     piso_corr2_storage=True,
     # EN1 (opt-in; defaults reproduce the shipped step bit-for-bit):
-    # ``energy_formulation`` 'sensible' (transport Cp*T; shipped) | 'total'
-    # (conservative total energy m(Cv T + KE), pressure work + kinetic energy
-    # carried; docs/solver_verification/worklog/EN1.md). ``momentum_formulation``
-    # 'legacy' (shipped predictor rho u_t = -(rho u u)_x - P_x) | 'conservative'
-    # ((rho u)_t + (rho u u)_x = -P_x with the face density predicted from the
-    # old-state continuity); needed for captured shocks to satisfy the
-    # Rankine-Hugoniot jump conditions.
-    energy_formulation='sensible',
-    momentum_formulation='legacy',
-    # RT1 (opt-in): ignition driver temperature 'static' (default, shipped) |
-    # 'recovery' (adiabatic-wall T_aw = T + r u^2/(2 Cp), see _driver_temperature).
-    ignition_driver_temperature='static',
-    # HE1 (opt-in): head-end igniter-jet heat transfer (forward_plenum only, while the igniter
-    # flows, x/D <= 10): False (default) | True / 'max' = max(h_bore, h_jet) | 'replace'.
-    head_end_jet_h=False,
+    # ``energy_formulation`` 'total' (DEFAULT since D1, 2026-10-31: conservative total energy
+    # m(Cv T + KE), pressure work + kinetic energy carried; docs/solver_verification/worklog/EN1.md)
+    # | 'sensible' (the pre-D1 step: transport Cp*T). ``momentum_formulation`` 'conservative'
+    # (DEFAULT since D1: (rho u)_t + (rho u u)_x = -P_x with the face density predicted from the
+    # old-state continuity; needed for captured shocks to satisfy Rankine-Hugoniot) | 'legacy'
+    # (the pre-D1 predictor rho u_t = -(rho u u)_x - P_x).
+    energy_formulation='total',
+    momentum_formulation='conservative',
+    # RT1 (DEFAULT 'recovery' since D1): ignition driver temperature, the adiabatic-wall
+    # T_aw = T + r u^2/(2 Cp) (see _driver_temperature) | 'static' (the pre-D1 driver, static T).
+    ignition_driver_temperature='recovery',
+    # HE1 (DEFAULT 'max' since D1): head-end igniter-jet heat transfer (forward_plenum only, while
+    # the igniter flows, x/D <= 10): 'max' = max(h_bore, h_jet) | 'replace' | 'off' / False.
+    head_end_jet_h='max',
     burn_update_interval=None,
     geometry_update_interval=None,
     # --- Ignition ---
@@ -3329,34 +3328,33 @@ def _run_simulation_once(
         historical constant, bit-identical). Overriding it is a
         limiter-sensitivity diagnostic and changes the run's physics. Must
         be finite and positive.
-    energy_formulation : {'sensible', 'total'}
-        EN1. ``'sensible'`` (default, the shipped step) transports ``Cp*T``;
-        ``'total'`` stores and transports the conserved total energy
+    energy_formulation : {'total', 'sensible'}
+        EN1. ``'total'`` (DEFAULT since D1) stores and transports the conserved total energy
         ``m (Cv T + KE)`` (pressure work and kinetic energy carried; T is
-        recovered as ``Cv T = E/m - KE``). Opt-in. With ``'total'`` the
+        recovered as ``Cv T = E/m - KE``). ``'sensible'`` is the pre-D1 step (transports ``Cp*T``). With ``'total'`` the
         ``gas_sensible_*`` / ``energy_residual`` / jump channels hold TOTAL
         energy. See docs/solver_verification/worklog/EN1.md.
-    momentum_formulation : {'legacy', 'conservative'}
-        EN1. ``'legacy'`` (default) is the shipped predictor
-        ``rho u_t = -(rho u u)_x - P_x`` (exact for steady flow; not the
-        conservative momentum law in a transient). ``'conservative'`` solves
+    momentum_formulation : {'conservative', 'legacy'}
+        EN1. ``'conservative'`` (DEFAULT since D1) solves
         ``(rho u)_t + (rho u u)_x = -P_x`` with the face density predicted
-        from the old-state continuity. Opt-in; steady flow is unchanged.
-    ignition_driver_temperature : {'static', 'recovery'}
+        from the old-state continuity. ``'legacy'`` is the pre-D1 predictor
+        ``rho u_t = -(rho u u)_x - P_x`` (exact for steady flow; not the
+        conservative momentum law in a transient).
+    ignition_driver_temperature : {'recovery', 'static'}
         RT1. Gas temperature that drives the convective ignition heating
         ``q = h (T_driver - T_s)`` and its matching wall-loss sink. ``'static'``
-        (default) = the cell's static T. ``'recovery'`` = the adiabatic-wall
+        (the pre-D1 driver) = the cell's static T. ``'recovery'`` (DEFAULT since D1) = the adiabatic-wall
         temperature ``T + r u^2/(2 Cp)``, ``r = Pr^(1/3)`` (turbulent, bulk
         Re > 2300) or ``Pr^(1/2)`` (laminar); Pr is the active ignition
         closure's. Only the ignition heating changes (h itself is still
         evaluated at the static/film state). ``ignition_diag`` columns 10-13
         hold the driver T, r, Re and the turbulent flag at each cell's ignition.
     head_end_jet_h : bool or {'off', 'max', 'replace'}
-        HE1. Opt-in igniter-jet head-end heat transfer for the ``forward_plenum``
+        HE1 (DEFAULT ``'max'`` since D1). Igniter-jet head-end heat transfer for the ``forward_plenum``
         topology: while the igniter flows, unlit grain cells within x/D <= 10 of the
         igniter exit get the Cohen-Derr-Price / Peretz Eqs. III-28..30 coefficient with
         ``Re_d = 4 mdot_igniter / (pi D mu)``. ``True``/``'max'``: ``h = max(h_bore, h_jet)``;
-        ``'replace'``: ``h = h_jet`` there. No effect on the head baskets. ``ignition_diag``
+        ``'replace'``: ``h = h_jet`` there; ``False``/``'off'``: the pre-D1 behaviour. No effect on the head baskets. ``ignition_diag``
         column 14 holds the jet h used at each cell's ignition.
     history_capacity : int or None
         Number of preallocated per-step history rows. ``None`` (default)
@@ -4344,13 +4342,18 @@ def _run_simulation_once(
         # tools/ignition_diagnostics.sensible_enthalpy_audit for the ledger
         # closure, the between-step storage-jump decomposition and the size
         # of the omitted terms.
-        'energy_convention': 'sensible_enthalpy_CpT',
-        'energy_omitted_terms': [
-            'kinetic_energy', 'pressure_work',
-            'formation_energy_implicit_via_T_flame',
-            'solid_energy_storage',
-            'nozzle_kinetic_energy_static_outflow',
-        ],
+        'energy_convention': (
+            'total_energy_CvT_plus_KE' if energy_formulation == 'total'
+            else 'sensible_enthalpy_CpT'),
+        'energy_omitted_terms': (
+            ['formation_energy_implicit_via_T_flame', 'solid_energy_storage',
+             'nozzle_stagnation_vs_static_T']            # EN1 total form: KE and pressure work carried
+            if energy_formulation == 'total' else [
+                'kinetic_energy', 'pressure_work',
+                'formation_energy_implicit_via_T_flame',
+                'solid_energy_storage',
+                'nozzle_kinetic_energy_static_outflow',
+            ]),
     }
 
     # Per-grain summary from snapshots

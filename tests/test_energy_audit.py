@@ -65,7 +65,15 @@ def chunc_short():
     return run_from_ric(
         "motors/machbusterNew.ric", roughness=32e-6, kappa=0.44,
         pyrogen="bpnv", pyrogen_mass=None, T_ignition=756.0, t_max=0.05,
-        print_interval=0.0, verbose=False, snapshot_interval=5e-4)[0]
+        print_interval=0.0, verbose=False, snapshot_interval=5e-4,
+        # D1 (2026-10-31): pinned to the pre-D1 sensible-enthalpy step. These tests pin the
+        # Cp*T convention (energy_convention 'sensible_enthalpy_CpT') and the T10 identity
+        # 'regression fill debit cancels the geometry jump', whose debit is an ENTHALPY sink; under
+        # the total-energy default the geometry jump is internal+kinetic energy, so the two differ
+        # by the p dV work of the opened volume (about 15 % of the debit in this short run, ~0.1 %
+        # of the source power; see DEVNOTES D1). The total-energy ledger is pinned in test_total_energy.
+        energy_formulation='sensible', momentum_formulation='legacy',
+        ignition_driver_temperature='static', head_end_jet_h='off')[0]
 
 
 class TestRunLedgers:

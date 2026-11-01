@@ -38,6 +38,17 @@ IGN_H_KEY = 'ignition_heat_transfer'   # choice field; default read from run_sim
 # pinned by tests/test_solver_config_upgrade.py). Default first = the GUI default.
 _IGNITION_H_CHOICES = ('peretz', 'gnielinski', 'keller')
 SOLID_KEY = 'solid_heating_model'      # choice field; default read from run_simulation
+# D1 (2026-10-31): EN1/RT1/HE1 options, choice fields whose defaults are read from
+# run_simulation ('total' / 'conservative' / 'recovery' / 'max'); each tuple's first entry is
+# the current default and the rest are the alternatives (the pre-D1 behaviour included).
+ENERGY_KEY = 'energy_formulation'
+MOMENTUM_KEY = 'momentum_formulation'
+DRIVER_KEY = 'ignition_driver_temperature'
+JET_KEY = 'head_end_jet_h'
+_ENERGY_CHOICES = ('total', 'sensible')
+_MOMENTUM_CHOICES = ('conservative', 'legacy')
+_DRIVER_CHOICES = ('recovery', 'static')
+_JET_CHOICES = ('max', 'replace', 'off')
 # srm_1d.simulation._SOLID_MODES (pinned by tests/test_solver_config_upgrade.py); default first.
 _SOLID_HEATING_CHOICES = ('conduction', 'peretz', 'goodman')
 
@@ -92,6 +103,13 @@ def _transient_config_schema():
     # (conduction = exact 1-D transient conduction, the default since 2026-10-13).
     schema.props[SOLID_KEY] = EnumProperty(
         'Solid Heating Model', list(_SOLID_HEATING_CHOICES))
+    # D1: total-energy PISO step, conservative momentum predictor, recovery-temperature ignition
+    # driver and head-end igniter-jet heat transfer (docs/solver_verification/worklog/{EN1,RT1}.md,
+    # docs/pyrogen_realism/HE1_REPORT.md). Each alternative reproduces the pre-D1 behaviour.
+    schema.props[ENERGY_KEY] = EnumProperty('Energy Equation', list(_ENERGY_CHOICES))
+    schema.props[MOMENTUM_KEY] = EnumProperty('Momentum Predictor', list(_MOMENTUM_CHOICES))
+    schema.props[DRIVER_KEY] = EnumProperty('Ignition Driver Temperature', list(_DRIVER_CHOICES))
+    schema.props[JET_KEY] = EnumProperty('Head-End Igniter-Jet Heat Transfer', list(_JET_CHOICES))
     # Seed defaults: DERIVED from run_simulation's signature (so they cannot
     # drift from the solver again -- they once did, 50 um / 0.45 / 850 K were
     # the pre-v0.7.5 values), roughness converted m -> um at this boundary.
@@ -125,6 +143,9 @@ def _solver_config_defaults():
     out[ROUGHNESS_KEY] = round(out[ROUGHNESS_KEY] * 1.0e6, 9)   # m -> um
     out[IGN_H_KEY] = str(params[IGN_H_KEY].default)             # IG3 choice field
     out[SOLID_KEY] = str(params[SOLID_KEY].default)             # choice field
+    for key in (ENERGY_KEY, MOMENTUM_KEY, DRIVER_KEY, JET_KEY):  # D1 choice fields
+        d = params[key].default
+        out[key] = 'off' if d is False else str(d)
     return out
 
 

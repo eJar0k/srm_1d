@@ -183,8 +183,11 @@ class TestNeverLitCells:
         # BALLSstick at 4.83 g (explicit): the 10 head-end cells (cells 3-12) never light
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
+            # D1 (2026-10-31): the head-end igniter-jet h is now the default and lights this
+            # whole head-end block, so the never-lit machinery is exercised with it OFF.
             res = oma.run_from_ric(self.BALLS, pyrogen="bpnv", pyrogen_mass=4.829e-3,
-                                   t_max=0.05, print_interval=0.0, verbose=False)[0]
+                                   t_max=0.05, print_interval=0.0, verbose=False,
+                                   head_end_jet_h='off')[0]
         return res, w
 
     def test_partly_lit_grain_is_still_a_success_and_warns(self):

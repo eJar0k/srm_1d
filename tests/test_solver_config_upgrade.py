@@ -37,7 +37,9 @@ def test_schema_defaults_equal_run_simulation_defaults(solver):
     got = schema.getProperties()
     assert set(got) == {'t_max', 'P_cutoff', 'cfl_target', 'roughness',
                         'kappa', 'T_ignition', 'ignition_heat_transfer',
-                        'solid_heating_model'}
+                        'solid_heating_model', 'energy_formulation',
+                        'momentum_formulation', 'ignition_driver_temperature',
+                        'head_end_jet_h'}
     # IG3: the ignition-h closure is a choice field whose default is read from
     # run_simulation and whose choices are exactly srm_1d's validated modes.
     from srm_1d import simulation as _sim
@@ -46,8 +48,22 @@ def test_schema_defaults_equal_run_simulation_defaults(solver):
     # the solid-heating model is a choice field generated the same way (default 'conduction')
     assert got['solid_heating_model'] == params['solid_heating_model'].default == 'conduction'
     assert set(schema.props['solid_heating_model'].values) == set(_sim._SOLID_MODES)
+    # D1 (2026-10-31): the EN1/RT1/HE1 options are choice fields whose defaults come from
+    # run_simulation ('total' / 'conservative' / 'recovery' / 'max') and whose choices are
+    # exactly srm_1d's validated modes (the head-end jet's 'off' stands for False).
+    assert got['energy_formulation'] == params['energy_formulation'].default == 'total'
+    assert set(schema.props['energy_formulation'].values) == {'total', 'sensible'}
+    assert got['momentum_formulation'] == params['momentum_formulation'].default == 'conservative'
+    assert set(schema.props['momentum_formulation'].values) == {'conservative', 'legacy'}
+    assert got['ignition_driver_temperature'] == params['ignition_driver_temperature'].default == 'recovery'
+    assert set(schema.props['ignition_driver_temperature'].values) == set(_sim._IGN_DRIVER_MODES)
+    assert got['head_end_jet_h'] == params['head_end_jet_h'].default == 'max'
+    assert set(schema.props['head_end_jet_h'].values) == {'max', 'replace', 'off'}
+    for v in schema.props['head_end_jet_h'].values:
+        assert _sim._head_end_jet_code(v) in (0, 1, 2)
     for key, value in got.items():
-        if key in ('ignition_heat_transfer', 'solid_heating_model'):
+        if key in ('ignition_heat_transfer', 'solid_heating_model', 'energy_formulation',
+                   'momentum_formulation', 'ignition_driver_temperature', 'head_end_jet_h'):
             continue
         want = params[key].default
         if key == 'roughness':

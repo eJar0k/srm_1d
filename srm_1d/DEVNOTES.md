@@ -557,6 +557,29 @@ in geometry/burn rate/ignition (called every step or every N steps).
   (not 7 MPa), SI `a = 2.08e-5` for `n = 0.589` (not 3.50e-5).
 - Report: `docs/pyrogen_realism/OB1_REPORT.md`. Tests: `tests/test_ob1_pyrogen_bed.py` (28).
 
+### D1 (2026-10-31) -- EN1 / RT1 / HE1 are the DEFAULTS
+
+- **BEHAVIOUR CHANGE (all transient results shift; B0 re-recorded):** `run_simulation` / `run_from_ric` / the plugin now default to
+  `energy_formulation='total'`, `momentum_formulation='conservative'`, `ignition_driver_temperature='recovery'`,
+  `head_end_jet_h='max'` (user decision 2026-10-31). The previous behaviour is reachable with `'sensible'`, `'legacy'`, `'static'`, `False`/`'off'`.
+- Kernel-level defaults are UNCHANGED (`_piso_step_with_energy_diagnostics` / `piso_step` keep `total_energy=False`,
+  `conservative_momentum=False`): they are internal and the solver unit tests pin the sensible step; `_run_time_loop` takes the flags explicitly.
+- Plugin: four new choice fields (`energy_formulation`, `momentum_formulation`, `ignition_driver_temperature`, `head_end_jet_h`; default first,
+  read from `run_simulation`'s signature; the jet field's `'off'` is `False`). No `SUPERSEDED_SOLVER_CONFIG` entry: these keys did not exist
+  in saved configs, so a saved config simply gets the new defaults for them.
+- Summary: `energy_convention` is `'total_energy_CvT_plus_KE'` (was always `'sensible_enthalpy_CpT'`) and `energy_omitted_terms` drops
+  kinetic energy and pressure work when the total form is on.
+- B0 (conduction values kept in `probes/baseline_gate.py`): Chunc peak 9.745 -> 9.955 MPa (t_peak 35 ms -> 488 ms, a late progressive hump), plateau 7.991 -> 8.109,
+  BALLSstick 5.815/3.607/3.971 -> 7.562/4.342/4.859, Hasegawa A 5.363 @ 2.688 s -> 6.109 @ 2.639 s. Auto charges 2.10/3.86/14.98 g -> 1.34/3.09/9.58 g.
+  Full table: `docs/solver_verification/worklog/D1.md`.
+- Tests pinned to the pre-D1 step (reason in each): `tests/test_energy_audit.py` fixture (Cp*T convention; the T10 fill-debit identity is an
+  ENTHALPY sink vs a total-energy geometry jump: they differ by the p dV work of the opened volume, about 15 % of the debit in the 50 ms run, ~0.1 % of the
+  source power; open item, not changed), `tests/test_ig3_stage2.py::TestNeverLitCells` (`head_end_jet_h='off'`: the jet lights the head-end block that test needs unlit).
+  New: `tests/test_d1_defaults.py`; `tests/test_solver_config_upgrade.py` pins the four choice fields.
+- **CALIBRATION NOTE:** `T_ignition` 756 K, `k_solid` 0.271, `roughness` 32 um and `kappa` 0.44 were fit under the pre-D1 step (sensible energy, legacy momentum,
+  static ignition driver, no head-end jet; and before that with the dead zones in place). The LHS re-fit under the new defaults is PENDING and user-triggered.
+  Until then the startup ratios are not tuned for the new physics: Chunc 1.23 (exp 1.027), BALLSstick peak/trough 1.74 and peak/mid 1.56 (exp ~1.50 / ~1.35), Hasegawa A late peak 0.95x of 6.44 MPa.
+
 ### Solver verification RT1 (unreleased, 2026-10-21) -- opt-in ignition driver temperature (adiabatic-wall recovery T)
 
 No change to defaults. New `run_simulation` / `run_from_ric` kwarg `ignition_driver_temperature='static'|'recovery'`
