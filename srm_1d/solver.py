@@ -409,6 +409,7 @@ def _piso_step_with_energy_diagnostics(
     corr2_storage=True,
     total_energy=False,
     conservative_momentum=False,
+    vol_extra=None,
 ):
     """
     One complete PISO time step on a staggered grid.
@@ -610,6 +611,19 @@ def _piso_step_with_energy_diagnostics(
         A_face[j] = 0.5 * (A_port[j - 1] + A_port[j])
     A_face[N] = A_port[N - 1]
 
+    # G1: gas STORAGE area.  A cell's gas volume is A_vol[i] * dx, where
+    # A_vol = A_port + vol_extra / dx lumps a head gap (cell 0) or the
+    # unresolved nozzle convergent (last cell) into the cell's storage.
+    # Flow areas (A_face, the mass flux at cell centres) stay A_port.  With
+    # vol_extra = None / zeros A_vol == A_port bit for bit.
+    A_vol = np.empty(N)
+    if vol_extra is not None:
+        for i in range(N):
+            A_vol[i] = A_port[i] + vol_extra[i] / dx
+    else:
+        for i in range(N):
+            A_vol[i] = A_port[i]
+
     # -------------------------------------------------------
     # STEP 1: MOMENTUM PREDICTOR (at faces j = 1 .. N-1)
     # -------------------------------------------------------
@@ -635,8 +649,8 @@ def _piso_step_with_energy_diagnostics(
         )
         for i in range(N):
             rho_pred[i] = rho[i] + dt * (
-                mass_source[i] / A_port[i]
-                - (mdot_old[i + 1] - mdot_old[i]) / (A_port[i] * dx)
+                mass_source[i] / A_vol[i]
+                - (mdot_old[i + 1] - mdot_old[i]) / (A_vol[i] * dx)
             )
 
     for j in range(1, N):
@@ -745,7 +759,7 @@ def _piso_step_with_energy_diagnostics(
 
         for i in range(N):
             RT_local = R_arr[i] * T_comp[i]
-            a_t = A_port[i] * dx / (RT_local * dt)  # Transient density term
+            a_t = A_vol[i] * dx / (RT_local * dt)  # Transient density term
 
             # West face coefficient (face i)
             if i > 0:
@@ -790,7 +804,7 @@ def _piso_step_with_energy_diagnostics(
                 # P5: thermal storage of the re-evaluated compressibility,
                 #   -(A dx/dt) P^n/R (1/T_comp - 1/T^n)   (0 when T_comp = T^n)
                 b_rhs[i] -= (
-                    A_port[i] * dx / dt * P[i] / R_arr[i]
+                    A_vol[i] * dx / dt * P[i] / R_arr[i]
                     * (1.0 / T_comp[i] - 1.0 / T[i])
                 )
 
@@ -821,7 +835,7 @@ def _piso_step_with_energy_diagnostics(
 
         for i in range(N):
             RT_local = R_arr[i] * T_comp[i]
-            a_t = A_port[i] * dx / (RT_local * dt)
+            a_t = A_vol[i] * dx / (RT_local * dt)
 
             if i > 0:
                 coeff_w = A_face[i] * A_face[i] * d_face[i] / dx
@@ -862,7 +876,7 @@ def _piso_step_with_energy_diagnostics(
                 # omits.  Residual of the full continuity at the intermediate
                 # state: -(A dx/dt) (P_after1/(R T_comp) - P^n/(R T^n)).
                 b_rhs[i] -= (
-                    A_port[i] * dx / dt / R_arr[i]
+                    A_vol[i] * dx / dt / R_arr[i]
                     * (P_after1[i] / T_comp[i] - P[i] / T[i])
                 )
 
@@ -937,7 +951,7 @@ def _piso_step_with_energy_diagnostics(
             (gas_energy_before, gas_energy_after, convective_scalar_flux_power,
              nozzle_scalar_flux_power, thermal_source_power,
              clipping_correction_power) = _total_energy_update(
-                rho, u, T, A_port, A_face, Cp_arr, R_arr, T_ceiling_arr,
+                rho, u, T, A_vol, A_face, Cp_arr, R_arr, T_ceiling_arr,
                 rho_new_1, u_new, P_new, thermal_source, A_throat,
                 gamma_bnd, R_bnd, P_ambient, T_ambient, dx, dt, N,
                 T_new, T_raw_arr,
@@ -952,8 +966,8 @@ def _piso_step_with_energy_diagnostics(
             T_new = np.zeros(N)
             for i in range(N):
                 Cp_i = Cp_arr[i]
-                old_mass = rho[i] * A_port[i] * dx
-                new_mass = max(rho_new_1[i] * A_port[i] * dx, 1e-16)
+                old_mass = rho[i] * A_vol[i] * dx
+                new_mass = max(rho_new_1[i] * A_vol[i] * dx, 1e-16)
                 h_old = Cp_i * T[i]
                 gas_energy_before += old_mass * h_old
 
@@ -1053,7 +1067,7 @@ def _piso_step_with_energy_diagnostics(
                 T_c = T_ceiling_arr[i]
                 limit_index = LIMIT_TEMPERATURE_CEILING
             if limit_index >= 0:
-                new_mass_t = max(rho_new_1[i] * A_port[i] * dx, 1e-16)
+                new_mass_t = max(rho_new_1[i] * A_vol[i] * dx, 1e-16)
                 power_t = (T_c - T_raw_i) * new_mass_t * Cp_arr[i] / dt
                 limit_activation_counts[limit_index, i] += 1
                 limit_duration_s[limit_index, i] += dt
@@ -1092,9 +1106,9 @@ def _piso_step_with_energy_diagnostics(
     eos_energy_jump = 0.0
     eos_mass_jump_p2 = 0.0
     for i in range(N):
-        old_mass_acct = rho[i] * A_port[i] * dx
-        new_mass_acct = max(rho_new_1[i] * A_port[i] * dx, 1e-16)
-        m_eos_acct = P_new[i] / (R_arr[i] * T_new[i]) * A_port[i] * dx
+        old_mass_acct = rho[i] * A_vol[i] * dx
+        new_mass_acct = max(rho_new_1[i] * A_vol[i] * dx, 1e-16)
+        m_eos_acct = P_new[i] / (R_arr[i] * T_new[i]) * A_vol[i] * dx
         gas_mass_before += old_mass_acct
         gas_mass_after += new_mass_acct
         eos_mass_jump += m_eos_acct - new_mass_acct
@@ -1108,7 +1122,7 @@ def _piso_step_with_energy_diagnostics(
         # P5 diagnostic: the part of the EOS jump carried by the second
         # pressure correction alone (P'2 is applied after rho_new_1 is built).
         eos_mass_jump_p2 += (
-            (P_new[i] - P_after1[i]) / (R_arr[i] * T_new[i]) * A_port[i] * dx
+            (P_new[i] - P_after1[i]) / (R_arr[i] * T_new[i]) * A_vol[i] * dx
         )
     # The nozzle mass flow the energy loop used (identical call/arguments to
     # the i == N-1 branch there: pre-clamp P_new, start-of-step T).
@@ -1126,7 +1140,7 @@ def _piso_step_with_energy_diagnostics(
             n_floor_cells += 1
             m_floor_i = (
                 (pressure_floor - P_new[i]) / (R_arr[i] * T_new[i])
-                * A_port[i] * dx
+                * A_vol[i] * dx
             )
             floor_mass_added += m_floor_i
             if total_energy:
@@ -1188,6 +1202,7 @@ def piso_step(
     corr2_storage=True,
     total_energy=False,
     conservative_momentum=False,
+    vol_extra=None,
 ):
     """Public PISO step returning only the updated flow state.
 
@@ -1215,6 +1230,7 @@ def piso_step(
         corr2_storage=corr2_storage,
         total_energy=total_energy,
         conservative_momentum=conservative_momentum,
+        vol_extra=vol_extra,
     )
     return out[0], out[1], out[2], out[3]
 

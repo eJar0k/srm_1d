@@ -536,8 +536,10 @@ def build_pyrogen_chamber(
         basket_area_law=basket_area_law,
         bed_flame_speed_m_s=bed_flame_speed_m_s)
     if pyrogen_mass is None:
-        case_volume = np.pi / 4.0 * geo.D_outer ** 2 * geo.L_motor
-        free_volume_m3 = max(case_volume - geo.total_propellant_volume(), 0.0)
+        # G1: the free volume is the geometry's own gas volume (cells' port
+        # volumes + the lumped head gap and nozzle convergent); the former
+        # case-cylinder-minus-propellant counted the full-diameter buffers.
+        free_volume_m3 = max(geo.initial_gas_volume(), 0.0)
         free_volume_in3 = free_volume_m3 / (0.0254 ** 3)
         # IG3: DeMar sizing at 300 psi (was Sutton Eq. 15-4; that function
         # stays available as ``sutton_pyrogen_mass``).
@@ -1134,7 +1136,8 @@ def convert_propellant(ric_propellant, gas_props=None):
 
 
 def convert_geometry(ric_grains, target_propellant_cells=100,
-                     fmm_map_dim=1001):
+                     fmm_map_dim=1001, nozzle=None, aft_end='cone',
+                     head_gap=None):
     """
     Convert openMotor grain list to srm_1d MotorGeometry.
     The throat lives on a separate Nozzle object — see convert_nozzle().
@@ -1161,6 +1164,17 @@ def convert_geometry(ric_grains, target_propellant_cells=100,
         default is 1001. Higher = more accurate perimeter/port-area
         sampling but quadratically slower setup (skfmm.distance is
         O(mapDim²)). Sim-level config knob.
+    nozzle : Nozzle or None
+        G1: the converted nozzle (``convert_nozzle``). With it the aft end is
+        the nozzle's converging cone (``aft_end``); without it the last grain
+        cell sits against the nozzle boundary condition.
+    aft_end : str
+        'cone' (default), 'cone_nolump', 'lump' or 'none' (see
+        ``grain_geometry.nozzle_convergent_cells``).
+    head_gap : float or None
+        G1: closure-to-grain gap [m], lumped into cell 0's storage. None = by
+        the first grain's forward-face inhibition (bonded -> 0; otherwise
+        ``max(3 mm, 5 % D_outer)``, the inter-grain default).
 
     Returns
     -------
@@ -1298,6 +1312,7 @@ def convert_geometry(ric_grains, target_propellant_cells=100,
     return build_snapped_geometry(
         segments_spec, D_outer,
         target_propellant_cells=target_propellant_cells,
+        head_gap=head_gap, nozzle=nozzle, aft_end=aft_end,
     )
 
 
@@ -1364,9 +1379,10 @@ def ric_to_sim_args(motor, gas_props=None, target_propellant_cells=100,
     'propellant', 'nozzle', 'P_ambient', and 'P_cutoff' by default.
     """
     prop = convert_propellant(motor['propellant'], gas_props)
-    geo = convert_geometry(motor['grains'],
-                           target_propellant_cells=target_propellant_cells)
     nozzle = convert_nozzle(motor['nozzle'])
+    geo = convert_geometry(motor['grains'],
+                           target_propellant_cells=target_propellant_cells,
+                           nozzle=nozzle)
 
     P_amb = motor['config'].get('ambPressure', 101325.0)
 

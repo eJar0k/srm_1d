@@ -1296,7 +1296,7 @@ def _compute_T_ceiling_arr(
 
 @njit(cache=True, fastmath=True)
 def _advect_species(
-    Y, rho_old, rho_new, u, A_port,
+    Y, rho_old, rho_new, u, A_port, A_vol,
     nozzle_mdot, dx, dt,
     mass_source_by_species, N, S,
 ):
@@ -1312,7 +1312,7 @@ def _advect_species(
     carries ``Y[N-1, :]`` outward at rate ``nozzle_mdot``.
 
     After flux + source accumulation, each cell's new species mass is
-    divided by the new cell mass ``rho_new[i] * A_port[i] * dx`` to get
+    divided by the new cell mass ``rho_new[i] * A_vol[i] * dx`` to get
     Y_new; tiny FP drift is clamped via per-cell renormalization so
     ``sum_s Y[i, s] = 1`` and ``0 <= Y[i, s] <= 1``.
 
@@ -1352,7 +1352,7 @@ def _advect_species(
     # solver.py: b_rhs[i] = mass_source[i] * dx - ...). The mass added
     # to cell i per step is therefore source * dx * dt, NOT source * V * dt.
     for i in range(N):
-        V_i = A_port[i] * dx
+        V_i = A_vol[i] * dx   # G1: storage volume incl. lumped head gap / convergent
         m_old = rho_old[i] * V_i
         m_new = rho_new[i] * V_i
         if m_new < 1.0e-12:
@@ -1423,6 +1423,9 @@ def _goodman_ignition_sources_and_mass(
     # QF1: cell kinetic energy per unit mass [J/kg] carried by the gas the
     # regression fill debit removes (zeros under energy_formulation='sensible')
     fill_ke,
+    # G1: closure-to-grain gap [m] (lumped into cell 0); the HE1 jet distance
+    # is measured from the closure = igniter exit, so it is x + head_gap
+    head_gap,
 ):
     """Goodman surface-temperature ignition and propellant source assembly.
 
@@ -1615,7 +1618,8 @@ def _goodman_ignition_sources_and_mass(
                         A_apj = A_port[i]
                     h_jet = _head_end_jet_h(
                         mdot_igniter, T[i], T_surf[i], R_mix_gas[i], Cp_mix_gas[i],
-                        gamma_mix_gas[i], D_hyd[i], x_centers[i], A_apj, A_throat)
+                        gamma_mix_gas[i], D_hyd[i], x_centers[i] + head_gap,
+                        A_apj, A_throat)
                     if head_end_jet_code == 1:
                         if h_jet > h_c:
                             h_c = h_jet
@@ -2008,6 +2012,7 @@ def _run_time_loop(
     ign_diag, rec_on, rec_h, rec_Td, rec_t, rec_dt, rec_k,
     ign_driver_code,              # RT1: 0 static, 1 recovery
     head_end_jet_code,            # HE1: 0 off, 1 max, 2 replace
+    vol_extra, head_gap,          # G1: lumped gas volume per cell [m^3]; closure-to-grain gap [m]
     # --- v0.8.0 Phase 6: live progress / cooperative cancel ---
     progress_state,               # [2] float64: [0]=progress 0..1 (written),
                                   #              [1]=cancel flag (read; >0.5 aborts)
@@ -2178,6 +2183,14 @@ def _run_time_loop(
     S_species_local = Y_species.shape[1]
     rho_pre_step = np.zeros(N)
 
+    # G1: gas STORAGE area A_vol = A_port + vol_extra / dx (a head gap lumped
+    # into cell 0, the unresolved nozzle convergent into the last cell).  Every
+    # gas volume below is A_vol * dx; flow areas stay A_port.  Refreshed after
+    # every update_cell_geometry.
+    A_vol = np.empty(N)
+    for i in range(N):
+        A_vol[i] = A_port[i] + vol_extra[i] / dx
+
     # v0.7.1 Phase 3: seed the per-cell mixture arrays from the initial Y
     # so the first PISO call sees consistent thermo before the post-PISO
     # _refresh_mixture_arrays runs. Also seed T_ceiling_arr (a constant
@@ -2300,7 +2313,7 @@ def _run_time_loop(
                 max_geometry_refresh_gap = gap_geometry
             t_last_geometry_refresh = t
             geo_mass_pre, geo_energy_pre = _ledger_mass_energy(
-                total_energy, rho, T, u, A_port, dx, Cp_mix_arr, R_mix_arr, N,
+                total_energy, rho, T, u, A_vol, dx, Cp_mix_arr, R_mix_arr, N,
             )
             update_cell_geometry(
                 regress, D_port, x_centers, dx, N, N_seg, cell_D_outer,
@@ -2315,8 +2328,10 @@ def _run_time_loop(
                 cell_segment_type, cell_fmm_idx,
                 fmm_offset, fmm_reg_flat, fmm_perim_flat, fmm_port_flat,
             )
+            for i in range(N):
+                A_vol[i] = A_port[i] + vol_extra[i] / dx
             geo_mass_post, geo_energy_post = _ledger_mass_energy(
-                total_energy, rho, T, u, A_port, dx, Cp_mix_arr, R_mix_arr, N,
+                total_energy, rho, T, u, A_vol, dx, Cp_mix_arr, R_mix_arr, N,
             )
             geo_dM = geo_mass_post - geo_mass_pre
             geo_dE = geo_energy_post - geo_energy_pre
@@ -2436,8 +2451,8 @@ def _run_time_loop(
             p_vol = 0.0
             for i in range(cart_i_start, cart_i_end + 1):
                 if 0 <= i < N:
-                    p_sum += P[i] * A_port[i] * dx
-                    p_vol += A_port[i] * dx
+                    p_sum += P[i] * A_vol[i] * dx
+                    p_vol += A_vol[i] * dx
             if p_vol > 0.0:
                 P_ig = p_sum / p_vol
             else:
@@ -2570,7 +2585,7 @@ def _run_time_loop(
             solid_work, solid_age_fraction,
             ign_diag, rec_on, rec_h, rec_Td, rec_t, rec_dt, rec_k,
             ign_driver_code, head_end_jet_code,
-            fill_ke,
+            fill_ke, head_gap,
         )
 
         # v0.7.1 Phase 3.5: pyrogen mass injection uses pyrogen Cp for the
@@ -2661,7 +2676,7 @@ def _run_time_loop(
         # v0.7.1 Phase 3: per-cell Cp_arr replaces the scalar Cp_gas.
         if source_cfl_factor > 0.0:
             dt_source_cap = compute_dt_source_cap(
-                rho, A_port, thermal_source, mass_source, N,
+                rho, A_vol, thermal_source, mass_source, N,
                 Cp_mix_arr, T_flame, ambient_temperature, source_cfl_factor,
                 SOURCE_DT_FLOOR,
             )
@@ -2715,6 +2730,7 @@ def _run_time_loop(
             pressure_floor_pa,
             piso_energy_coupling_iters, 1.0e-6,
             piso_corr2_storage, total_energy, conservative_momentum,
+            vol_extra,
         )
 
         # T6 energy audit (bookkeeping only): the gap between the END of the
@@ -2765,10 +2781,10 @@ def _run_time_loop(
         # T6 energy audit (bookkeeping only): storage before/after the
         # mixture refresh (Cp changes at fixed rho, T, A_port).
         mix_mass_pre, mix_energy_pre = _ledger_mass_energy(
-            total_energy, rho, T, u, A_port, dx, Cp_mix_arr, R_mix_arr, N,
+            total_energy, rho, T, u, A_vol, dx, Cp_mix_arr, R_mix_arr, N,
         )
         _advect_species(
-            Y_species, rho_pre_step, rho, u, A_port,
+            Y_species, rho_pre_step, rho, u, A_port, A_vol,
             nozzle_mdot, dx, dt,
             mass_source_by_species, N, S_species_local,
         )
@@ -2782,7 +2798,7 @@ def _run_time_loop(
             gamma_mix_arr, Cp_mix_arr, R_mix_arr, M_mix_arr, N,
         )
         mix_mass_post, mix_energy_post = _ledger_mass_energy(
-            total_energy, rho, T, u, A_port, dx, Cp_mix_arr, R_mix_arr, N,
+            total_energy, rho, T, u, A_vol, dx, Cp_mix_arr, R_mix_arr, N,
         )
         _compute_T_ceiling_arr(
             Y_species, species_params_arr, T_ceiling_arr, N, T_initial_gas,
@@ -3688,8 +3704,10 @@ def _run_simulation_once(
     d_throat_pyrogen = np.sqrt(4.0 * pyrogen_chamber.A_throat / np.pi)
     L_jet = float(pyrogen_chamber.pyrogen.kappa_jet) * d_throat_pyrogen
     dx_arr = np.full(N, dx)
+    # G1: the jet decays with the distance from the igniter exit (the closure),
+    # which is the head gap plus the distance into the first cell's coordinates.
     pyrogen_axial_weights = _compute_pyrogen_axial_weights(
-        x_centers, dx_arr, L_jet, N
+        x_centers + ga['head_gap'], dx_arr, L_jet, N
     )
 
     # v0.7.3 Phase A: igniter topology resolution. forward_plenum
@@ -3701,7 +3719,7 @@ def _run_simulation_once(
     from srm_1d.igniter_plenum import _topology_code as _resolve_topology_code
     topology_code = _resolve_topology_code(pyrogen_chamber.injection_topology)
     cart_i_start, cart_i_end = pyrogen_chamber.resolve_injection_cells(
-        x_centers, dx, N, A_port,
+        x_centers, dx, N, A_port, head_gap=ga['head_gap'],
     )
     n_cart_cells = max(1, cart_i_end - cart_i_start + 1)
     A_burn_per_cell = pyrogen_chamber.A_burn_initial / n_cart_cells
@@ -4019,6 +4037,8 @@ def _run_simulation_once(
         # SM2: ignition-event diagnostics + open-loop forcing recorder
         ign_diag, bool(_rec_n > 0), rec_h, rec_Td, rec_t, rec_dt, rec_k,
         int(_ign_driver_code), int(_head_jet_code),
+        # G1: lumped head-gap / nozzle-convergent gas volume
+        ga['vol_extra'], float(ga['head_gap']),
         # v0.8.0 Phase 6: live progress / cooperative cancel
         progress_state,
     )

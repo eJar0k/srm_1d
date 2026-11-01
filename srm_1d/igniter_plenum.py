@@ -264,13 +264,18 @@ class PyrogenChamber:
         A_basket = self.basket_fill_fraction * A_port_avg
         return float(self.m_pyrogen_initial / (rho_bulk * A_basket))
 
-    def resolve_injection_cells(self, x_centers, dx, N, A_port):
+    def resolve_injection_cells(self, x_centers, dx, N, A_port, head_gap=0.0):
         """Compute (i_start, i_end) cell-index range for pyrogen
         injection given bore geometry. Inclusive of both endpoints.
 
         Returns (i_start, i_end) for submerged topologies, or (0, 0)
         for forward_plenum (legacy default; the actual Phase A axial
         decay is applied elsewhere).
+
+        G1: ``head_gap`` [m] is the closure-to-grain gap lumped into cell 0
+        (no cells). A head-end cartridge starts at the closure, so the first
+        ``head_gap`` of its length lies in that lumped volume (cell 0) and only
+        the rest occupies further cells.
         """
         if self.injection_topology == 'forward_plenum':
             return (0, 0)
@@ -282,7 +287,10 @@ class PyrogenChamber:
         A_port_avg = total_volume / bore_length if bore_length > 0 else 0.0
         L_cart = self.resolve_cartridge_length(A_port_avg)
         # Snap to whole cells: find smallest n such that n*dx >= L_cart
-        n_cart = max(1, int(np.ceil(L_cart / dx)))
+        if self.injection_topology == 'head_basket':
+            n_cart = max(1, int(np.ceil(max(L_cart - head_gap, 0.0) / dx)))
+        else:
+            n_cart = max(1, int(np.ceil(L_cart / dx)))
         n_cart = min(n_cart, N)
         if self.injection_topology == 'head_basket':
             return (0, n_cart - 1)

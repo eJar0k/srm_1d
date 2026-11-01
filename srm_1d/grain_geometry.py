@@ -163,11 +163,35 @@ class MotorGeometry:
         Grain segment definitions.
     N_cells : int
         Number of finite volume cells along the motor length.
+    head_gap : float
+        G1: forward-closure-to-grain gap [m] (0 = bonded). NOT meshed: its
+        volume ``A_case * head_gap`` is lumped into cell 0's gas storage
+        (``vol_extra[0]`` from ``compile_geometry_arrays``), so the result
+        does not depend on the grid.
+    aft_end : str
+        G1: aft treatment that built this geometry ('cone' | 'cone_nolump' |
+        'lump' | 'none'), informational.
+    n_cone_cells : int
+        G1: number of trailing cells that follow the nozzle's converging cone
+        (uniform width dx, port area from the cone). 0 = none.
+    cone_D_start, cone_half_angle : float
+        G1: diameter [m] where the convergent starts (the casing ID at the
+        grain's aft end) and its half angle [rad]; cone cell ``k`` has the
+        diameter ``cone_D_start - 2 (k + 1/2) dx tan(cone_half_angle)``.
+    aft_lump_volume : float
+        G1: the convergent volume not resolved by cone cells [m^3], lumped
+        into the last cell's gas storage (``vol_extra[N-1]``).
     """
     L_motor: float
     D_outer: float
     segments: List[GrainSegment]
     N_cells: int = 150
+    head_gap: float = 0.0
+    aft_end: str = 'none'
+    n_cone_cells: int = 0
+    cone_D_start: float = 0.0
+    cone_half_angle: float = 0.0
+    aft_lump_volume: float = 0.0
 
     @property
     def dx(self):
@@ -417,23 +441,27 @@ class MotorGeometry:
             fmm_perim_flat = np.empty(0)
             fmm_port_flat = np.empty(0)
 
-        # OD / end taper: pin the leading/trailing gas-buffer cells to the
-        # fore-/aft-most PROPELLANT cell's casing, so the casing (and the slice
-        # rendering's open-chamber flow field) continues the dome/cone into the
-        # head and aft regions instead of jumping back to the full motor OD at
-        # the grain ends. Self-correcting: an end with no OD taper leaves its
-        # boundary grain cell at the full OD, so the pin is a no-op there.
-        # No-op entirely without any OD taper.
-        if any(getattr(s, 'has_od', False) for s in self.segments):
-            grain_cells = np.where(cell_segment_id >= 0)[0]
-            if grain_cells.size:
-                first = int(grain_cells[0])
-                last = int(grain_cells[-1])
-                for lo, hi, ref in ((0, first, first), (last + 1, N, last)):
-                    for i in range(lo, hi):
-                        cell_D_outer[i] = cell_D_outer[ref]
-                        D_port[i] = cell_D_outer[ref]
-                        cell_A_port_init[i] = np.pi / 4.0 * cell_D_outer[ref] ** 2
+        # G1: the 3-cell full-diameter head/aft gas buffers are gone, so the
+        # old OD-taper "pin" of those buffer cells has nothing to act on. The
+        # only non-grain cells left are the nozzle-cone cells (their casing
+        # diameter is the cone itself, filled below) and any inter-grain gap
+        # cells (full casing, as before).
+        n_cone = int(self.n_cone_cells)
+        if n_cone > 0:
+            tan_a = np.tan(self.cone_half_angle)
+            for m in range(n_cone):
+                i = N - n_cone + m
+                Dk = self.cone_D_start - 2.0 * (m + 0.5) * dx * tan_a
+                cell_D_outer[i] = Dk
+                D_port[i] = Dk
+                cell_A_port_init[i] = np.pi / 4.0 * Dk * Dk
+
+        # G1: gas volume lumped into a cell's storage on top of A_port * dx:
+        # the head gap (head face uninhibited) in cell 0, the unresolved part
+        # of the nozzle convergent in the last cell. Constant in time.
+        vol_extra = np.zeros(N)
+        vol_extra[0] += np.pi / 4.0 * cell_D_outer[0] ** 2 * self.head_gap
+        vol_extra[N - 1] += self.aft_lump_volume
 
         # Per-cell radial regression depth (primary state for the hot
         # loop). Starts at 0 (no regression yet).
@@ -467,7 +495,18 @@ class MotorGeometry:
             'n_fmm_segs': n_fmm_segs,
             'regress': regress,
             'D_port': D_port,
+            'vol_extra': vol_extra,
+            'head_gap': float(self.head_gap),
         }
+
+    def initial_gas_volume(self):
+        """G1: initial free gas volume [m^3] = sum of the cells' port volumes
+        (``A_port0 * dx``) plus the lumped head-gap and nozzle-convergent
+        volumes. This is the igniter-sizing "free volume" (case minus
+        propellant, with the real head gap and convergent)."""
+        ga = self.compile_geometry_arrays()
+        return float(np.sum(ga['cell_A_port_init']) * ga['dx']
+                     + np.sum(ga['vol_extra']))
 
     def total_propellant_volume(self):
         """
@@ -993,7 +1032,90 @@ def advance_endface_regression(
 
 import warnings
 
-def build_snapped_geometry(segments_spec: list[dict], D_outer: float, target_propellant_cells: int = 100) -> MotorGeometry:
+def _aft_port_area(seg):
+    """Initial port area [m^2] at the aft end of a segment (setup helper)."""
+    if seg.is_tapered:
+        return float(seg.fmm_tables[-1].port_area[0])
+    if seg.fmm_table is not None:
+        return float(seg.fmm_table.initial_port_area)
+    return np.pi / 4.0 * seg.D_bore_aft ** 2
+
+
+def _aft_casing_diameter(seg, D_outer, snapped_length):
+    """Casing diameter [m] at the aft end of a segment (OD / end taper aware)."""
+    if getattr(seg, 'has_od', False):
+        from .fmm_grain import _setup_openmotor_path
+        _setup_openmotor_path()
+        from motorlib.taper import od_diameter_at
+        d = od_diameter_at(1.0, snapped_length, D_outer, seg.od_ends)
+        if not seg.is_tapered:
+            d = max(d, seg.D_bore_aft)
+        return float(d)
+    return float(D_outer)
+
+
+AFT_END_MODES = ('cone', 'cone_nolump', 'lump', 'none')
+
+
+def nozzle_convergent_cells(D_start, D_throat, half_angle_deg, A_cut, dx,
+                            mode='cone'):
+    """G1 aft end: cells that follow the nozzle's converging cone.
+
+    The convergent is a cone from diameter ``D_start`` (the casing ID at the
+    grain's aft end) down to the throat, half angle ``half_angle_deg`` (the
+    openMotor ``convAngle``; length ``(D_start - D_t) / (2 tan(angle))``, the
+    same construction as openMotor's nozzle preview).
+
+    ``cone`` cells have the uniform width ``dx`` (the solver grid is uniform) and
+    take their port area from the cone at the cell centre.  A cell is kept
+    while (a) it lies wholly inside the cone and (b) the cone's area at its
+    centre is >= ``A_cut``.  ``A_cut`` is the grain's own initial aft port
+    area: the nozzle BC (``_nozzle_boundary_flow``) treats the last cell's
+    static T and P as stagnation values, so the reservoir error grows with
+    the cell's Mach number; with ``A_cut = A_port,aft(t=0)`` every cone cell
+    has an isentropic Mach no larger than the one the BC already sees at the
+    grain exit at t = 0 (the largest it will see: the port only opens up),
+    i.e. the cone cells add no reservoir error beyond what the unmodified
+    last grain cell carries.  No tuned constant.
+
+    The part of the convergent that is not resolved (beyond the cut, the
+    partial last cell, and the midpoint-rule difference) is returned as a
+    volume to be lumped into the last cell's storage (``mode`` 'cone',
+    'lump') or dropped ('cone_nolump', 'none').
+
+    Returns ``(n_cone, lump_volume_m3, half_angle_rad)``.
+    """
+    if mode not in AFT_END_MODES:
+        raise ValueError(f"aft_end must be one of {AFT_END_MODES}, got {mode!r}")
+    ang = np.radians(half_angle_deg)
+    if mode == 'none' or ang <= 0.0 or ang >= 0.5 * np.pi or D_start <= D_throat:
+        return 0, 0.0, ang
+    tan_a = np.tan(ang)
+    L_cone = (D_start - D_throat) / (2.0 * tan_a)
+    V_cone = np.pi / 12.0 * L_cone * (D_start**2 + D_start * D_throat + D_throat**2)
+    A_t = np.pi / 4.0 * D_throat ** 2
+    A_cut = max(A_cut, A_t)
+    n = 0
+    V_cells = 0.0
+    if mode in ('cone', 'cone_nolump'):
+        while True:
+            s_hi = (n + 1) * dx
+            if s_hi > L_cone + 1e-12:
+                break
+            Dk = D_start - 2.0 * (n + 0.5) * dx * tan_a
+            Ak = np.pi / 4.0 * Dk * Dk
+            if Ak < A_cut:
+                break
+            V_cells += Ak * dx
+            n += 1
+    lump = max(V_cone - V_cells, 0.0) if mode in ('cone', 'lump') else 0.0
+    return n, lump, ang
+
+
+def build_snapped_geometry(segments_spec: list[dict], D_outer: float,
+                           target_propellant_cells: int = 100,
+                           head_gap=None, nozzle=None,
+                           aft_end: str = 'cone') -> MotorGeometry:
     """
     Intelligent geometry preprocessor that guarantees perfect node alignment
     and CFD minimum gap resolution via Integer-Snapping.
@@ -1025,6 +1147,19 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float, target_pro
         Outer casing diameter [m].
     target_propellant_cells : int
         Desired number of cells to represent the propellant mass.
+    head_gap : float or None
+        G1: forward-closure-to-grain gap [m], lumped into cell 0's storage
+        (no cells are added, so the result is grid independent).  ``None`` =
+        by the first segment's forward-face inhibition: inhibited (bonded to
+        the closure) -> 0; uninhibited -> ``max(3 mm, 5 % D_outer)``, the
+        inter-grain default (an uninhibited face needs room to burn).
+    nozzle : Nozzle or None
+        G1: the nozzle, for the aft end (see ``aft_end``).  ``None`` = no
+        aft treatment (the last grain cell sits against the nozzle BC).
+    aft_end : str
+        'cone' (default; cone cells + the remaining convergent volume lumped
+        into the last cell), 'cone_nolump', 'lump' (whole convergent volume
+        lumped, no cone cells) or 'none'.  See ``nozzle_convergent_cells``.
     """
     # 1. Sum total pure propellant length
     L_prop_total = sum(spec['length'] for spec in segments_spec)
@@ -1034,7 +1169,6 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float, target_pro
     
     # 3. The Nyquist-CFD Clamp (Enforce 3-cell minimum on physical gaps only)
     gaps = [spec.get('gap_after', 0.0) for spec in segments_spec if spec.get('gap_after', 0.0) > 1e-6]
-    leading_gap = 0.001 # Minimal leading spacer for internal boundary conditions
     
     # Only clamp if there are actual physical gaps between segments
     if gaps:
@@ -1046,27 +1180,23 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float, target_pro
         
     # 4. Reconstruct geometry using Integer-Snapping
     #
-    # Leading/trailing gas buffers default to >=MIN_BUFFER_CELLS cells so
-    # the head-end and throat boundaries are always resolved by a
-    # multi-cell pressure gradient. A single-cell trailing buffer
-    # collides ignition-driven pressure waves directly with the open-
-    # throat boundary and provokes a discrete numerical front
-    # instability (Mach > 100) when the trailing cell width is
-    # comparable to the throat diameter. The 2026-05-20
-    # radiation_collapse audit showed cells=100 (~17mm trailing cell vs
-    # 34mm throat) trips at certain emissivities while cells=50 (33mm
-    # cell) and cells=200 (8mm cell) are both stable -- a 1-cell
-    # numerical Goldilocks zone, not a physical effect.
-    MIN_BUFFER_CELLS = 3
-
+    # G1: there are NO head gas-buffer cells and (by default) no full-diameter
+    # aft buffer cells.  The former MIN_BUFFER_CELLS = 3 buffers were 3*dx long
+    # (24 mm at N = 100, 3 mm at N = 800 for Chunc), so the head-end volume
+    # changed with the grid and set the startup (MU1).  The first grain cell
+    # is cell 0, against the closure; a real head gap is lumped into its
+    # storage instead (``head_gap``).  The aft end is the nozzle convergent
+    # (``nozzle_convergent_cells``).
     segments = []
     x_cursor = 0.0
     total_cells = 0
 
-    # Snap leading gap
-    n_leading = max(MIN_BUFFER_CELLS, int(round(leading_gap / dx)))
-    x_cursor += n_leading * dx
-    total_cells += n_leading
+    if head_gap is None:
+        first_inh = bool(segments_spec[0].get('inhibit_fwd', False))
+        head_gap = 0.0 if first_inh else max(0.003, 0.05 * D_outer)
+    head_gap = float(head_gap)
+    if head_gap < 0.0:
+        raise ValueError("head_gap must be >= 0")
 
     for i, spec in enumerate(segments_spec):
         # Snap the propellant segment
@@ -1126,21 +1256,37 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float, target_pro
             x_cursor += snapped_gap
             total_cells += n_gap
             
-    # Trailing motor spacer. See MIN_BUFFER_CELLS comment above.
-    n_trailing = max(MIN_BUFFER_CELLS, int(round(0.001 / dx)))
-    x_cursor += n_trailing * dx
-    total_cells += n_trailing
-    
+    # G1 aft end: cone cells following the nozzle convergent, plus the lumped
+    # remainder of its volume (see nozzle_convergent_cells).
+    n_cone, aft_lump, half_angle = 0, 0.0, 0.0
+    D_cone_start = float(D_outer)
+    if aft_end not in AFT_END_MODES:
+        raise ValueError(f"aft_end must be one of {AFT_END_MODES}, got {aft_end!r}")
+    if nozzle is not None and aft_end != 'none':
+        last_seg = segments[-1]
+        D_cone_start = _aft_casing_diameter(last_seg, D_outer, last_seg.length)
+        n_cone, aft_lump, half_angle = nozzle_convergent_cells(
+            D_cone_start, nozzle.D_throat, nozzle.conv_angle,
+            _aft_port_area(last_seg), dx, aft_end)
+    x_cursor += n_cone * dx
+    total_cells += n_cone
+
     L_motor_snapped = x_cursor
     
     # Verify deviation is within acceptable physical limits (< 10mm)
-    if abs(L_motor_snapped - (L_prop_total + sum(gaps))) > 0.01:
+    if abs(L_motor_snapped - n_cone * dx - (L_prop_total + sum(gaps))) > 0.01:
         warnings.warn(f"Integer-snapping altered total motor length by more than 10mm. Check segment proportions.")
 
     return MotorGeometry(
         L_motor=L_motor_snapped,
         D_outer=D_outer,
         segments=segments,
-        N_cells=total_cells
+        N_cells=total_cells,
+        head_gap=head_gap,
+        aft_end=aft_end if nozzle is not None else 'none',
+        n_cone_cells=n_cone,
+        cone_D_start=D_cone_start,
+        cone_half_angle=half_angle,
+        aft_lump_volume=aft_lump,
     )
 
