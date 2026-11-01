@@ -219,3 +219,36 @@ class TestLumpedStorage:
         assert dP0 > 0.0 and dP1 > 0.0
         # acoustic compliance ~ V: rise ratio ~ V_without / V_with = 1/4
         assert dP1 / dP0 == pytest.approx(0.25, rel=0.25)
+
+
+class TestBcReservoirCut:
+    def test_area_ratio_reproduces_the_p0_tolerance(self):
+        from scipy.optimize import brentq
+        from srm_1d.grain_geometry import bc_reservoir_area_ratio
+        g = 1.2
+        for tol in (0.005, 0.01, 0.02):
+            ar = bc_reservoir_area_ratio(tol, g)
+
+            def area_ratio(M):
+                return (1.0 / M) * (2.0 / (g + 1.0) * (1.0 + 0.5 * (g - 1.0) * M * M)) ** (
+                    (g + 1.0) / (2.0 * (g - 1.0)))
+            M = brentq(lambda m: area_ratio(m) - ar, 1e-3, 1.0)       # subsonic branch
+            p0_over_p = (1.0 + 0.5 * (g - 1.0) * M * M) ** (g / (g - 1.0))
+            assert p0_over_p - 1.0 == pytest.approx(tol, rel=1e-6)
+
+    def test_cone_cells_respect_the_bc_cut_at_every_resolution(self):
+        from srm_1d.grain_geometry import bc_reservoir_area_ratio
+        A_t = np.pi / 4 * D_T ** 2
+        for dx in (0.02, 0.01, 0.005, 0.0025, 0.00125):
+            n, lump, _ = nozzle_convergent_cells(D_OUT, D_T, 30.0, 0.0, dx, 'cone')
+            if n:
+                Dk = D_OUT - 2 * (n - 0.5) * dx * np.tan(np.radians(30.0))
+                assert np.pi / 4 * Dk ** 2 >= A_t * bc_reservoir_area_ratio() - 1e-12
+
+    def test_default_aft_is_the_lumped_convergent(self):
+        noz = Nozzle(D_throat=D_T, D_exit=0.05, conv_angle=30.0)
+        geo = _geo(nozzle=noz)
+        assert geo.aft_end == 'lump' and geo.n_cone_cells == 0
+        L = (D_OUT - D_T) / 2 / np.tan(np.radians(30.0))
+        V = np.pi / 12 * L * (D_OUT ** 2 + D_OUT * D_T + D_T ** 2)
+        assert geo.aft_lump_volume == pytest.approx(V)

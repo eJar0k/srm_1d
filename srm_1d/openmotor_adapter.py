@@ -1136,7 +1136,7 @@ def convert_propellant(ric_propellant, gas_props=None):
 
 
 def convert_geometry(ric_grains, target_propellant_cells=100,
-                     fmm_map_dim=1001, nozzle=None, aft_end='cone',
+                     fmm_map_dim=1001, nozzle=None, aft_end='lump',
                      head_gap=None):
     """
     Convert openMotor grain list to srm_1d MotorGeometry.
@@ -1169,7 +1169,7 @@ def convert_geometry(ric_grains, target_propellant_cells=100,
         the nozzle's converging cone (``aft_end``); without it the last grain
         cell sits against the nozzle boundary condition.
     aft_end : str
-        'cone' (default), 'cone_nolump', 'lump' or 'none' (see
+        'lump' (default), 'cone', 'cone_nolump' or 'none' (see
         ``grain_geometry.nozzle_convergent_cells``).
     head_gap : float or None
         G1: closure-to-grain gap [m], lumped into cell 0's storage. None = by
@@ -1355,7 +1355,7 @@ def convert_nozzle(ric_nozzle):
 # ================================================================
 
 def ric_to_sim_args(motor, gas_props=None, target_propellant_cells=100,
-                    **sim_overrides):
+                    aft_end='lump', head_gap=None, **sim_overrides):
     """
     Convert a loaded .ric motor dict to run_simulation keyword arguments.
 
@@ -1369,6 +1369,12 @@ def ric_to_sim_args(motor, gas_props=None, target_propellant_cells=100,
         Approximate cell count to spend on propellant. Cell width is
         derived from this and used to integer-snap segment lengths
         and inter-segment gaps.
+    aft_end : str
+        G1 aft treatment: 'lump' (default), 'cone', 'cone_nolump', 'none'
+        (``convert_geometry``).
+    head_gap : float or None
+        G1 closure-to-grain gap [m]; None = by the first grain's forward-face
+        inhibition (``convert_geometry``).
     **sim_overrides
         Additional keyword arguments passed to run_simulation
         (e.g. roughness, kappa, igniter params).
@@ -1382,7 +1388,7 @@ def ric_to_sim_args(motor, gas_props=None, target_propellant_cells=100,
     nozzle = convert_nozzle(motor['nozzle'])
     geo = convert_geometry(motor['grains'],
                            target_propellant_cells=target_propellant_cells,
-                           nozzle=nozzle)
+                           nozzle=nozzle, aft_end=aft_end, head_gap=head_gap)
 
     P_amb = motor['config'].get('ambPressure', 101325.0)
 

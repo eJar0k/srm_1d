@@ -144,6 +144,8 @@ def main():
     ap.add_argument('--jet', default='off', choices=('off', 'max', 'replace'),
                     help='HE1 head_end_jet_h')
     ap.add_argument('--hist', type=int, default=None, help='history_capacity override')
+    ap.add_argument('--aft', default='lump', help="G1 aft_end: cone|cone_nolump|lump|none")
+    ap.add_argument('--head-gap-mm', type=float, default=None, help='G1 head gap override [mm]')
     a = ap.parse_args()
     cfg = MOTORS[a.motor]
     ef, mf = CASES[a.case]
@@ -161,6 +163,7 @@ def main():
                            ignition_driver_temperature=a.driver,
                            head_end_jet_h=a.jet,
                            **({} if a.solid is None else dict(solid_heating_model=a.solid)),
+                           aft_end=a.aft, head_gap=(None if a.head_gap_mm is None else a.head_gap_mm * 1e-3),
                            target_propellant_cells=a.cells, **CANON)[0]
     wall = time.time() - t0
     s = res['summary']

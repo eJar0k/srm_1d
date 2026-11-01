@@ -1057,8 +1057,30 @@ def _aft_casing_diameter(seg, D_outer, snapped_length):
 AFT_END_MODES = ('cone', 'cone_nolump', 'lump', 'none')
 
 
+BC_RESERVOIR_P0_TOL = 0.01      # stated model assumption (see below)
+BC_RESERVOIR_GAMMA = 1.2        # typical composite-propellant gamma, for the area-Mach relation
+
+
+def bc_reservoir_area_ratio(p0_tol=BC_RESERVOIR_P0_TOL, gamma=BC_RESERVOIR_GAMMA):
+    """Smallest A/A_throat for which the nozzle BC's reservoir assumption stays
+    within ``p0_tol``.
+
+    ``_nozzle_boundary_flow`` takes the last cell's STATIC P and T as the
+    stagnation values.  A cell moving at Mach M has P0/P = (1 + (g-1)/2 M^2)^(g/(g-1)),
+    so the BC under-states P0 by that factor - 1.  Setting it to ``p0_tol`` gives M, and the
+    isentropic area-Mach relation gives the area ratio A/A* of a passage with that Mach.
+    ``p0_tol`` = 1 % is a STATED MODEL ASSUMPTION (the pressure-trace comparison precision of
+    the B0 gate / validation), not a fit; the G1 worklog shows the sensitivity.
+    """
+    g = gamma
+    M2 = 2.0 / (g - 1.0) * ((1.0 + p0_tol) ** ((g - 1.0) / g) - 1.0)
+    M = M2 ** 0.5
+    return (1.0 / M) * (2.0 / (g + 1.0) * (1.0 + 0.5 * (g - 1.0) * M2)) ** (
+        (g + 1.0) / (2.0 * (g - 1.0)))
+
+
 def nozzle_convergent_cells(D_start, D_throat, half_angle_deg, A_cut, dx,
-                            mode='cone'):
+                            mode='cone', p0_tol=BC_RESERVOIR_P0_TOL):
     """G1 aft end: cells that follow the nozzle's converging cone.
 
     The convergent is a cone from diameter ``D_start`` (the casing ID at the
@@ -1069,14 +1091,14 @@ def nozzle_convergent_cells(D_start, D_throat, half_angle_deg, A_cut, dx,
     ``cone`` cells have the uniform width ``dx`` (the solver grid is uniform) and
     take their port area from the cone at the cell centre.  A cell is kept
     while (a) it lies wholly inside the cone and (b) the cone's area at its
-    centre is >= ``A_cut``.  ``A_cut`` is the grain's own initial aft port
-    area: the nozzle BC (``_nozzle_boundary_flow``) treats the last cell's
-    static T and P as stagnation values, so the reservoir error grows with
-    the cell's Mach number; with ``A_cut = A_port,aft(t=0)`` every cone cell
-    has an isentropic Mach no larger than the one the BC already sees at the
-    grain exit at t = 0 (the largest it will see: the port only opens up),
-    i.e. the cone cells add no reservoir error beyond what the unmodified
-    last grain cell carries.  No tuned constant.
+    centre is >= ``max(A_cut, A_BC)``.  ``A_cut`` is the grain's own initial aft
+    port area (a cone cell never has a higher Mach than the grain exit at t = 0)
+    and ``A_BC = A_throat * bc_reservoir_area_ratio(p0_tol)`` is the area at
+    which the nozzle BC's reservoir assumption (last cell's static T, P taken
+    as stagnation) is still within ``p0_tol`` in P0.  The second condition is the
+    binding one: a cone cell's area is FIXED while the grain port opens up, so
+    without it the BC error would persist (and grow with the resolution of the
+    cone) after the aft port has opened (measured: +5 % plateau at N = 200).
 
     The part of the convergent that is not resolved (beyond the cut, the
     partial last cell, and the midpoint-rule difference) is returned as a
@@ -1094,7 +1116,7 @@ def nozzle_convergent_cells(D_start, D_throat, half_angle_deg, A_cut, dx,
     L_cone = (D_start - D_throat) / (2.0 * tan_a)
     V_cone = np.pi / 12.0 * L_cone * (D_start**2 + D_start * D_throat + D_throat**2)
     A_t = np.pi / 4.0 * D_throat ** 2
-    A_cut = max(A_cut, A_t)
+    A_cut = max(A_cut, A_t * bc_reservoir_area_ratio(p0_tol))
     n = 0
     V_cells = 0.0
     if mode in ('cone', 'cone_nolump'):
@@ -1115,7 +1137,7 @@ def nozzle_convergent_cells(D_start, D_throat, half_angle_deg, A_cut, dx,
 def build_snapped_geometry(segments_spec: list[dict], D_outer: float,
                            target_propellant_cells: int = 100,
                            head_gap=None, nozzle=None,
-                           aft_end: str = 'cone') -> MotorGeometry:
+                           aft_end: str = 'lump') -> MotorGeometry:
     """
     Intelligent geometry preprocessor that guarantees perfect node alignment
     and CFD minimum gap resolution via Integer-Snapping.
@@ -1157,9 +1179,11 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float,
         G1: the nozzle, for the aft end (see ``aft_end``).  ``None`` = no
         aft treatment (the last grain cell sits against the nozzle BC).
     aft_end : str
-        'cone' (default; cone cells + the remaining convergent volume lumped
-        into the last cell), 'cone_nolump', 'lump' (whole convergent volume
-        lumped, no cone cells) or 'none'.  See ``nozzle_convergent_cells``.
+        'lump' (default: the whole convergent volume, a function of the
+        nozzle's throat and convergence angle, lumped into the last cell's
+        storage; no cone cells), 'cone' (cone cells where the nozzle BC's
+        reservoir assumption holds + the rest lumped), 'cone_nolump' or
+        'none'.  See ``nozzle_convergent_cells``.
     """
     # 1. Sum total pure propellant length
     L_prop_total = sum(spec['length'] for spec in segments_spec)
