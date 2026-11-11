@@ -62,7 +62,7 @@ Goldilocks" history (MU1; the 2026-05-20 radiation-collapse audit) shows the sol
 
 * The pressure equation's transient coefficient is `a_t = A_vol dx / (R T dt)`. Adding storage to a cell increases `a_t` only: it makes the
   pressure matrix MORE diagonally dominant, the acoustic response of that cell slower. It cannot create a new instability by itself.
-  G1 measured this at the head (cell 0) and the aft (last cell) of the three canonical motors and a 20-motor stability sweep (`worklog/G1.md`).
+  G1 measured this at the head (cell 0) and the aft (last cell) of the three canonical motors and a 21-motor stability sweep (`worklog/G1.md`).
 * The explicit parts (upwind energy / species advection) see a cell of volume `V = A_vol dx`; a lump enlarges V, which only relaxes
   their step restriction (a lump in a cell never shrinks it, unlike a cut cell with alpha << 1).
 * What a mid-motor lump changes that the ends do not: a flow passes THROUGH the cell, so the velocity ratio between the neighbouring faces
