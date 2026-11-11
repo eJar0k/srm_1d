@@ -180,13 +180,20 @@ _spec.loader.exec_module(_probe)
 #   balls: peak 8.42348927652058, trough 4.366702806070186,
 #          mid 4.913378178011638, n_steps 842922
 #   haseg: peak 6.143912554793205, t_peak 2.3816074267208034, n_steps 2335770
+# RE-RECORDED 2026-11-10 by QF1: KE term in the total-energy regression-fill debit; moved peaks ~1.5e-5.
+# Recorded from a cold-compile run (reproduced by a warm run). The D1 values (the previous BASELINE) were:
+#   chunc: peak 9.95509537258403, t_peak 0.48826256590025513,
+#          plateau 8.108865458753694, n_steps 541753
+#   balls: peak 7.56231250893722, trough 4.3417299619930585,
+#          mid 4.8594671206858635, n_steps 844549
+#   haseg: peak 6.10855599581484, t_peak 2.6393309440372743, n_steps 2343883
 BASELINE = {
-    'chunc': dict(peak=9.95509537258403, t_peak=0.48826256590025513,
-                  plateau=8.108865458753694, n_steps=541753),
-    'balls': dict(peak=7.56231250893722, trough=4.3417299619930585,
-                  mid=4.8594671206858635, n_steps=844549),
-    'haseg': dict(peak=6.10855599581484, t_peak=2.6393309440372743,
-                  n_steps=2343883),
+    'chunc': dict(peak=9.954942701677405, t_peak=0.4882626717511268,
+                  plateau=8.10882300869407, n_steps=541753),
+    'balls': dict(peak=7.56221990287067, trough=4.341708721229631,
+                  mid=4.8594489133399525, n_steps=844548),
+    'haseg': dict(peak=6.108548290011714, t_peak=2.6393358955391624,
+                  n_steps=2343878),
 }
 RIC_FILE = {'chunc': 'machbusterNew.ric', 'balls': 'BALLSstick.ric',
             'haseg': 'hasegawa_a.ric'}
