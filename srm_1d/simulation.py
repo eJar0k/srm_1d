@@ -2005,7 +2005,8 @@ def _run_time_loop(
     ignition_h_code,
     peretz_ap_code,               # IG3: 0 local, 1 head, 2 aft (peretz mode only)
     stop_if_unignitable,          # IG3: bool, end the run once ignition is impossible
-    prompt_window_s, prompt_fraction,   # AS1: prompt-start early stop (window <= 0: off)
+    prompt_window_s, prompt_fraction,   # AS1: prompt-start window [s] and fraction (always passed)
+    prompt_early_stop,                  # AS1: bool, fail the attempt at the window end if not met
     # --- SM1: solid-heating model + conduction state ---
     solid_model_code,             # 0 goodman, 1 peretz, 2 conduction
     solid_y, solid_T, solid_age, solid_nact, solid_work, solid_age_fraction,
@@ -2964,10 +2965,25 @@ def _run_time_loop(
             snap_idx += 1
             last_snapshot_t = t
 
-        # Pressure cutoff (only after pyrogen is consumed and vented)
+        # Pressure cutoff (only after pyrogen is consumed and vented). AS1: the cutoff is a tail-off
+        # (burnout) end condition, so it is ARMED only once the grain has started: at least
+        # ``prompt_fraction`` of the grain cells lit, or the prompt window elapsed. Before that
+        # the chamber sitting near ambient is the ignition delay of a slow start, not burnout (a
+        # single lit cell, a spent igniter and P < P_cutoff used to end the run as a "burnout").
         if n_ignited > 0 and pyrogen_done and P[0] < P_cutoff:
-            termination_code = 2
-            break
+            cutoff_armed = t >= prompt_window_s
+            if not cutoff_armed:
+                n_g_c = 0
+                n_l_c = 0
+                for i in range(N):
+                    if is_grain[i]:
+                        n_g_c += 1
+                        if ignition_time[i] < 1.0e9:
+                            n_l_c += 1
+                cutoff_armed = n_l_c >= prompt_fraction * n_g_c
+            if cutoff_armed:
+                termination_code = 2
+                break
 
         # IG3: ignition-impossible early stop (a physical bound, not a tuned
         # timeout). No grain cell has lit, and the pyrogen charge is fully
@@ -2994,8 +3010,9 @@ def _run_time_loop(
         # AS1: prompt-start early stop. At the end of the prompt window (measured from
         # igniter firing, t = 0) the fraction of grain cells that ignited within it must
         # reach ``prompt_fraction``; an attempt that has not is failed here instead of
-        # burning on. Off when ``prompt_window_s <= 0`` (explicit charges, full runs).
-        if prompt_window_s > 0.0 and (not prompt_checked) and t >= prompt_window_s:
+        # burning on. Only when ``prompt_early_stop`` (auto charges); explicit charges and full runs
+        # are never cut at the window.
+        if prompt_early_stop and (not prompt_checked) and t >= prompt_window_s:
             prompt_checked = True
             n_g_p = 0
             n_l_p = 0
@@ -4060,8 +4077,9 @@ def _run_simulation_once(
         int(_ign_h_code),
         int(_ap_code),
         bool(stop_if_unignitable),
-        float(ignition_prompt_window_s) if prompt_early_stop else 0.0,
+        float(ignition_prompt_window_s),
         float(ignition_prompt_fraction),
+        bool(prompt_early_stop),
         # SM1: solid-heating model + conduction state
         int(_solid_code), solid_y, solid_T, solid_age, solid_nact, solid_work,
         float(CONDUCTION_AGE_FRACTION),
