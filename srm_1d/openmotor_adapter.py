@@ -644,6 +644,11 @@ _IGNITER_SIZING_DEFAULTS = {
     'basket_fill_fraction': 0.5,
     'pellet_packing_fraction': 0.60,
     'basket_area_law': 'shrinking',    # OB1 default (exact cylinder form function); 'constant' = pre-OB1
+    # G1: closure-to-grain gap [m], lumped into the first cell's gas storage. -1 =
+    # by the first grain's forward-face inhibition (bonded -> 0, else
+    # max(3 mm, 5 % D)); >= 0 = this motor's known distance. Consumed by the
+    # GEOMETRY (ric_to_sim_args), not forwarded to build_pyrogen_chamber.
+    'head_gap_m': -1.0,
 }
 
 
@@ -997,6 +1002,8 @@ def load_igniter(motor):
     def _auto(value):
         return None if (value is None or value == -1.0) else value
 
+    # NOTE: the block's 'head_gap_m' (G1) is geometry, read by ric_to_sim_args;
+    # it is deliberately not part of the chamber-builder kwargs below.
     sizing = {
         'pyrogen_mass': _auto(ig.get('mass', -1.0)),
         'pyrogen_throat_area': _auto(ig.get('throat_area', -1.0)),
@@ -1373,8 +1380,10 @@ def ric_to_sim_args(motor, gas_props=None, target_propellant_cells=100,
         G1 aft treatment: 'lump' (default), 'cone', 'cone_nolump', 'none'
         (``convert_geometry``).
     head_gap : float or None
-        G1 closure-to-grain gap [m]; None = by the first grain's forward-face
-        inhibition (``convert_geometry``).
+        G1 closure-to-grain gap [m]. Precedence: this argument > the motor's
+        ``igniter.head_gap_m`` (>= 0) > by the first grain's forward-face
+        inhibition (bonded -> 0, else ``max(3 mm, 5 % D)``;
+        ``convert_geometry``).
     **sim_overrides
         Additional keyword arguments passed to run_simulation
         (e.g. roughness, kappa, igniter params).
@@ -1386,6 +1395,12 @@ def ric_to_sim_args(motor, gas_props=None, target_propellant_cells=100,
     """
     prop = convert_propellant(motor['propellant'], gas_props)
     nozzle = convert_nozzle(motor['nozzle'])
+    if head_gap is None:
+        # G1: a per-motor closure-to-grain distance from the igniter block.
+        ig = motor.get('igniter')
+        hg = ig.get('head_gap_m', -1.0) if isinstance(ig, dict) else -1.0
+        if hg is not None and hg >= 0.0:
+            head_gap = float(hg)
     geo = convert_geometry(motor['grains'],
                            target_propellant_cells=target_propellant_cells,
                            nozzle=nozzle, aft_end=aft_end, head_gap=head_gap)
@@ -1435,6 +1450,7 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
                  radiation_emissivity=None,
                  flame_front_enabled=None, flame_front_velocity=None,
                  zn_enabled=None, kappa_zn=None,
+                 head_gap=None,
                  verbose=True, **sim_overrides):
     """
     Load a .ric file, run the 1D simulation, compute performance.
@@ -1463,6 +1479,10 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
         Igniter sizing. None = not given. Precedence: an explicit value here
         > the motor file's igniter block > the ``build_pyrogen_chamber``
         defaults. (``pyrogen_mass=None`` everywhere = auto-size.)
+    head_gap : float or None
+        G1: closure-to-grain gap [m] (lumped into cell 0's storage). None = the
+        motor's ``igniter.head_gap_m`` if set, else by the first grain's
+        forward-face inhibition (bonded -> 0, otherwise ``max(3 mm, 5 % D)``).
     verbose : bool
         If True, print simulation and performance summary blocks. Set
         False for large parameter sweeps.
@@ -1484,7 +1504,7 @@ def run_from_ric(filepath, gas_props=None, transport_path=None,
         gas_props = load_transport(transport_path)
 
     args = ric_to_sim_args(
-        motor, gas_props=gas_props,
+        motor, gas_props=gas_props, head_gap=head_gap,
         **sim_overrides,
     )
 

@@ -258,6 +258,9 @@ _IGNITER_CHAMBER_META = {
                                 'min': 0, 'max': 1},
     'basket_area_law': {'label': 'Basket Burn Area Law',
                         'choices': _BASKET_AREA_LAWS},
+    # G1: -1 = by the first grain's forward-face inhibition
+    'head_gap_m': {'label': 'Head Gap (closure to grain, -1 = auto)',
+                   'unit': 'm', 'min': -1, 'max': 1},
 }
 
 

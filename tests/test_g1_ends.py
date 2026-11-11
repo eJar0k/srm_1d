@@ -252,3 +252,51 @@ class TestBcReservoirCut:
         L = (D_OUT - D_T) / 2 / np.tan(np.radians(30.0))
         V = np.pi / 12 * L * (D_OUT ** 2 + D_OUT * D_T + D_T ** 2)
         assert geo.aft_lump_volume == pytest.approx(V)
+
+
+class TestHeadGapOverride:
+    """Per-motor closure-to-grain distance: kwarg > igniter.head_gap_m > inhibition default."""
+
+    def _motor(self):
+        import copy, os
+        from srm_1d.openmotor_adapter import load_ric, default_igniter_block
+        m = load_ric(os.path.join(os.path.dirname(__file__), '..', 'motors', 'hasegawa_a.ric'))
+        m = copy.deepcopy(m)
+        m['igniter'] = default_igniter_block('bpnv')
+        return m
+
+    def test_block_default_is_auto_sentinel(self):
+        from srm_1d.openmotor_adapter import default_igniter_block
+        assert default_igniter_block('bpnv')['head_gap_m'] == -1.0
+
+    def test_auto_follows_inhibition(self):
+        from srm_1d.openmotor_adapter import ric_to_sim_args
+        m = self._motor()
+        geo = ric_to_sim_args(m)['geo']
+        first_inh = m['grains'][0]['properties'].get('inhibitedEnds', 'Neither') in ('Top', 'Both')
+        assert (geo.head_gap == 0.0) == first_inh
+
+    def test_igniter_block_value_is_used_and_zero_is_valid(self):
+        from srm_1d.openmotor_adapter import ric_to_sim_args
+        m = self._motor()
+        m['igniter']['head_gap_m'] = 0.007
+        assert ric_to_sim_args(m)['geo'].head_gap == pytest.approx(0.007)
+        m['igniter']['head_gap_m'] = 0.0
+        assert ric_to_sim_args(m)['geo'].head_gap == 0.0
+
+    def test_kwarg_beats_block(self):
+        from srm_1d.openmotor_adapter import ric_to_sim_args
+        m = self._motor()
+        m['igniter']['head_gap_m'] = 0.007
+        assert ric_to_sim_args(m, head_gap=0.002)['geo'].head_gap == pytest.approx(0.002)
+
+    def test_gap_is_not_forwarded_to_the_chamber_builder(self):
+        from srm_1d.openmotor_adapter import load_igniter
+        m = self._motor()
+        m['igniter']['head_gap_m'] = 0.007
+        _, sizing = load_igniter(m)
+        assert 'head_gap_m' not in sizing and 'head_gap' not in sizing
+
+    def test_plugin_chamber_schema_exposes_the_field(self):
+        import srm_1d.srm1d_plugin as pl
+        assert 'head_gap_m' in pl._IGNITER_CHAMBER_META
