@@ -243,8 +243,170 @@ def _subsonic_inflow_dmdp(P_cell, T_ambient, P_ambient, A_throat, gamma, R_speci
 
 
 @njit(cache=True, fastmath=True)
+def _stagnation_factor(M, gamma):
+    """g(M) = P0/P = (1 + (gamma-1)/2 M^2)^(gamma/(gamma-1)) (isentropic)."""
+    return (1.0 + 0.5 * (gamma - 1.0) * M * M) ** (gamma / (gamma - 1.0))
+
+
+@njit(cache=True, fastmath=True)
+def _subsonic_mach_from_area_ratio(r, gamma):
+    """Subsonic root M in (0, 1] of the isentropic area-Mach relation
+    ``A/A* = (1/M) [(1 + x M^2)/(1 + x)]^((gamma+1)/(2 (gamma-1)))``,
+    ``x = (gamma-1)/2``, for ``r = A/A* >= 1``.
+
+    ``r <= 1`` has no subsonic root: returns 1.0 (the section is sonic).
+    Newton on ``F(M) = ln(A/A*(M)) - ln r`` started at the low-Mach
+    asymptote ``M0 = (1+x)^-e / r`` (which lies LEFT of the root, so the
+    iteration is monotone for the convex, decreasing ``F``), safeguarded by a
+    bisection bracket (0, 1] and a bounded iteration count.
+    """
+    if r <= 1.0:
+        return 1.0
+    x = 0.5 * (gamma - 1.0)
+    e = (gamma + 1.0) / (2.0 * (gamma - 1.0))
+    ln_r = np.log(r)
+    ln_1px = np.log(1.0 + x)
+    lo = 0.0
+    hi = 1.0
+    M = (1.0 + x) ** (-e) / r
+    if M < 1.0e-12:
+        M = 1.0e-12
+    if M > 0.999999:
+        M = 0.999999
+    for _ in range(80):
+        f1 = 1.0 + x * M * M
+        F = -np.log(M) + e * (np.log(f1) - ln_1px) - ln_r
+        if F > 0.0:
+            lo = M
+        else:
+            hi = M
+        dF = -1.0 / M + e * 2.0 * x * M / f1
+        if dF != 0.0:
+            Mn = M - F / dF
+        else:
+            Mn = 0.5 * (lo + hi)
+        if not (Mn > lo and Mn < hi):
+            Mn = 0.5 * (lo + hi)
+        if abs(Mn - M) <= 1.0e-15 * Mn:
+            M = Mn
+            break
+        M = Mn
+    return M
+
+
+@njit(cache=True, fastmath=True)
+def _nozzle_choke_mach(A_exit, A_throat, gamma, isentropic):
+    """Port-exit Mach at which the throat is sonic: the subsonic area-Mach root of
+    ``A_exit/A_throat`` (1.0 if ``A_exit <= A_throat``).  0.0 = the static-as-
+    stagnation boundary (``isentropic`` False or degenerate input).  Hoisted out of
+    ``_nozzle_boundary_flow`` so the Newton solve runs once per step, not per call."""
+    if (not isentropic) or A_exit <= 0.0 or A_throat <= 0.0 or gamma <= 1.0:
+        return 0.0
+    return _subsonic_mach_from_area_ratio(A_exit / A_throat, gamma)
+
+
+@njit(cache=True, fastmath=True)
+def _isentropic_outflow_boundary(Pc, Tc, Pa, A_throat, A_exit, gamma, R_specific, M_c):
+    """NB1: outflow (``Pc > Pa``) through the port exit (``A_exit``, static
+    ``Pc, Tc``) and the throat (``A_throat``) with quasi-steady isentropic flow.
+
+    The cell is the port exit: its (P, T) are STATIC and the gas is moving at
+    Mach ``M_e``; the reservoir (stagnation) state is ``P0 = P g(M_e)``,
+    ``T0 = T (1 + (gamma-1)/2 M_e^2)``.  ``M_e`` is solved self-consistently
+    with the throat (no lagged velocity).
+
+    * ``A_exit <= A_throat``: no subsonic area-Mach root, the port exit is the
+      sonic section (``M_e = 1``, controlling area ``A_exit``).  The critical
+      pressure ratio of ``P0 = P g(1)`` equals ``P`` itself, so any outflow
+      (``Pc > Pa``) is choked.
+    * Choked (``Pa <= crit * P0``): ``M_e`` = subsonic area-Mach root of
+      ``A_exit/A_throat``; ``mdot = Gamma A_t P0 / sqrt(R T0)``, linear in P
+      at fixed ``M_e`` so ``dmdp = mdot / P``.
+    * Subsonic: ``M_e`` is the root of ``G(M) = mdot_e(M) - mdot_t(M) = 0`` with
+      ``mdot_e = A_e P M sqrt(gamma/(R T))`` and ``mdot_t`` the isentropic
+      subsonic flow from (P0(M), T0(M)) to the throat static ``Pa``; bracketed
+      on ``[0, M_choke]`` (``G(0) < 0 < G(M_choke)``), safeguarded Newton.
+      ``dmdp`` follows from the implicit derivative ``dM/dP = -G_P/G_M``.
+
+    Returns ``(mdot, dmdp, T_static, state)``.  ``T_static`` is the cell's
+    STATIC temperature: callers add the kinetic energy themselves (the
+    advected enthalpy ``Cp T + KE`` is already the stagnation enthalpy), so
+    returning ``T0`` would double-count it.
+    """
+    x = 0.5 * (gamma - 1.0)
+    k = gamma / (gamma - 1.0)
+    gamma_fn = _critical_flow_function(gamma)
+    crit_pr = _critical_pressure_ratio(gamma)
+    if M_c >= 1.0:           # A_exit <= A_throat: no subsonic root, sonic port exit
+        f_c = 1.0 + x
+        mdot = gamma_fn * A_exit * Pc * f_c ** (k - 0.5) / np.sqrt(R_specific * Tc)
+        return mdot, mdot / Pc, Tc, NOZZLE_STATE_CHOKED_OUT
+    f_c = 1.0 + x * M_c * M_c
+    P0_c = Pc * f_c ** k
+    if Pa <= crit_pr * P0_c:
+        mdot = gamma_fn * A_throat * P0_c / np.sqrt(R_specific * Tc * f_c)
+        return mdot, mdot / Pc, Tc, NOZZLE_STATE_CHOKED_OUT
+
+    # ---- subsonic: root of G(M) on [0, M_c] ----
+    e1 = 2.0 / gamma
+    e2 = (gamma + 1.0) / gamma
+    kt = A_throat * np.sqrt(2.0 * gamma / ((gamma - 1.0) * R_specific * Tc)) * Pc
+    c_e = A_exit * Pc * np.sqrt(gamma / (R_specific * Tc))
+    lo = 0.0
+    hi = M_c
+    M = 0.5 * M_c
+    for _ in range(100):
+        f = 1.0 + x * M * M
+        pr = Pa / (Pc * f ** k)
+        h = pr ** e1 - pr ** e2
+        if h < 0.0:
+            h = 0.0
+        mdot_t = kt * f ** (k - 0.5) * np.sqrt(h)
+        G = c_e * M - mdot_t
+        if G > 0.0:
+            hi = M
+        else:
+            lo = M
+        fp = 2.0 * x * M
+        if h > 1.0e-300:
+            hp = e1 * pr ** (e1 - 1.0) - e2 * pr ** (e2 - 1.0)
+            dlnmt = (k - 0.5) * fp / f + hp * (-pr * k * fp / f) / (2.0 * h)
+        else:
+            dlnmt = 0.0
+        G_M = c_e - mdot_t * dlnmt
+        if G_M != 0.0:
+            Mn = M - G / G_M
+        else:
+            Mn = 0.5 * (lo + hi)
+        if not (Mn > lo and Mn < hi):
+            Mn = 0.5 * (lo + hi)
+        if abs(Mn - M) <= 1.0e-14 * Mn:
+            M = Mn
+            break
+        M = Mn
+    # Converged root: mdot and the implicit derivative dmdp = dmdot/dP.
+    f = 1.0 + x * M * M
+    pr = Pa / (Pc * f ** k)
+    h = pr ** e1 - pr ** e2
+    mdot = c_e * M
+    if h <= 1.0e-16:
+        return mdot, 0.0, Tc, NOZZLE_STATE_SUBSONIC_OUT
+    hp = e1 * pr ** (e1 - 1.0) - e2 * pr ** (e2 - 1.0)
+    fp = 2.0 * x * M
+    mdot_t = kt * f ** (k - 0.5) * np.sqrt(h)
+    dlnmt = (k - 0.5) * fp / f + hp * (-pr * k * fp / f) / (2.0 * h)
+    G_M = c_e - mdot_t * dlnmt
+    G_P = (mdot / Pc) * (pr * hp / (2.0 * h))
+    dmdp = mdot / Pc - c_e * G_P / G_M
+    if dmdp < 0.0:
+        dmdp = 0.0
+    return mdot, dmdp, Tc, NOZZLE_STATE_SUBSONIC_OUT
+
+
+@njit(cache=True, fastmath=True)
 def _nozzle_boundary_flow(
     P_cell, T_cell, A_throat, gamma, R_specific, P_ambient, T_ambient,
+    A_exit, M_choke,
 ):
     """
     Signed quasi-steady isentropic throat boundary.
@@ -252,6 +414,18 @@ def _nozzle_boundary_flow(
     Returns ``(mdot, dmdot_dP_cell, upstream_temperature, state_code)``.
     Positive ``mdot`` is chamber outflow. Negative ``mdot`` is ambient
     inflow through the throat.
+
+    NB1 (``M_choke > 0``, the default of the drivers): the cell's P, T are
+    STATIC values at the port exit (flow area ``A_exit``); the outflow is
+    solved from the true stagnation state of the moving gas, see
+    ``_isentropic_outflow_boundary``.  ``M_choke`` is the port-exit Mach at
+    which the throat is sonic, ``_nozzle_choke_mach(A_exit, A_throat, gamma,
+    True)`` (computed ONCE per step by the drivers; 1.0 when
+    ``A_exit <= A_throat``).  ``M_choke = 0.0`` is the old
+    static-as-stagnation boundary (``A_exit`` unused), kept for A/B.  The
+    returned ``upstream_temperature`` is the cell's STATIC T for outflow in
+    both modes (callers add the kinetic energy; see above) and the ambient T
+    for inflow.  Reverse inflow (reservoir at rest) is identical in both.
     """
     if A_throat <= 0.0 or gamma <= 1.0 or R_specific <= 0.0:
         return 0.0, 0.0, T_cell, NOZZLE_STATE_BALANCED
@@ -268,6 +442,9 @@ def _nozzle_boundary_flow(
     crit_pr = _critical_pressure_ratio(gamma)
 
     if Pc > Pa:
+        if M_choke > 0.0 and A_exit > 0.0:
+            return _isentropic_outflow_boundary(
+                Pc, Tc, Pa, A_throat, A_exit, gamma, R_specific, M_choke)
         pr = Pa / Pc
         if pr <= crit_pr:
             coeff = A_throat * gamma_fn / np.sqrt(R_specific * Tc)
@@ -292,7 +469,7 @@ def _total_energy_update(
     rho, u_old, T, A_port, A_face, Cp_arr, R_arr, T_ceiling_arr,
     rho_new_1, u_new, P_new, thermal_source, A_throat,
     gamma_bnd, R_bnd, P_ambient, T_ambient, dx, dt, N,
-    T_new, T_raw_arr,
+    T_new, T_raw_arr, M_choke,
 ):
     """EN1: conservative total-energy update of the cell temperatures.
 
@@ -354,7 +531,7 @@ def _total_energy_update(
         else:
             mdot_e, _dmdp, T_upstream, _state = _nozzle_boundary_flow(
                 P_new[i], T[i], A_throat, gamma_bnd, R_bnd,
-                P_ambient, T_ambient,
+                P_ambient, T_ambient, A_face[N], M_choke,
             )
             if mdot_e >= 0.0:
                 # Outflow carries the cell's total enthalpy.
@@ -410,6 +587,7 @@ def _piso_step_with_energy_diagnostics(
     total_energy=False,
     conservative_momentum=False,
     vol_extra=None,
+    nozzle_isentropic=True,
 ):
     """
     One complete PISO time step on a staggered grid.
@@ -600,6 +778,16 @@ def _piso_step_with_energy_diagnostics(
     mass by ``Cv T_new + KE_new`` instead of ``Cp T_new``) so that the ledger
     identity ``gas_energy_after + eos + floor == carried storage`` holds in
     either form.
+
+    NB1 nozzle boundary (``nozzle_isentropic``, default True): the last cell's
+    static (P, T) is the PORT-EXIT state (flow area ``A_face[N]``), and the
+    throat flow is computed from the true isentropic stagnation state
+    ``P0 = P g(M_e)`` with ``M_e`` solved self-consistently (area-Mach for
+    choked, a safeguarded root solve for subsonic); every call site (predictor,
+    both correctors, the energy update, the accounting call) uses the same
+    boundary.  ``False`` restores the static-as-stagnation boundary.  The
+    advected enthalpy stays ``Cp T_static`` (+ KE in the total-energy form),
+    which already equals the stagnation enthalpy.
     """
     # v0.7.1 Phase 3: nozzle boundary uses cell-N-1 mixture thermo
     gamma_bnd = gamma_arr[N - 1]
@@ -610,6 +798,8 @@ def _piso_step_with_energy_diagnostics(
     for j in range(1, N):
         A_face[j] = 0.5 * (A_port[j - 1] + A_port[j])
     A_face[N] = A_port[N - 1]
+    # NB1: choke Mach of the port exit / throat pair (0.0 = static-as-stagnation boundary)
+    M_choke = _nozzle_choke_mach(A_face[N], A_throat, gamma_bnd, nozzle_isentropic)
 
     # G1: gas STORAGE area.  A cell's gas volume is A_vol[i] * dx, where
     # A_vol = A_port + vol_extra / dx lumps a head gap (cell 0) or the
@@ -645,7 +835,8 @@ def _piso_step_with_energy_diagnostics(
         for j in range(1, N):
             mdot_old[j] = 0.5 * (rho[j - 1] + rho[j]) * u[j] * A_face[j]
         mdot_old[N], _dmdp0, _Tbc0, _st0 = _nozzle_boundary_flow(
-            P[N - 1], T[N - 1], A_throat, gamma_bnd, R_bnd, P_ambient, T_ambient
+            P[N - 1], T[N - 1], A_throat, gamma_bnd, R_bnd, P_ambient, T_ambient,
+            A_face[N], M_choke,
         )
         for i in range(N):
             rho_pred[i] = rho[i] + dt * (
@@ -780,7 +971,8 @@ def _piso_step_with_energy_diagnostics(
             # Nozzle BC: P' at last cell drives nozzle flow correction
             if i == N - 1:
                 _mdot_bc, dmdp_bc, _T_bc, _state_bc = _nozzle_boundary_flow(
-                    P[i], T[i], A_throat, gamma_bnd, R_bnd, P_ambient, T_ambient
+                    P[i], T[i], A_throat, gamma_bnd, R_bnd, P_ambient, T_ambient,
+                    A_face[N], M_choke,
                 )
                 a_diag[i] += dmdp_bc
 
@@ -796,7 +988,8 @@ def _piso_step_with_energy_diagnostics(
                 mdot_star_e = rho_e * u_star[i + 1] * A_face[i + 1]
             else:
                 mdot_star_e, _dmdp, _T_bc, _state = _nozzle_boundary_flow(
-                    P[i], T[i], A_throat, gamma_bnd, R_bnd, P_ambient, T_ambient
+                    P[i], T[i], A_throat, gamma_bnd, R_bnd, P_ambient, T_ambient,
+                    A_face[N], M_choke,
                 )
 
             b_rhs[i] = mass_source[i] * dx - (mdot_star_e - mdot_star_w)
@@ -852,7 +1045,8 @@ def _piso_step_with_energy_diagnostics(
             a_diag[i] = a_t + coeff_w + coeff_e
             if i == N - 1:
                 _mdot_bc, dmdp_bc, _T_bc, _state_bc = _nozzle_boundary_flow(
-                    P_new[i], T[i], A_throat, gamma_bnd, R_bnd, P_ambient, T_ambient
+                    P_new[i], T[i], A_throat, gamma_bnd, R_bnd, P_ambient, T_ambient,
+                    A_face[N], M_choke,
                 )
                 a_diag[i] += dmdp_bc
 
@@ -867,7 +1061,8 @@ def _piso_step_with_energy_diagnostics(
                 mdot_e2 = rho_e * u_new[i + 1] * A_face[i + 1]
             else:
                 mdot_e2, _dmdp, _T_bc, _state = _nozzle_boundary_flow(
-                    P_new[i], T[i], A_throat, gamma_bnd, R_bnd, P_ambient, T_ambient
+                    P_new[i], T[i], A_throat, gamma_bnd, R_bnd, P_ambient, T_ambient,
+                    A_face[N], M_choke,
                 )
 
             b_rhs[i] = mass_source[i] * dx - (mdot_e2 - mdot_w2)
@@ -888,7 +1083,7 @@ def _piso_step_with_energy_diagnostics(
         u_new[0] = 0.0
         mdot_boundary, _dmdp, T_boundary, _state = _nozzle_boundary_flow(
             P_new[N - 1], T[N - 1], A_throat, gamma_bnd, R_bnd,
-            P_ambient, T_ambient,
+            P_ambient, T_ambient, A_face[N], M_choke,
         )
         if mdot_boundary >= 0.0:
             rho_boundary = rho_new_1[N - 1]
@@ -954,7 +1149,7 @@ def _piso_step_with_energy_diagnostics(
                 rho, u, T, A_vol, A_face, Cp_arr, R_arr, T_ceiling_arr,
                 rho_new_1, u_new, P_new, thermal_source, A_throat,
                 gamma_bnd, R_bnd, P_ambient, T_ambient, dx, dt, N,
-                T_new, T_raw_arr,
+                T_new, T_raw_arr, M_choke,
             )
         else:
             gas_energy_before = 0.0
@@ -993,7 +1188,7 @@ def _piso_step_with_energy_diagnostics(
                 else:
                     mdot_e, _dmdp, T_upstream, _state = _nozzle_boundary_flow(
                         P_new[i], T[i], A_throat, gamma_bnd, R_bnd,
-                        P_ambient, T_ambient,
+                        P_ambient, T_ambient, A_face[N], M_choke,
                     )
                     # Outflow carries cell-N-1's mixture Cp; inflow uses cell-N-1's
                     # Cp as a stand-in for ambient Cp (mdot_e is small in that
@@ -1128,7 +1323,7 @@ def _piso_step_with_energy_diagnostics(
     # the i == N-1 branch there: pre-clamp P_new, start-of-step T).
     nozzle_mdot_piso, _dmdp_acct, _Tup_acct, _state_acct = _nozzle_boundary_flow(
         P_new[N - 1], T[N - 1], A_throat, gamma_bnd, R_bnd,
-        P_ambient, T_ambient,
+        P_ambient, T_ambient, A_face[N], M_choke,
     )
 
     n_floor_cells = 0
@@ -1203,6 +1398,7 @@ def piso_step(
     total_energy=False,
     conservative_momentum=False,
     vol_extra=None,
+    nozzle_isentropic=True,
 ):
     """Public PISO step returning only the updated flow state.
 
@@ -1231,6 +1427,7 @@ def piso_step(
         total_energy=total_energy,
         conservative_momentum=conservative_momentum,
         vol_extra=vol_extra,
+        nozzle_isentropic=nozzle_isentropic,
     )
     return out[0], out[1], out[2], out[3]
 

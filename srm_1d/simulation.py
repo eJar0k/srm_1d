@@ -42,6 +42,7 @@ from .solver import (
     compute_dt_cfl,
     compute_dt_source_cap,
     _nozzle_boundary_flow,
+    _nozzle_choke_mach,
 )
 from .burn_rate import (
     compute_burn_rates, haaland_friction, gnielinski_nusselt,
@@ -1911,7 +1912,7 @@ def _run_time_loop(
     cfl_target, dt_max, burn_update_interval, geometry_update_interval,
     source_cfl_factor, port_mach_cap, pressure_floor_pa,
     piso_energy_coupling_iters, piso_corr2_storage,
-    total_energy, conservative_momentum,
+    total_energy, conservative_momentum, nozzle_isentropic,
     T_ignition, P_ambient, ambient_temperature,
     diagnostic_disable_erosive, diagnostic_disable_endfaces,
     diagnostic_disable_momentum, diagnostic_disable_pyrogen_surface_heating,
@@ -2733,7 +2734,7 @@ def _run_time_loop(
             pressure_floor_pa,
             piso_energy_coupling_iters, 1.0e-6,
             piso_corr2_storage, total_energy, conservative_momentum,
-            vol_extra,
+            vol_extra, nozzle_isentropic,
         )
 
         # T6 energy audit (bookkeeping only): the gap between the END of the
@@ -2765,6 +2766,9 @@ def _run_time_loop(
             P[N - 1], T[N - 1], A_throat,
             gamma_mix_arr[N - 1], R_mix_arr[N - 1],
             P_ambient, ambient_temperature,
+            A_port[N - 1],
+            _nozzle_choke_mach(A_port[N - 1], A_throat, gamma_mix_arr[N - 1],
+                               nozzle_isentropic),
         )
         total_mass_nozzle += nozzle_mdot * dt
         # T6: post-PISO nozzle enthalpy power (final P, final T) for the
@@ -3236,6 +3240,11 @@ def _run_simulation_once(
     # (the pre-D1 predictor rho u_t = -(rho u u)_x - P_x).
     energy_formulation='total',
     momentum_formulation='conservative',
+    # NB1 (2026-11-11): nozzle-boundary stagnation state. 'isentropic' (DEFAULT) treats the last
+    # cell's P, T as STATIC at the port exit and solves the true isentropic stagnation state
+    # (area-Mach for choked flow, a root solve for subsonic); 'static' is the pre-NB1 boundary that
+    # used the static P, T as if they were the reservoir (understates P0 by g(M_exit)).
+    nozzle_bc_stagnation='isentropic',
     # RT1 (DEFAULT 'recovery' since D1): ignition driver temperature, the adiabatic-wall
     # T_aw = T + r u^2/(2 Cp) (see _driver_temperature) | 'static' (the pre-D1 driver, static T).
     ignition_driver_temperature='recovery',
@@ -3426,6 +3435,13 @@ def _run_simulation_once(
         from the old-state continuity. ``'legacy'`` is the pre-D1 predictor
         ``rho u_t = -(rho u u)_x - P_x`` (exact for steady flow; not the
         conservative momentum law in a transient).
+    nozzle_bc_stagnation : {'isentropic', 'static'}
+        NB1. ``'isentropic'`` (DEFAULT) treats the last cell's (P, T) as the STATIC
+        port-exit state and solves the throat flow from the true stagnation state
+        ``P0 = P g(M_e)`` (area-Mach root for choked flow, safeguarded root solve for
+        subsonic outflow; ``A_exit <= A_throat`` makes the port exit the sonic
+        section). ``'static'`` is the pre-NB1 boundary (static P, T used as the
+        reservoir). See docs/solver_verification/worklog/NB1.md.
     ignition_driver_temperature : {'recovery', 'static'}
         RT1. Gas temperature that drives the convective ignition heating
         ``q = h (T_driver - T_s)`` and its matching wall-loss sink. ``'static'``
@@ -3481,6 +3497,10 @@ def _run_simulation_once(
     if energy_formulation not in ('sensible', 'total'):
         raise ValueError(
             f"energy_formulation must be 'sensible' or 'total', got {energy_formulation!r}")
+    if nozzle_bc_stagnation not in ('isentropic', 'static'):
+        raise ValueError(
+            "nozzle_bc_stagnation must be 'isentropic' or 'static', "
+            f"got {nozzle_bc_stagnation!r}")
     if momentum_formulation not in ('legacy', 'conservative'):
         raise ValueError(
             "momentum_formulation must be 'legacy' or 'conservative', "
@@ -3489,6 +3509,7 @@ def _run_simulation_once(
     _head_jet_code = _head_end_jet_code(head_end_jet_h)
     _total_energy_flag = energy_formulation == 'total'
     _conservative_momentum_flag = momentum_formulation == 'conservative'
+    _nozzle_isentropic_flag = nozzle_bc_stagnation == 'isentropic'
     if burn_update_interval is not None and (
             int(burn_update_interval) != burn_update_interval
             or burn_update_interval < 1):
@@ -3991,7 +4012,7 @@ def _run_simulation_once(
         cfl_target, dt_max, burn_update_interval, geometry_update_interval,
         source_cfl_factor, float(port_mach_cap), float(pressure_floor_pa),
         int(piso_energy_coupling_iters), bool(piso_corr2_storage),
-        _total_energy_flag, _conservative_momentum_flag,
+        _total_energy_flag, _conservative_momentum_flag, _nozzle_isentropic_flag,
         T_ignition, P_ambient, T_ambient,
         bool(diagnostic_disable_erosive), bool(diagnostic_disable_endfaces),
         bool(diagnostic_disable_momentum),
@@ -4365,6 +4386,7 @@ def _run_simulation_once(
         'ignition_driver_temperature': ignition_driver_temperature,
         'head_end_jet_h': head_end_jet_h,
         'momentum_formulation': momentum_formulation,
+        'nozzle_bc_stagnation': nozzle_bc_stagnation,
         'ignition_heat_transfer': ignition_heat_transfer,
         'peretz_ap_reference': peretz_ap_reference,
         'ignited': bool(first_ignition_time == first_ignition_time),  # not NaN

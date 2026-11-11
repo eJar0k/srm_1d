@@ -108,7 +108,8 @@ class Tube:
                    pressure_floor_pa=1.0, energy_coupling_iters=self.K,
                    energy_coupling_tol=1.0e-6, corr2_storage=self.S,
                    total_energy=self.total,
-                   conservative_momentum=self.cons_mom)
+                   conservative_momentum=self.cons_mom,
+                   nozzle_isentropic=False)   # NB1: the harness uses the static orifice as a pressure outlet
         self.rho, self.u, self.P, self.T = out[0], out[1], out[2], out[3]
         self.t += dt
         self.n += 1
@@ -451,7 +452,7 @@ def _back_pressure(P_c, T_c, A_bc, mdot, T_amb):
     lo, hi = 0.5 * P_c, P_c
     for _ in range(200):
         mid = 0.5 * (lo + hi)
-        m = _nozzle_boundary_flow(P_c, T_c, A_bc, GAMMA, R_GAS, mid, T_amb)[0]
+        m = _nozzle_boundary_flow(P_c, T_c, A_bc, GAMMA, R_GAS, mid, T_amb, 0.0, 0.0)[0]
         if m > mdot:
             lo = mid
         else:

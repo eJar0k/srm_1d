@@ -331,6 +331,19 @@ in geometry/burn rate/ignition (called every step or every N steps).
 
 ## API Breaking Changes Log
 
+### NB1 (unreleased, 2026-11-11) -- the nozzle boundary uses the true (isentropic) stagnation state
+
+- **BEHAVIOUR CHANGE (all runs, default).** `run_simulation(nozzle_bc_stagnation='isentropic')` (new kwarg; `'static'` = the pre-NB1 boundary, kept for A/B). The last cell's (P, T) are the STATIC port-exit
+  state (flow area `A_face[N] = A_port[N-1]`); the throat flow is computed from the isentropic stagnation state `P0 = P g(M_e)`, `T0 = T(1 + (gamma-1)/2 M_e^2)` with `M_e` solved self-consistently
+  (area-Mach subsonic root for choked, a safeguarded Newton/bisection root solve for subsonic outflow; `A_exit <= A_throat` makes the port exit the sonic section). Reverse inflow unchanged. The pre-NB1
+  boundary treated the static P, T as the reservoir and understated P0 by g(M_e) (about 7 % at M_e = 0.35). Plugin: new choice field `nozzle_bc_stagnation` (default read from the signature).
+- **@njit signature changes:** `solver._nozzle_boundary_flow(P, T, A_throat, gamma, R, P_amb, T_amb, A_exit, M_choke)` (two new REQUIRED trailing args; `M_choke = _nozzle_choke_mach(A_exit, A_throat, gamma, isentropic)` is the port-exit Mach at which the throat is sonic, computed once per step, and 0.0 selects the old static boundary); `_piso_step_with_energy_diagnostics` / `piso_step`
+  gain trailing `nozzle_isentropic=True`; `_total_energy_update` gains trailing `M_choke`; `_run_time_loop` gains `nozzle_isentropic` (after `conservative_momentum`). The boundary still returns the
+  cell's STATIC T as the advected temperature (callers add the kinetic energy: `Cp T_static + KE` is already the stagnation enthalpy; returning T0 would double-count it). New helpers
+  `_subsonic_mach_from_area_ratio`, `_isentropic_outflow_boundary`, `_stagnation_factor`.
+- Probes that use the static orifice branch as a pressure outlet (the EN1 duct harness `docs/solver_verification/probes/en1_verification.py`) now pass `nozzle_isentropic=False` explicitly.
+  Details, verification tables and the B0 re-record: `docs/solver_verification/worklog/NB1.md`.
+
 ### AS1 (unreleased, 2026-11-11) -- prompt-start success criterion for the auto igniter charge
 
 - **BEHAVIOUR CHANGE (auto charges only):** the fallback now succeeds when at least `ignition_prompt_fraction` = 0.95 of the grain cells ignited within `ignition_prompt_window_s` = 0.5 s of igniter
