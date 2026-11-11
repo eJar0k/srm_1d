@@ -1,0 +1,536 @@
+........................................................................ [  7%]
+........................................................................ [ 15%]
+....................F................................................... [ 22%]
+........................................................................ [ 30%]
+........................................................................ [ 38%]
+................................................................F....... [ 45%]
+........................................................................ [ 53%]
+........................................................................ [ 60%]
+........................................................................ [ 68%]
+........................................................................ [ 76%]
+........................................................................ [ 83%]
+........................................................................ [ 91%]
+.................................................
+[T4 mode invariants] motor=hlbltest.ric
+  ma2020        term='pressure cutoff' m=0.72190kg (+0.0000%) I=1488.45Ns (+0.0000%) t_burn(5%F)=0.6045s (+0.0000%) t_end=0.6240s (+0.0000%) Ppk=11.463MPa (+0.0000%)
+  mukunda_paul  term='pressure cutoff' m=0.72194kg (+0.0053%) I=1488.95Ns (+0.0339%) t_burn(5%F)=0.6121s (+1.2502%) t_end=0.6299s (+0.9582%) Ppk=10.818MPa (-5.6256%)
+  saint_robert  term='pressure cutoff' m=0.72195kg (+0.0064%) I=1489.25Ns (+0.0543%) t_burn(5%F)=0.6144s (+1.6263%) t_end=0.6312s (+1.1530%) Ppk=10.399MPa (-9.2789%)
+....................... [ 98%]
+...........                                                              [100%]
+================================== FAILURES ===================================
+________________ test_flame_front_spreads_ignition_in_full_sim ________________
+
+    def test_flame_front_spreads_ignition_in_full_sim():
+        from srm_1d.openmotor_adapter import run_from_ric
+        from srm_1d.tools.ignition_diagnostics import ignition_spread_metrics
+    
+>       result, _perf, _nz, _geo, _prop = run_from_ric(
+            'motors/hasegawa_a.ric',
+            roughness=37.1e-6, kappa=0.45, pyrogen=_demar_bpnv(), pyrogen_mass=None,
+            T_ignition=850.0, P_cutoff=0.05e6,
+            snapshot_interval=0.05, print_interval=20.0, verbose=False,
+            flame_front_enabled=True, flame_front_velocity=3.0,
+        )
+
+tests\test_flame_front_gate.py:108: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+srm_1d\openmotor_adapter.py:1598: in run_from_ric
+    result = run_simulation(geo, prop, **args)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+ignition_retry_factor = 1.25, ignition_retry_max_attempts = 10
+args = (MotorGeometry(L_motor=1.68, D_outer=0.08, segments=[GrainSegment(x_start=0.0, length=1.68, D_bore_fwd=0.04, D_outer=0...tau=0.001, flame_spread_boost=3.0, flame_front_enabled=True, flame_front_velocity=3.0, zn_enabled=False, kappa_zn=1.0))
+kwargs = {'P_ambient': 101356.5, 'P_cutoff': 50000.0, 'T_ignition': 850.0, 'kappa': 0.45, ...}
+inspect = <module 'inspect' from 'C:\\Users\\ejarocki\\.pyenv\\pyenv-win\\versions\\3.10.5\\lib\\inspect.py'>
+warnings = <module 'warnings' from 'C:\\Users\\ejarocki\\.pyenv\\pyenv-win\\versions\\3.10.5\\lib\\warnings.py'>
+bound = <BoundArguments (geo=MotorGeometry(L_motor=1.68, D_outer=0.08, segments=[GrainSegment(x_start=0.0, length=1.68, D_bore...ignition=850.0, P_cutoff=50000.0, print_interval=20.0, snapshot_interval=0.05, verbose=False, prompt_early_stop=False)>
+chamber = PyrogenChamber(pyrogen=Pyrogen(name='BPNV', a=2e-05, n=0.5, rho=1700.0, T_flame=2719.0, M=0.0482, gamma=1.17, impetus_...fraction=0.6, basket_area_law='shrinking', bed_flame_speed_m_s=0.0, mass_auto=True, free_volume_in3=131.01030488991253)
+pf = 0.95, pw = 0.5, auto = True, progress = None
+
+    def run_simulation(*args, ignition_retry_factor=1.25,
+                       ignition_retry_max_attempts=10, **kwargs):
+        """Run a complete transient simulation (all parameters as
+        :func:`_run_simulation_once`, documented below), with the IG3/AS1 ignition
+        fallback for AUTO-SIZED pyrogen charges.
+    
+        SUCCESS = PROMPT START (AS1, user-chosen): at least
+        ``ignition_prompt_fraction`` (0.95) of the grain cells ignited within
+        ``ignition_prompt_window_s`` (0.5 s) of igniter firing (t = 0). A run shorter
+        than the window is judged at its end. The IG4 "self-sustaining" test (after
+        the igniter is spent the grain's own gas generation exceeds the igniter's peak,
+        ``_self_sustaining``) is kept as the ``summary['ignited']`` flag and for the
+        plugin's no-ignition / hang-fire ERROR, but is NOT a separate retry condition:
+        a grain that is 95 % lit within 0.5 s while the igniter is still out-producing it
+        after burnout does not occur (checked on the canonical motors; it would be
+        reported by a warning). The IG4 test alone accepted a hang-fire (BALLSstick lit
+        over ~1 s, t90 971 ms).
+    
+        If the pyrogen charge was auto-sized (``PyrogenChamber.mass_auto``, i.e.
+        ``build_pyrogen_chamber(pyrogen_mass=None)``; initial guess DeMar M = V P / W at
+        300 psi) and the prompt start is not met, the attempt is failed AT THE WINDOW END
+        (``prompt_early_stop``, termination_code 7; or earlier by ``stop_if_unignitable``
+        when nothing can light, code 6) and retried at ``ignition_retry_factor`` times the
+        charge (default 1.25), at most ``ignition_retry_max_attempts`` attempts in all
+        (default 10, up to 1.25**9 = 7.5x). After the cap: if the grain never sustained
+        combustion :class:`PyrogenAutoSizeError` is raised; if it did light (just not
+        promptly) the last attempt is re-run to completion and returned with a warning
+        and ``summary['prompt_start'] == False``. A successful upsize is reported with a
+        ``RuntimeWarning`` naming the final charge and its DeMar-equivalent pressure.
+    
+        An EXPLICITLY set charge is never resized: a run that does not meet the prompt
+        start returns normally with ``summary['prompt_start'] == False`` and a warning
+        giving the lit fraction at the window (``summary['ignited']`` False = never
+        self-sustaining, a hang-fire).
+    
+        At the end of EVERY run grain cells that never lit are reported with a
+        ``RuntimeWarning`` (count, cell-index range, x range) and the
+        ``summary['grain_*']`` keys. ``summary`` also gains ``ignition_attempts``,
+        ``ignition_attempt_masses_kg``, ``ignition_attempt_wall_s``,
+        ``ignition_attempt_prompt_fractions``, ``ignition_attempt_terminations``,
+        ``pyrogen_mass_auto``, ``pyrogen_mass_final_kg``, ``pyrogen_resized``,
+        ``pyrogen_demar_equiv_psi`` (M W / V_free of the final charge), ``prompt_start``,
+        ``prompt_lit_fraction``, ``ignition_t50_s``, ``ignition_t90_s``.
+        """
+        import inspect
+        import warnings
+        bound = inspect.signature(_run_simulation_once).bind(*args, **kwargs)
+        chamber = bound.arguments['pyrogen_chamber']
+        if ignition_retry_factor <= 1.0:
+            raise ValueError("ignition_retry_factor must be > 1")
+        if int(ignition_retry_max_attempts) < 1:
+            raise ValueError("ignition_retry_max_attempts must be >= 1")
+        pf = bound.arguments.get('ignition_prompt_fraction', 0.95)
+        pw = bound.arguments.get('ignition_prompt_window_s', 0.5)
+        if not (0.0 < float(pf) <= 1.0):
+            raise ValueError("ignition_prompt_fraction must be in (0, 1]")
+        if not float(pw) > 0.0:
+            raise ValueError("ignition_prompt_window_s must be > 0")
+        auto = bool(getattr(chamber, 'mass_auto', False))
+        progress = bound.arguments.get('progress_state')
+        masses = []
+        t_wall = []
+        fracs = []
+        terms = []
+        attempt = 0
+        while True:
+            attempt += 1
+            masses.append(float(getattr(chamber, 'm_pyrogen_initial', 0.0)))
+            bound.arguments['pyrogen_chamber'] = chamber
+            bound.arguments['prompt_early_stop'] = auto
+            t0 = clock.time()
+            res = _run_once_growing_history(bound)
+            t_wall.append(clock.time() - t0)
+            summ = res['summary']
+            ignited = _self_sustaining(res)
+            fracs.append(float(summ['prompt_lit_fraction']))
+            terms.append(int(summ['termination_code']))
+            prompt_ok = bool(summ['prompt_start'])
+            if prompt_ok or int(summ['termination_code']) in (3, 4, 5):
+                break
+            if not auto or attempt >= int(ignition_retry_max_attempts):
+                break
+            res = summ = None          # free the failed attempt's history arrays (~GB) before the next
+            chamber = chamber.resize(masses[-1] * float(ignition_retry_factor))
+            if progress is not None:       # restart the live progress bar
+                progress[0] = 0.0
+        name = chamber.pyrogen.name
+        # Auto charge that never met the prompt start and whose last attempt was cut at the window:
+        # complete the last attempt (no early stop) so the returned result is a full run.
+        if (auto and not prompt_ok and terms[-1] == 7):
+            res = summ = None
+            bound.arguments['prompt_early_stop'] = False
+            t0 = clock.time()
+            res = _run_once_growing_history(bound)
+            t_wall[-1] += clock.time() - t0
+            summ = res['summary']
+            ignited = _self_sustaining(res)
+            fracs[-1] = float(summ['prompt_lit_fraction'])
+            terms[-1] = int(summ['termination_code'])
+            prompt_ok = bool(summ['prompt_start'])
+        summ['ignited'] = bool(ignited)
+        summ['ignition_attempts'] = attempt
+        summ['ignition_attempt_masses_kg'] = list(masses)
+        summ['ignition_attempt_wall_s'] = list(t_wall)
+        summ['ignition_attempt_prompt_fractions'] = list(fracs)
+        summ['ignition_attempt_terminations'] = list(terms)
+        summ['pyrogen_mass_auto'] = auto
+        summ['pyrogen_mass_final_kg'] = masses[-1]
+        summ['pyrogen_resized'] = bool(auto and attempt > 1)
+        term = int(summ['termination_code'])
+        ch_psi = summ.get('pyrogen_demar_equiv_psi')
+        psi_txt = (f", DeMar-equivalent {ch_psi:.0f} psi (initial guess 300 psi)"
+                   if ch_psi == ch_psi else "")
+        if auto and not prompt_ok and not ignited and term not in (3, 4, 5):
+>           raise PyrogenAutoSizeError(
+                f"auto-sized {name} charge did not light the motor in {attempt} "
+                f"attempts (charges tried: "
+                f"{', '.join(f'{m * 1e3:.3g}' for m in masses)} g, factor "
+                f"{ignition_retry_factor:g}; lit fraction at {pw:g} s: "
+                f"{', '.join(f'{100 * v:.0f} %' for v in fracs)}). Check the igniter "
+                f"topology / propellant, or set the charge explicitly.", masses_kg=masses)
+E           srm_1d.simulation.PyrogenAutoSizeError: auto-sized BPNV charge did not light the motor in 10 attempts (charges tried: 7.86, 9.83, 12.3, 15.4, 19.2, 24, 30, 37.5, 46.9, 58.6 g, factor 1.25; lit fraction at 0.5 s: 89 %, 89 %, 89 %, 89 %, 89 %, 89 %, 89 %, 90 %, 89 %, 3 %). Check the igniter topology / propellant, or set the charge explicitly.
+
+srm_1d\simulation.py:4848: PyrogenAutoSizeError
+__________ test_initial_burn_area_is_the_cylinder_formula_for_any_LD __________
+
+    def test_initial_burn_area_is_the_cylinder_formula_for_any_LD():
+        from srm_1d.openmotor_adapter import build_pyrogen_chamber
+        from srm_1d.grain_geometry import build_snapped_geometry   # noqa: F401  (import check only)
+        import types
+        geo = types.SimpleNamespace(D_outer=0.05, L_motor=0.3, total_propellant_volume=lambda: 1e-4)
+        nozzle = None
+        for lam in (0.5, 1.0, 1.504, 3.0):
+            pyro = _pyro(particle_diameter_m=3.0e-3, particle_LD_ratio=lam)
+>           ch = build_pyrogen_chamber(pyro, geo, nozzle, pyrogen_mass=4.5e-3, pyrogen_throat_area=1e-5,
+                                       pyrogen_volume=1e-5)
+
+tests\test_ob1_pyrogen_bed.py:354: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+pyrogen = Pyrogen(name='t', a=2e-05, n=0.5, rho=1700.0, T_flame=2700.0, M=0.048, gamma=1.17, impetus_W=0.0, heat_flux_cal_cm2_s=...ticle_LD_ratio=0.5, heat_delivery_mode='none', pellet_emissivity=0.7, radiation_absorption_length_m=1.0, P_plateau=0.0)
+geo = namespace(D_outer=0.05, L_motor=0.3, total_propellant_volume=<function test_initial_burn_area_is_the_cylinder_formula_for_any_LD.<locals>.<lambda> at 0x000002402E513BE0>)
+nozzle = None, pyrogen_mass = 0.0045, pyrogen_throat_area = 1e-05
+pyrogen_volume = 1e-05, pyrogen_burn_area = 0.007058823529411763
+pyrogen_burn_law = '0d', injection_topology = 'forward_plenum'
+cartridge_length_m = -1.0, basket_fill_fraction = 0.5
+pellet_packing_fraction = 0.6, basket_area_law = 'shrinking'
+bed_flame_speed_m_s = 0.0
+
+    def build_pyrogen_chamber(
+        pyrogen, geo, nozzle,
+        pyrogen_mass=None,
+        pyrogen_throat_area=None,
+        pyrogen_volume=None,
+        pyrogen_burn_area=None,
+        pyrogen_burn_law='0d',
+        injection_topology='forward_plenum',
+        cartridge_length_m=-1.0,
+        basket_fill_fraction=0.5,
+        pellet_packing_fraction=0.60,
+        basket_area_law='shrinking',
+        bed_flame_speed_m_s=0.0,
+    ):
+        """
+        Build a PyrogenChamber using v0.7.0 default sizing rules.
+    
+        IG3: with ``pyrogen_mass=None`` the charge is AUTO-sized by DeMar's rule
+        (``demar_pyrogen_mass``: free volume x 300 psi / ``pyrogen.impetus_W``) and
+        the chamber is marked ``mass_auto``, so ``run_simulation`` may upsize it
+        if the motor does not light. An explicit ``pyrogen_mass`` is never resized.
+    
+        v0.7.3 Phase A — ``injection_topology`` selects between the
+        plenum-with-orifice (``'forward_plenum'``, v0.7.0+ default) and
+        uncontained submerged-pyrogen models (``'head_basket'`` /
+        ``'aft_basket'``). For uncontained topologies, ``A_throat`` and
+        ``V_plenum`` are vestigial (PyrogenChamber still validates them at
+        construction so existing motor configs don't break, but the time
+        loop ignores them). ``cartridge_length_m=-1.0`` (default sentinel)
+        derives the cartridge length from pyrogen mass via
+        ``L_cart = m_pyrogen / (rho_p * A_port_avg)`` at sim init.
+        """
+        mass_auto = pyrogen_mass is None
+        _call = dict(
+            pyrogen_throat_area=pyrogen_throat_area, pyrogen_volume=pyrogen_volume,
+            pyrogen_burn_area=pyrogen_burn_area, pyrogen_burn_law=pyrogen_burn_law,
+            injection_topology=injection_topology,
+            cartridge_length_m=cartridge_length_m,
+            basket_fill_fraction=basket_fill_fraction,
+            pellet_packing_fraction=pellet_packing_fraction,
+            basket_area_law=basket_area_law,
+            bed_flame_speed_m_s=bed_flame_speed_m_s)
+        if pyrogen_mass is None:
+            # G1: the free volume is the geometry's own gas volume (cells' port
+            # volumes + the lumped head gap and nozzle convergent); the former
+            # case-cylinder-minus-propellant counted the full-diameter buffers.
+            free_volume_m3 = max(geo.initial_gas_volume(), 0.0)
+            free_volume_in3 = free_volume_m3 / (0.0254 ** 3)
+            # IG3: DeMar sizing at 300 psi (was Sutton Eq. 15-4; that function
+            # stays available as ``sutton_pyrogen_mass``).
+            pyrogen_mass = demar_pyrogen_mass(free_volume_in3, pyrogen.impetus_W)
+    
+        if pyrogen_volume is None:
+            pyrogen_volume = 1.5 * pyrogen_mass / pyrogen.rho
+    
+        if pyrogen_burn_area is None:
+            # v0.7.4 Phase C.1: compute total burning surface area from
+            # physical particle geometry (replaces v0.7.3 Phase B.3
+            # ×1/×5/×20 form-archetype multipliers).
+            d = float(pyrogen.particle_diameter_m)
+            ld = float(pyrogen.particle_LD_ratio)
+            if d <= 0.0:
+                raise ValueError(
+                    f"Pyrogen '{pyrogen.name}': particle_diameter_m must be "
+                    f"positive; got {d}"
+                )
+            if ld <= 0.0:
+                raise ValueError(
+                    f"Pyrogen '{pyrogen.name}': particle_LD_ratio must be "
+                    f"positive; got {ld}"
+                )
+            # Right cylinder D = d, H = ld*d (all faces burning):
+            #   A = pi d H + pi d^2/2 = pi d^2 (ld + 1/2),  V = pi d^2 H/4 = pi d^3 ld/4
+            #   A_total = A/V * m/rho = m (4 ld + 2) / (rho ld d)
+            # (OB1: valid for ANY L/D; L/D = 1 gives 6 m/(rho d) like a sphere, and
+            # the former `ld <= 1` sphere branch was wrong for L/D < 1.)
+            pyrogen_burn_area = (
+                pyrogen_mass * (4.0 * ld + 2.0)
+                / (pyrogen.rho * ld * d)
+            )
+    
+        if pyrogen_throat_area is None:
+            # v0.7.3.2 (2026-05-27): switch from A_throat = 0.01 * A_main
+            # (which gave 9 mm² for Hasegawa A, far too small under
+            # Phase B.0's cold-bore IC — drove plenum P_ig past 600 MPa
+            # equilibrium and tripped numerical collapse within ~2 ms)
+            # to a Kn-based sizing rule:
+            #     A_throat = A_burn / Kn_design
+            # where Kn_design = 100 is the Sutton 9e §14.5 mid-range for
+            # pellet-form BKNO3 / MTV pyrogens at the 5-30 MPa working
+            # pressure target. With A_burn \u2248 46 cm\xb2 for Hasegawa A
+            # (Mizushima 3.2 mm pellets), this gives A_throat \u2248 46 mm\xb2
+            # — close to the calibrated test value (38.5 mm²).
+            # Lower bound 1 mm² preserves choked-flow validity at the
+            # very small pyrogens; upper bound 100 mm² prevents the
+            # opposite degenerate (no throat confinement).
+            # See srm_1d/docs/v0_7_4/references/frozen_collapse_investigation.md
+            # for the regression timeline and physical motivation.
+            Kn_design_pyrogen = 100.0
+            pyrogen_throat_area = pyrogen_burn_area / Kn_design_pyrogen
+            pyrogen_throat_area = min(max(pyrogen_throat_area, 1.0e-6), 1.0e-4)
+    
+        def _resize(new_mass):
+            # Rebuild for a new AUTO charge: derived volume / burn area / throat
+            # are recomputed from the new mass (explicit ones stay as given).
+            return build_pyrogen_chamber(
+                pyrogen, geo, nozzle, pyrogen_mass=new_mass, **_call
+            )._as_auto(_resize)
+    
+        chamber = PyrogenChamber(
+>           free_volume_in3=max(geo.initial_gas_volume(), 0.0) / (0.0254 ** 3),
+            pyrogen=pyrogen,
+            m_pyrogen_initial=pyrogen_mass,
+            A_burn_initial=pyrogen_burn_area,
+            A_throat=pyrogen_throat_area,
+            V_plenum=pyrogen_volume,
+            burn_law=pyrogen_burn_law,
+            injection_topology=injection_topology,
+            cartridge_length_m=cartridge_length_m,
+            basket_fill_fraction=basket_fill_fraction,
+            pellet_packing_fraction=pellet_packing_fraction,
+            basket_area_law=basket_area_law,
+            bed_flame_speed_m_s=bed_flame_speed_m_s,
+        )
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'initial_gas_volume'
+
+srm_1d\openmotor_adapter.py:606: AttributeError
+============================== warnings summary ===============================
+tests/test_as1_prompt_start.py::TestPluginWarning::test_slow_ignition_is_a_warning_not_an_error
+  C:\tmp\sv\as1\tests\test_as1_prompt_start.py:134: RuntimeWarning: prompt start not met with the explicitly set BPNV charge of 0.815 g, DeMar-equivalent 300 psi (initial guess 300 psi): 3 % of the grain cells (99 of 100 ever) lit within 0.01 s of igniter firing (required 95 %); first light 3.53 ms, t90 235 ms; the grain did light and sustains combustion (a slow start). Explicit charges are never resized.
+    wrapped = functools.wraps(orig)(lambda *a, **k: orig(*a, ignition_prompt_window_s=0.01, **k))
+
+tests/test_as1_prompt_start.py::TestPluginWarning::test_slow_ignition_is_a_warning_not_an_error
+  C:\tmp\sv\as1\tests\test_as1_prompt_start.py:134: RuntimeWarning: 1 of 100 grain cells never ignited (cells 0-0, x = 4-4 mm; 99 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    wrapped = functools.wraps(orig)(lambda *a, **k: orig(*a, ignition_prompt_window_s=0.01, **k))
+
+tests/test_canonical_examples.py::test_canonical_hasegawa_motor_a_does_not_collapse
+tests/test_zn_burn_rate.py::test_zn_full_sim_does_not_collapse
+  C:\tmp\sv\as1\srm_1d\openmotor_adapter.py:1598: RuntimeWarning: auto-sized BPNV charge raised from 7.86 g to 9.83 g (2 attempts, factor 1.25, DeMar-equivalent 375 psi (initial guess 300 psi)) so that 95 % of the grain ignites within 0.5 s of igniter firing. Set the charge explicitly to fix it.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_canonical_examples.py::test_canonical_hasegawa_motor_a_does_not_collapse
+tests/test_zn_burn_rate.py::test_zn_full_sim_does_not_collapse
+  C:\tmp\sv\as1\srm_1d\openmotor_adapter.py:1598: RuntimeWarning: 2 of 100 grain cells never ignited (cells 0-1, x = 8-25 mm; 98 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_d1_defaults.py::test_default_is_exactly_the_explicit_d1_options
+tests/test_he1_jet.py::TestMotorPlumbing::test_stamp
+  C:\tmp\sv\as1\srm_1d\openmotor_adapter.py:1598: RuntimeWarning: 2 of 60 grain cells never ignited (cells 0-1, x = 7-20 mm; 97 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_energy_audit.py::TestRunLedgers::test_summary_keys
+  C:\tmp\sv\as1\srm_1d\openmotor_adapter.py:1598: RuntimeWarning: auto-sized BPNV charge raised from 0.815 g to 2.49 g (6 attempts, factor 1.25, DeMar-equivalent 916 psi (initial guess 300 psi)) so that 95 % of the grain ignites within 0.5 s of igniter firing. Set the charge explicitly to fix it.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_energy_audit.py::TestRunLedgers::test_summary_keys
+  C:\tmp\sv\as1\srm_1d\openmotor_adapter.py:1598: RuntimeWarning: 4 of 100 grain cells never ignited (cells 0-3, x = 4-28 mm; 96 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_energy_audit.py::test_radiation_sink_is_fully_debited_from_gas
+  C:\tmp\sv\as1\srm_1d\openmotor_adapter.py:1598: RuntimeWarning: auto-sized BPNV charge raised from 0.815 g to 1.02 g (2 attempts, factor 1.25, DeMar-equivalent 375 psi (initial guess 300 psi)) so that 95 % of the grain ignites within 0.5 s of igniter firing. Set the charge explicitly to fix it.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_energy_audit.py: 1 warning
+tests/test_energy_coupling.py: 2 warnings
+tests/test_ignition_heat_transfer.py: 1 warning
+tests/test_ob1_pyrogen_bed.py: 2 warnings
+tests/test_sm2_replay.py: 6 warnings
+tests/test_solid_heating_models.py: 1 warning
+  C:\tmp\sv\as1\srm_1d\openmotor_adapter.py:1598: RuntimeWarning: 1 of 100 grain cells never ignited (cells 0-0, x = 4-4 mm; 99 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_energy_audit.py::TestRegressionFillDebitTotalEnergy::test_convention_is_total_energy
+tests/test_energy_coupling.py::TestShortRun::test_eos_jump_shrinks_on_short_run
+tests/test_energy_coupling.py::TestShortRun::test_eos_jump_shrinks_on_short_run
+tests/test_ig4_self_sustain.py::TestCanonicalStillSucceed::test_chunc_auto
+tests/test_pressure_floor.py::TestPressureFloorRun::test_summary_keys_and_history_lengths
+  C:\tmp\sv\as1\srm_1d\openmotor_adapter.py:1598: RuntimeWarning: auto-sized BPNV charge raised from 0.815 g to 1.27 g (3 attempts, factor 1.25, DeMar-equivalent 469 psi (initial guess 300 psi)) so that 95 % of the grain ignites within 0.5 s of igniter firing. Set the charge explicitly to fix it.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_fmm.py::TestFmmSimulation::test_finocyl_end_to_end_mass_balance
+  C:\tmp\sv\as1\tests\test_fmm.py:218: RuntimeWarning: the auto-sized history (3000000 rows, estimated from the CFL wave-speed bound) filled before the run ended; re-running once with 6000000 rows. Pass history_capacity explicitly to avoid the re-run.
+    result = run_simulation(
+
+tests/test_he1_jet.py::TestMotorPlumbing::test_bad_mode_rejected
+tests/test_ig3_stage2.py::TestFallback::test_attempt_cap_raises
+tests/test_ig3_stage2.py::TestFallback::test_no_retry_arg_validation
+tests/test_ig4_self_sustain.py::TestCanonicalStillSucceed::test_chunc_auto
+tests/test_rt1_recovery.py::TestMotorPlumbing::test_bad_mode_raises
+tests/test_total_energy.py::test_run_simulation_rejects_unknown_formulations
+tests/test_total_energy.py::test_run_simulation_rejects_unknown_formulations
+  C:\tmp\sv\as1\srm_1d\openmotor_adapter.py:1542: IgniterMaterialUpgradedWarning: The motor's embedded igniter material 'BPNV' was a superseded library snapshot (an exact match of the pre-correction library values); the current library values are used instead. Re-saving the motor persists the upgrade.
+    ig = load_igniter(motor)
+
+tests/test_he1_jet.py::test_head_basket_is_untouched
+  C:\tmp\sv\as1\srm_1d\openmotor_adapter.py:1598: RuntimeWarning: prompt start not met with the explicitly set BPNV charge of 2.62 g, DeMar-equivalent 960 psi (initial guess 300 psi): 0 % of the grain cells (0 of 60 ever) lit within 0.00999974 s of igniter firing (required 95 %); first light nan ms, t90 nan ms; the grain never reached self-sustaining combustion (a hang-fire). Explicit charges are never resized.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_ig3_stage2.py::TestEarlyStop::test_stop_off_runs_to_t_max
+  C:\tmp\sv\as1\srm_1d\openmotor_adapter.py:1598: RuntimeWarning: prompt start not met with the explicitly set BPNV charge of 0.2 g, DeMar-equivalent 74 psi (initial guess 300 psi): 0 % of the grain cells (0 of 100 ever) lit within 0.0999973 s of igniter firing (required 95 %); first light nan ms, t90 nan ms; the grain never reached self-sustaining combustion (a hang-fire). Explicit charges are never resized.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_ig3_stage2.py::TestEarlyStop::test_stop_condition_is_physical
+  C:\tmp\sv\as1\srm_1d\openmotor_adapter.py:1598: RuntimeWarning: prompt start not met with the explicitly set BPNV charge of 0.2 g, DeMar-equivalent 74 psi (initial guess 300 psi): 0 % of the grain cells (0 of 100 ever) lit within 0.239377 s of igniter firing (required 95 %); first light nan ms, t90 nan ms; the grain never reached self-sustaining combustion (a hang-fire). Explicit charges are never resized.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_ig4_self_sustain.py::TestPluginAlert::test_dud_raises_the_error_alert
+  C:\tmp\sv\as1\srm_1d\srm1d_plugin.py:365: RuntimeWarning: prompt start not met with the explicitly set BPNV charge of 0.585 g, DeMar-equivalent 400 psi (initial guess 300 psi): 3 % of the grain cells (3 of 100 ever) lit within 0.116228 s of igniter firing (required 95 %); first light 3.75 ms, t90 nan ms; the grain never reached self-sustaining combustion (a hang-fire). Explicit charges are never resized. The run ended by the pressure cutoff with the chamber still at the igniter's dribble pressure.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_ig4_self_sustain.py::TestPluginAlert::test_dud_raises_the_error_alert
+  C:\tmp\sv\as1\srm_1d\srm1d_plugin.py:365: RuntimeWarning: 97 of 100 grain cells never ignited (cells 0-99, x = 3-513 mm; 3 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_ignition_diagnostics.py::test_custom_pyrogen_missing_heat_flux_requires_explicit_disable
+  C:\tmp\sv\as1\tests\test_ignition_diagnostics.py:619: RuntimeWarning: prompt start not met with the explicitly set diagnostic-test charge of 3 g: 0 % of the grain cells (0 of 12 ever) lit within 0.000999013 s of igniter firing (required 95 %); first light nan ms, t90 nan ms; the grain never reached self-sustaining combustion (a hang-fire). Explicit charges are never resized.
+    result = run_simulation(
+
+tests/test_ignition_heat_transfer.py: 5 warnings
+tests/test_solid_heating_models.py: 5 warnings
+  C:\tmp\sv\as1\srm_1d\openmotor_adapter.py:1598: RuntimeWarning: 2 of 100 grain cells never ignited (cells 0-1, x = 4-12 mm; 98 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_mem1_history.py::TestFullHistory::test_explicit_capacity_is_honoured_and_not_rerun
+  C:\tmp\sv\as1\srm_1d\openmotor_adapter.py:1598: RuntimeWarning: 99 of 100 grain cells never ignited (cells 0-99, x = 4-809 mm; 1 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_numerical_limits.py::TestRunLevel::test_enabled_port_mach_cap_reports_face_activations
+  C:\tmp\sv\as1\tests\test_numerical_limits.py:192: RuntimeWarning: prompt start not met with the explicitly set phase3-test charge of 3 g: 67 % of the grain cells (8 of 12 ever) lit within 0.000998898 s of igniter firing (required 95 %); first light 0.314 ms, t90 nan ms; the grain did light and sustains combustion (a slow start). Explicit charges are never resized.
+    return geo, run_simulation(geo, prop, nozzle, _test_chamber(), **args)
+
+tests/test_numerical_limits.py::TestRunLevel::test_enabled_port_mach_cap_reports_face_activations
+  C:\tmp\sv\as1\tests\test_numerical_limits.py:192: RuntimeWarning: 4 of 12 grain cells never ignited (cells 8-11, x = 85-115 mm; 67 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    return geo, run_simulation(geo, prop, nozzle, _test_chamber(), **args)
+
+tests/test_numerical_limits.py::TestChuncLimits::test_pressure_floor_map_ties_to_t3_counters
+  C:\tmp\sv\as1\srm_1d\openmotor_adapter.py:1598: RuntimeWarning: 309 of 400 grain cells never ignited (cells 0-399, x = 1-812 mm; 23 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_ric_igniter.py::test_all_repo_motors_have_parseable_igniter
+  C:\tmp\sv\as1\tests\test_ric_igniter.py:88: IgniterMaterialUpgradedWarning: The motor's embedded igniter material 'BPNV' was a superseded library snapshot (an exact match of the pre-correction library values); the current library values are used instead. Re-saving the motor persists the upgrade.
+    ig = load_igniter(motor)
+
+tests/test_ric_igniter.py::test_build_chamber_from_motor_file_igniter
+  C:\tmp\sv\as1\tests\test_ric_igniter.py:99: IgniterMaterialUpgradedWarning: The motor's embedded igniter material 'BPNV' was a superseded library snapshot (an exact match of the pre-correction library values); the current library values are used instead. Re-saving the motor persists the upgrade.
+    pyro, sizing = load_igniter(motor)
+
+tests/test_srm1d_plugin.py::test_quasi_steady_solver_preserved
+  C:\Users\ejarocki\Documents\Rocketry\Code Stuff\Erosive Burning Solver\openMotor\openMotor\motorlib\nozzle.py:47: RuntimeWarning: invalid value encountered in divide
+    return fsolve(lambda x: (1/self.calcExpansion()) - eRatioFromPRatio(k, x / inputPressure), 0)[0]
+
+tests/test_srm1d_plugin.py::test_quasi_steady_solver_preserved
+  C:\Users\ejarocki\Documents\Rocketry\Code Stuff\Erosive Burning Solver\openMotor\openMotor\motorlib\nozzle.py:47: RuntimeWarning: divide by zero encountered in divide
+    return fsolve(lambda x: (1/self.calcExpansion()) - eRatioFromPRatio(k, x / inputPressure), 0)[0]
+
+tests/test_srm1d_plugin.py::test_quasi_steady_solver_preserved
+  C:\Users\ejarocki\Documents\Rocketry\Code Stuff\Erosive Burning Solver\openMotor\openMotor\motorlib\nozzle.py:13: RuntimeWarning: invalid value encountered in sqrt
+    return (((k+1)/2)**(1/(k-1))) * (pRatio ** (1/k)) * ((((k+1)/(k-1))*(1-(pRatio**((k-1)/k))))**0.5)
+
+tests/test_srm1d_plugin.py::test_quasi_steady_solver_preserved
+  C:\Users\ejarocki\Documents\Rocketry\Code Stuff\Erosive Burning Solver\openMotor\openMotor\motorlib\nozzle.py:47: RuntimeWarning: The iteration is not making good progress, as measured by the 
+   improvement from the last ten iterations.
+    return fsolve(lambda x: (1/self.calcExpansion()) - eRatioFromPRatio(k, x / inputPressure), 0)[0]
+
+tests/test_srm1d_plugin.py::test_srm1d_solver_runs_via_registry
+tests/test_srm1d_plugin.py::test_solver_config_schema_drives_run
+tests/test_srm1d_plugin.py::test_per_grain_channels_populated
+tests/test_srm1d_plugin.py::test_srm1d_axial_payload_attached
+  C:\tmp\sv\as1\srm_1d\srm1d_plugin.py:365: RuntimeWarning: auto-sized BPNV charge raised from 7.86 g to 9.83 g (2 attempts, factor 1.25, DeMar-equivalent 375 psi (initial guess 300 psi)) so that 95 % of the grain ignites within 0.5 s of igniter firing. Set the charge explicitly to fix it.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_srm1d_plugin.py::test_srm1d_solver_runs_via_registry
+tests/test_srm1d_plugin.py::test_solver_config_schema_drives_run
+tests/test_srm1d_plugin.py::test_per_grain_channels_populated
+tests/test_srm1d_plugin.py::test_srm1d_axial_payload_attached
+  C:\tmp\sv\as1\srm_1d\srm1d_plugin.py:365: RuntimeWarning: 1 of 100 grain cells never ignited (cells 0-0, x = 8-8 mm; 99 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_srm1d_plugin.py::test_fmm_grain_geometry_setup_no_crash
+  C:\tmp\sv\as1\srm_1d\srm1d_plugin.py:365: RuntimeWarning: auto-sized BPNV charge raised from 0.439 g to 0.857 g (4 attempts, factor 1.25, DeMar-equivalent 586 psi (initial guess 300 psi)) so that 95 % of the grain ignites within 0.5 s of igniter firing. Set the charge explicitly to fix it.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_srm1d_plugin.py::test_progress_callback_driven_to_completion
+  C:\tmp\sv\as1\srm_1d\srm1d_plugin.py:405: RuntimeWarning: auto-sized BPNV charge raised from 7.86 g to 9.83 g (2 attempts, factor 1.25, DeMar-equivalent 375 psi (initial guess 300 psi)) so that 95 % of the grain ignites within 0.5 s of igniter firing. Set the charge explicitly to fix it.
+    holder['result'] = run_simulation(geo, prop, **args)
+
+tests/test_srm1d_plugin.py::test_progress_callback_driven_to_completion
+  C:\tmp\sv\as1\srm_1d\srm1d_plugin.py:405: RuntimeWarning: 1 of 100 grain cells never ignited (cells 0-0, x = 8-8 mm; 99 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    holder['result'] = run_simulation(geo, prop, **args)
+
+tests/test_submerged_topology.py::test_head_basket_runs_to_completion
+  C:\tmp\sv\as1\tests\test_submerged_topology.py:56: RuntimeWarning: prompt start not met with the explicitly set BPNV charge of 12.3 g, DeMar-equivalent 469 psi (initial guess 300 psi): 2 % of the grain cells (2 of 100 ever) lit within 0.049997 s of igniter firing (required 95 %); first light 13.2 ms, t90 nan ms; the grain never reached self-sustaining combustion (a hang-fire). Explicit charges are never resized.
+    result = run_simulation(
+
+tests/test_submerged_topology.py::test_head_basket_runs_to_completion
+tests/test_submerged_topology.py::test_uncontained_preserves_mass_balance[head_basket]
+  C:\tmp\sv\as1\tests\test_submerged_topology.py:56: RuntimeWarning: 98 of 100 grain cells never ignited (cells 2-99, x = 42-1672 mm; 2 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    result = run_simulation(
+
+tests/test_submerged_topology.py::test_aft_basket_runs_to_completion
+  C:\tmp\sv\as1\tests\test_submerged_topology.py:56: RuntimeWarning: prompt start not met with the explicitly set BPNV charge of 12.3 g, DeMar-equivalent 469 psi (initial guess 300 psi): 2 % of the grain cells (2 of 100 ever) lit within 0.049998 s of igniter firing (required 95 %); first light 18.3 ms, t90 nan ms; the grain never reached self-sustaining combustion (a hang-fire). Explicit charges are never resized.
+    result = run_simulation(
+
+tests/test_submerged_topology.py::test_aft_basket_runs_to_completion
+tests/test_submerged_topology.py::test_uncontained_preserves_mass_balance[aft_basket]
+  C:\tmp\sv\as1\tests\test_submerged_topology.py:56: RuntimeWarning: 98 of 100 grain cells never ignited (cells 0-97, x = 8-1638 mm; 2 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    result = run_simulation(
+
+tests/test_submerged_topology.py::test_head_basket_deposits_pyrogen_in_head_cells
+  C:\tmp\sv\as1\tests\test_submerged_topology.py:56: RuntimeWarning: prompt start not met with the explicitly set BPNV charge of 12.3 g, DeMar-equivalent 469 psi (initial guess 300 psi): 0 % of the grain cells (0 of 100 ever) lit within 0.00499637 s of igniter firing (required 95 %); first light nan ms, t90 nan ms; the grain never reached self-sustaining combustion (a hang-fire). Explicit charges are never resized.
+    result = run_simulation(
+
+tests/test_submerged_topology.py::test_aft_basket_deposits_pyrogen_in_aft_cells
+  C:\tmp\sv\as1\tests\test_submerged_topology.py:56: RuntimeWarning: prompt start not met with the explicitly set BPNV charge of 12.3 g, DeMar-equivalent 469 psi (initial guess 300 psi): 0 % of the grain cells (0 of 100 ever) lit within 0.00499998 s of igniter firing (required 95 %); first light nan ms, t90 nan ms; the grain never reached self-sustaining combustion (a hang-fire). Explicit charges are never resized.
+    result = run_simulation(
+
+tests/test_submerged_topology.py::test_uncontained_preserves_mass_balance[head_basket]
+  C:\tmp\sv\as1\tests\test_submerged_topology.py:56: RuntimeWarning: prompt start not met with the explicitly set BPNV charge of 12.3 g, DeMar-equivalent 469 psi (initial guess 300 psi): 2 % of the grain cells (2 of 100 ever) lit within 0.0999959 s of igniter firing (required 95 %); first light 13.2 ms, t90 nan ms; the grain never reached self-sustaining combustion (a hang-fire). Explicit charges are never resized.
+    result = run_simulation(
+
+tests/test_submerged_topology.py::test_uncontained_preserves_mass_balance[aft_basket]
+  C:\tmp\sv\as1\tests\test_submerged_topology.py:56: RuntimeWarning: prompt start not met with the explicitly set BPNV charge of 12.3 g, DeMar-equivalent 469 psi (initial guess 300 psi): 2 % of the grain cells (2 of 100 ever) lit within 0.0999976 s of igniter firing (required 95 %); first light 18.3 ms, t90 nan ms; the grain never reached self-sustaining combustion (a hang-fire). Explicit charges are never resized.
+    result = run_simulation(
+
+tests/test_yns_mixture.py::test_hasegawa_a_mixture_arrays_in_result
+  C:\tmp\sv\as1\srm_1d\openmotor_adapter.py:1598: RuntimeWarning: 1 of 100 grain cells never ignited (cells 0-0, x = 8-8 mm; 99 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+    result = run_simulation(geo, prop, **args)
+
+tests/test_yns_phase4_validation.py::test_yns_pure_pyrogen_limit_thermo_matches_pyrogen_species
+  C:\tmp\sv\as1\srm_1d\openmotor_adapter.py:1598: RuntimeWarning: prompt start not met with the explicitly set BPNV charge of 12.3 g, DeMar-equivalent 469 psi (initial guess 300 psi): 0 % of the grain cells (0 of 100 ever) lit within 0.0647694 s of igniter firing (required 95 %); first light nan ms, t90 nan ms; the grain never reached self-sustaining combustion (a hang-fire). Explicit charges are never resized.
+    result = run_simulation(geo, prop, **args)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_flame_front_gate.py::test_flame_front_spreads_ignition_in_full_sim
+FAILED tests/test_ob1_pyrogen_bed.py::test_initial_burn_area_is_the_cylinder_formula_for_any_LD
+2 failed, 945 passed, 86 warnings in 1202.04s (0:20:02)
+[guarded_run] exit=1 timed_out=False wall_s=1205.4 peak_job_gb=5.14 mem_cap_gb=8.0 timeout_min=60.0

@@ -22,10 +22,17 @@ PATHFIN = os.path.join(ROOT, "motors", "2025.12.25 54-2800 ST2.0.ric")
 CHUNC = os.path.join(ROOT, "motors", "machbusterNew.ric")
 
 
+# AS1 follow-up: with the pressure cutoff armed only after the grain has started, pathfin54 lights ~0.4 s after
+# firing whatever the charge (first light 0.40-0.47 s for 0.15-0.45 g). The former 0.585 g "hang-fire" was a slow start
+# killed by the cutoff; a charge that genuinely hang-fires (3-7 of 100 cells lit at the 0.5 s window, the cutoff then ends
+# the run) is 0.25 g.
+DUD_G = 0.25e-3
+
+
 def _pathfin_explicit(t_max=1.0):
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
-        res = oma.run_from_ric(PATHFIN, pyrogen="bpnv", pyrogen_mass=0.585e-3,
+        res = oma.run_from_ric(PATHFIN, pyrogen="bpnv", pyrogen_mass=DUD_G,
                                t_max=t_max, print_interval=0.0, verbose=False)[0]
     return res, w
 
@@ -45,8 +52,8 @@ class TestHangFire:
         assert s["grain_mdot_after_igniter_kg_s"] <= s["igniter_peak_mdot_kg_s"]
         assert s["igniter_peak_mdot_kg_s"] > 0.0
         msgs = [str(x.message) for x in w if issubclass(x.category, RuntimeWarning)]
-        hit = [m for m in msgs if "did not reach self-sustaining combustion" in m]
-        assert hit and "0.585 g" in hit[0] and "never resized" in hit[0]
+        hit = [m for m in msgs if "prompt start not met" in m and "hang-fire" in m]   # AS1: message reworded
+        assert hit and "0.25 g" in hit[0] and "never resized" in hit[0]
 
     def test_pressure_cutoff_hang_fire_is_named(self, pathfin_dud):
         res, w = pathfin_dud
@@ -94,7 +101,7 @@ class TestPluginAlert:
         from motorlib import solvers, motor as om_motor  # type: ignore
         d = oma.load_ric(PATHFIN)
         d["igniter"] = dict(d["igniter"])
-        d["igniter"]["mass"] = 0.585e-3                             # explicit: never resized
+        d["igniter"]["mass"] = DUD_G                                # explicit: never resized
         cfg = pl._solver_config_defaults()
         cfg["t_max"] = 1.0
         sr = solvers.get_solver("srm_1d-transient").simulate(om_motor.Motor(d), config=cfg)

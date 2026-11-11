@@ -331,6 +331,25 @@ in geometry/burn rate/ignition (called every step or every N steps).
 
 ## API Breaking Changes Log
 
+### AS1 (unreleased, 2026-11-11) -- prompt-start success criterion for the auto igniter charge
+
+- **BEHAVIOUR CHANGE (auto charges only):** the fallback now succeeds when at least `ignition_prompt_fraction` = 0.95 of the grain cells ignited within `ignition_prompt_window_s` = 0.5 s of igniter
+  firing (new `run_simulation` kwargs, the user's numbers). An attempt that has not met it at the window end is failed there (new termination_code 7, `prompt_early_stop` -- set by the wrapper for auto charges
+  only) and retried at x1.25 (cap and DeMar 300 psi initial guess unchanged). After the cap: never self-sustaining -> `PyrogenAutoSizeError`; lit but not promptly -> the last attempt is re-run in full, returned with
+  a warning and `prompt_start=False`. The IG4 self-sustaining test is kept as `summary['ignited']` and for the plugin ERROR, no longer a retry condition (subsumed: >= 95 % lit grain out-produces the igniter).
+  A run shorter than the window is judged at its end; with the default pressure cutoff (0.5 MPa) an attempt that blows down before the window fails.
+- Explicit charges: never resized or cut; a miss warns with the lit fraction at the window (`summary['prompt_start']`, `['prompt_lit_fraction']`). Plugin: slow-but-lit = WARNING alert, never-lit = ERROR (as before).
+- New summary keys: `prompt_start`, `prompt_lit_fraction`, `prompt_window_s`, `prompt_window_effective_s`, `prompt_fraction_required`, `ignition_t50_s`, `ignition_t90_s`, `ignition_attempt_prompt_fractions`,
+  `ignition_attempt_terminations`, `pyrogen_free_volume_in3`, `pyrogen_demar_equiv_psi`. `PyrogenChamber.free_volume_in3`; `_run_time_loop` gained `prompt_window_s, prompt_fraction` (after `stop_if_unignitable`).
+- Effect on the canonical motors (N = 100): Chunc 0.815 g (1 attempt, slow start under the B0 cutoff; 3 attempts / 1.273 g under the 0.5 MPa default), BALLSstick 3 attempts 1.268 -> 1.982 g (469 psi equiv., real
+  startup, t90 17 ms; G1 had a ~1 s hang-fire), Hasegawa A 7.861 g (1 attempt), pathfin54 4 attempts 0.439 -> 0.857 g (586 psi). B0: only the BALLSstick row re-recorded (G1 values in the gate comments).
+  Details: `docs/solver_verification/worklog/AS1.md`.
+- **AS1 follow-up (pressure-cutoff arming; behaviour change, all runs):** the `P_cutoff` end-of-run (termination code 2, "burnout") used to fire as soon as one cell was lit, the igniter was spent and
+  `P[0] < P_cutoff`, killing slow starts before the grain lit and making the 0.5 MPa GUI path and the 0.01 MPa B0 harness reach different auto charges. It is now ARMED only when `t >= ignition_prompt_window_s` or
+  >= `ignition_prompt_fraction` of the grain cells are lit (existing conditions kept). `_run_time_loop`: `prompt_window_s` is now always the window (it was 0 unless the early stop was on) and a new bool
+  `prompt_early_stop` follows `prompt_fraction` (@njit signature change). Effect: Chunc auto under 0.5 MPa 1.273 -> 0.815 g (= the B0 row), pathfin54 4 attempts -> 1 (0.439 g, first light 404 ms: the 0.5 s window admits it);
+  BALLSstick / Hasegawa A unchanged; B0 unchanged (no row moved). Failed auto attempts now run to the window end (BALLSstick ~28 s each instead of ~5 s).
+
 ### QF1 (unreleased, 2026-11-10) -- total-energy regression-fill debit carries kinetic energy; p dV audit channel
 
 - **Derivation.** The gas in a cell is a control volume with a moving wall: `d(rho E V)/dt = mdot h_f - p dV/dt`. The solver advances a

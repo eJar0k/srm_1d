@@ -1,0 +1,38 @@
+C:\tmp\sv\as1\srm_1d\openmotor_adapter.py:1599: RuntimeWarning: 1 of 100 grain cells never ignited (cells 0-0, x = 4-4 mm; 99 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+  result = run_simulation(geo, prop, **args)
+C:\tmp\sv\as1\srm_1d\openmotor_adapter.py:1599: RuntimeWarning: auto-sized BPNV charge raised from 1.27 g to 1.98 g (3 attempts, factor 1.25, DeMar-equivalent 469 psi (initial guess 300 psi)) so that 95 % of the grain ignites within 0.5 s of igniter firing. Set the charge explicitly to fix it.
+  result = run_simulation(geo, prop, **args)
+C:\tmp\sv\as1\srm_1d\openmotor_adapter.py:1599: RuntimeWarning: 1 of 100 grain cells never ignited (cells 0-0, x = 8-8 mm; 99 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+  result = run_simulation(geo, prop, **args)
+[provenance] srm_1d imported from C:\tmp\sv\as1\srm_1d
+[provenance] git HEAD adc68e1c9debe08c3c89ecbca6d097000203b5cc  dirty=False
+[provenance] numpy 2.2.6  numba 0.63.1  python 3.10.5
+[ric-source] motors/machbusterNew.ric: unmodified -> using working-tree copy
+[provenance] machbusterNew.ric sha256 a234a1dcf054dfb337e508360170e504228e9be85dfbd984940ea8326819df0e  (C:\tmp\sv\as1\motors\machbusterNew.ric)
+[ric-source] motors/BALLSstick.ric: unmodified -> using working-tree copy
+[provenance] BALLSstick.ric sha256 7fd189d62aabcdc5a5a788611d7b2c3cd94b91fbcc3e111f15e89423074cbd73  (C:\tmp\sv\as1\motors\BALLSstick.ric)
+[ric-source] motors/hasegawa_a.ric: unmodified -> using working-tree copy
+[provenance] hasegawa_a.ric sha256 ccb7fccc972fd6074beff0b0099d1fdd2f731549d4628ea0eccbef97ca69185d  (C:\tmp\sv\as1\motors\hasegawa_a.ric)
+[ric-source] motors/machbusterNew.ric: unmodified -> using working-tree copy
+
+[chunc] wall 35.2 s, termination='t_max reached'
+  peak     got        10.51037778781622  ref       10.510377787816175  rel 4.225e-15  OK
+  t_peak   got       0.2590538144278421  ref      0.25905381442784203  rel 2.143e-16  OK
+  plateau  got        8.034819676399863  ref        8.034819676399866  rel 4.422e-16  OK
+  n_steps  got                   543997  ref                   543997  rel 0.000e+00  OK
+[ric-source] motors/BALLSstick.ric: unmodified -> using working-tree copy
+
+[balls] wall 113.4 s, termination='t_max reached'
+  peak     got         8.43291738963611  ref         8.43291738963611  rel 0.000e+00  OK
+  trough   got         4.43144847227655  ref         4.43144847227655  rel 0.000e+00  OK
+  mid      got        4.925227950671004  ref        4.925227950671004  rel 0.000e+00  OK
+  n_steps  got                   844368  ref                   844368  rel 0.000e+00  OK
+[ric-source] motors/hasegawa_a.ric: unmodified -> using working-tree copy
+
+[haseg] wall 91.5 s, termination='t_max reached'
+  peak     got       6.0171912927030515  ref        6.017191292703041  rel 1.771e-15  OK
+  t_peak   got        2.499738880086472  ref        2.499738880086473  rel 3.553e-16  OK
+  n_steps  got                  2334673  ref                  2334673  rel 0.000e+00  OK
+
+B0 RESULT: PASS (floats within rtol 1e-05, n_steps and t_peak within 0.0005)
+[guarded_run] exit=0 timed_out=False wall_s=242.6 peak_job_gb=2.5 mem_cap_gb=4.0 timeout_min=60.0
