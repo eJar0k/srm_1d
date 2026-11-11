@@ -61,7 +61,17 @@ _spec = importlib.util.spec_from_file_location(
 _probe = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_probe)
 
-# RE-RECORDED 2026-11-10 by G1 (user decisions 2026-10-31 "Let's attempt A ..."): the head and aft
+# RE-RECORDED 2026-11-10 by AS1 (prompt-start auto charge; user decision): the auto-sized charge now has to meet
+# "at least 95 % of the grain cells ignited within 0.5 s of igniter firing" (attempts that miss it are failed at the
+# window end and retried at x1.25; the IG4 self-sustaining test alone had accepted hang-fires). The DeMar 300 psi
+# initial guess already meets it for Chunc (0.815 g, 99 % lit by 0.235 s) and Hasegawa A (7.86 g, 99 % by 0.11 s), so
+# those two rows are UNCHANGED. BALLSstick's 1.268 g (G1) lit its grain over ~1 s (t90 971 ms, a hang-fire); it now
+# needs 3 attempts (1.268 -> 1.585 -> 1.982 g, DeMar-equivalent 469 psi): first light 1.7 ms, t90 17 ms, a real startup
+# (peak 8.433 MPa at 29 ms, trough 4.431, mid 4.925; pk/trough 1.90, pk/mid 1.71). The previous (G1) BALLSstick row was:
+#   balls: peak 0.2945771944198506, trough 0.07628399187690121,
+#          mid 6.7042510894841545, n_steps 855216
+#
+# (earlier) RE-RECORDED 2026-11-10 by G1 (user decisions 2026-10-31 "Let's attempt A ..."): the head and aft
 # gas-buffer cells (MIN_BUFFER_CELLS = 3, full case diameter, 3 dx long) are gone. Cell 0 is the first
 # grain cell against the closure; a head gap (none for these three motors: all grains are inhibited on the
 # head face) and the nozzle convergent are lumped into the end cells' gas storage (aft_end='lump'). Every
@@ -219,8 +229,8 @@ _spec.loader.exec_module(_probe)
 BASELINE = {
     'chunc': dict(peak=10.510377787816175, t_peak=0.25905381442784203,
                   plateau=8.034819676399866, n_steps=543997),
-    'balls': dict(peak=0.2945771944198506, trough=0.07628399187690121,
-                  mid=6.7042510894841545, n_steps=855216),
+    'balls': dict(peak=8.43291738963611, trough=4.43144847227655,
+                  mid=4.925227950671004, n_steps=844368),
     'haseg': dict(peak=6.017191292703041, t_peak=2.499738880086473,
                   n_steps=2334673),
 }

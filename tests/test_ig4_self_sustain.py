@@ -45,7 +45,7 @@ class TestHangFire:
         assert s["grain_mdot_after_igniter_kg_s"] <= s["igniter_peak_mdot_kg_s"]
         assert s["igniter_peak_mdot_kg_s"] > 0.0
         msgs = [str(x.message) for x in w if issubclass(x.category, RuntimeWarning)]
-        hit = [m for m in msgs if "did not reach self-sustaining combustion" in m]
+        hit = [m for m in msgs if "prompt start not met" in m and "hang-fire" in m]   # AS1: message reworded
         assert hit and "0.585 g" in hit[0] and "never resized" in hit[0]
 
     def test_pressure_cutoff_hang_fire_is_named(self, pathfin_dud):
