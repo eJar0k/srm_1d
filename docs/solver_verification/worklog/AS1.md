@@ -65,10 +65,12 @@ Cost: failed attempts are cut at the window or at the blowdown: 5-9 s each for C
 - `tests/test_ig4_self_sustain.py::TestHangFire::test_explicit_dud_fails_the_test`: the warning text moved from "did not reach self-sustaining combustion" to "prompt start not met ... (a hang-fire)".
 - Everything else of IG3 / IG4 (`test_ig3_stage2.py`, the rest of `test_ig4_self_sustain.py`) still holds and passes unchanged: the fallback, never-lit warning, explicit-charge rules and the plugin
   ERROR for a hang-fire are unaffected; the IG4 self-sustaining rate comparison stays as the `ignited` flag.
+- `tests/test_flame_front_gate.py::test_flame_front_spreads_ignition_in_full_sim`: the deliberate 3 m/s flame-spread front lights only 89 % of the Hasegawa A grain at 0.5 s with ANY charge (tried up to 58 g), so the auto-size exhausted its cap; the test now passes `ignition_prompt_window_s=3.0` (it tests the front, not the charge).
+- `tests/test_ob1_pyrogen_bed.py` builds chambers from a `SimpleNamespace` geometry: `build_pyrogen_chamber` now reads `geo.initial_gas_volume()` for the new `free_volume_in3` only when the geometry has it (0 = unknown).
 - New `tests/test_as1_prompt_start.py`: defaults; summary keys and the lit fraction vs the ignition times; DeMar-equivalent pressure; an explicit charge that misses a 10 ms window warns with the lit
   fraction and is neither resized nor cut; an auto charge is cut at the window (code 7), retried at x1.25 until it passes; the cap with a lit grain returns a full run + warning; nothing lit after the cap
   raises; the plugin returns a WARNING (not an ERROR) for a slow ignition.
 
 ## 6. Gates
 
-B0 (re-recorded: only the BALLSstick row moved; G1 values kept in comments): PASS, `results/as1/B0_output.txt`. Full suite: see the report.
+B0 (re-recorded: only the BALLSstick row moved; G1 values kept in comments): PASS, `results/as1/B0_output.txt`. Full suite: 945 passed, 2 failed in the first run (the two tests above); after fixing them the two files and `test_as1_prompt_start.py` pass (43 passed). The full 20-min suite was not repeated after the two fixes (expected 947 passed).
