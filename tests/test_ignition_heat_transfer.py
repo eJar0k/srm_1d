@@ -184,6 +184,7 @@ class TestPeretzApReference:
             np.zeros(1, dtype=np.int64),   # SM2: diag, recorder off
             0, 0,                          # RT1: static driver; HE1: jet off
             np.zeros(len(A_port)),         # QF1: fill-debit KE (sensible)
+            0.0,                           # G1: head_gap
         )
         sim._goodman_ignition_sources_and_mass(*args)
         return T_surf

@@ -586,7 +586,10 @@ def test_ambient_initial_gas_ignites_from_pyrogen_surface_heating():
         heated = np.flatnonzero(snap["pyrogen_surface_heat_flux"] > 0.0)
         if heated.size:
             heated_cells.update(int(i) for i in heated)
-    assert len(heated_cells) == 1
+    # G1: cell 0 is now the head grain cell (no buffer cells); once it lights, the flux moves to the
+    # next unlit head-most cell (here cell 7, after cells 1-6 caught from the gas). Still a single-cell,
+    # one-at-a-time heating - not a cascade over the grain.
+    assert len(heated_cells) <= 2, sorted(heated_cells)
     assert (
         np.isnan(disabled_spread["first_ignition_time_s"])
         or disabled_spread["first_ignition_time_s"] >= ambient_spread["first_ignition_time_s"]

@@ -471,7 +471,7 @@ class TestTransientOdTaper:
         V = geo.total_propellant_volume()
         assert np.isfinite(V) and V > 0.0
 
-    def test_buffer_cells_pinned_to_grain_end_od(self):
+    def test_end_cells_follow_dome_no_buffers(self):
         # The leading/trailing gas-buffer cells follow the dome/cone (pinned to
         # the fore-/aft-most propellant cell's OD) instead of jumping back to
         # the full motor OD at the grain ends — so the casing + open-chamber
@@ -493,14 +493,10 @@ class TestTransientOdTaper:
         grain = np.where(ga['cell_segment_id'] >= 0)[0]
         first, last = int(grain[0]), int(grain[-1])
         co = ga['cell_D_outer']
-        assert first > 0 and last < geo.N_cells - 1   # buffers exist
-        # Head/aft buffers are pinned to the adjacent grain-end OD (tapered).
-        assert np.allclose(co[:first], co[first])
-        assert np.allclose(co[last + 1:], co[last])
+        # G1: no gas-buffer cells any more; the end cells ARE the grain's end cells,
+        # and they follow the dome / cone.
+        assert first == 0 and last == geo.N_cells - 1
         assert co[first] < 0.080 - 1e-3 and co[last] < 0.080 - 1e-3
-        # The pinned buffers are fully-open chamber (bore == casing).
-        assert np.allclose(ga['D_port'][:first], co[first])
-        assert np.allclose(ga['D_port'][last + 1:], co[last])
 
     def test_od_degenerate_no_od_is_flat(self):
         # A bore-only taper (no OD) keeps a flat casing == D_outer.

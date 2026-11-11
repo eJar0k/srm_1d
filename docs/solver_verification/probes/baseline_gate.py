@@ -61,7 +61,27 @@ _spec = importlib.util.spec_from_file_location(
 _probe = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_probe)
 
-# RE-RECORDED 2026-10-31 by D1 (user decision "keep total energy opt-in, build the next piece",
+# RE-RECORDED 2026-11-10 by G1 (user decisions 2026-10-31 "Let's attempt A ..."): the head and aft
+# gas-buffer cells (MIN_BUFFER_CELLS = 3, full case diameter, 3 dx long) are gone. Cell 0 is the first
+# grain cell against the closure; a head gap (none for these three motors: all grains are inhibited on the
+# head face) and the nozzle convergent are lumped into the end cells' gas storage (aft_end='lump'). Every
+# startup shifts: the 24 mm (N = 100) head pocket is gone, and the DeMar auto charge uses the geometry's own
+# free volume (no fictitious buffer volume), so the initial auto charge falls 25 % (Chunc 1.07 -> 0.81 g).
+# Chunc: auto charge 1.34 -> 0.81 g, peak 9.955 -> 10.511 MPa at 0.259 s (the progressive late hump of D1 is
+# now earlier), cell 0 never lit. BALLSstick: auto charge 3.09 -> 1.27 g and the grain lights over ~1 s (t90
+# 971 ms), so this row's "peak" (largest P in the first 0.3 s, 0.295 MPa) and "trough" (0.076 MPa) are the
+# slow-ignition pressure, NOT a startup spike/trough: the auto-size criterion (grain out-produces the igniter)
+# accepts a charge that is too small for a prompt start once the free volume is physical. Flagged to the
+# user in worklog/G1.md. Hasegawa A: 9.58 -> 7.86 g, late peak 6.109 -> 6.017 MPa (t 2.64 -> 2.50 s).
+# Recorded from a run after a clean __pycache__ and a warm cache. The D1 values (the previous BASELINE) were:
+#   chunc: peak 9.95509537258403, t_peak 0.48826256590025513,
+#          plateau 8.108865458753694, n_steps 541753
+#   balls: peak 7.56231250893722, trough 4.3417299619930585,
+#          mid 4.8594671206858635, n_steps 844549
+#   haseg: peak 6.10855599581484, t_peak 2.6393309440372743,
+#          n_steps 2343883
+#
+# (earlier) RE-RECORDED 2026-10-31 by D1 (user decision "keep total energy opt-in, build the next piece",
 # then "approved as DEFAULTS"): run_simulation now defaults to energy_formulation='total',
 # momentum_formulation='conservative', ignition_driver_temperature='recovery',
 # head_end_jet_h='max' (docs/solver_verification/worklog/{EN1,RT1}.md,
@@ -188,12 +208,12 @@ _spec.loader.exec_module(_probe)
 #          mid 4.8594671206858635, n_steps 844549
 #   haseg: peak 6.10855599581484, t_peak 2.6393309440372743, n_steps 2343883
 BASELINE = {
-    'chunc': dict(peak=9.954942701677405, t_peak=0.4882626717511268,
-                  plateau=8.10882300869407, n_steps=541753),
-    'balls': dict(peak=7.56221990287067, trough=4.341708721229631,
-                  mid=4.8594489133399525, n_steps=844548),
-    'haseg': dict(peak=6.108548290011714, t_peak=2.6393358955391624,
-                  n_steps=2343878),
+    'chunc': dict(peak=10.510545662955375, t_peak=0.2590537498677846,
+                  plateau=8.034841968624288, n_steps=543997),
+    'balls': dict(peak=0.29457719441985075, trough=0.07628399505464896,
+                  mid=6.704349487088566, n_steps=855216),
+    'haseg': dict(peak=6.0171988498924005, t_peak=2.499737871616094,
+                  n_steps=2334673),
 }
 RIC_FILE = {'chunc': 'machbusterNew.ric', 'balls': 'BALLSstick.ric',
             'haseg': 'hasegawa_a.ric'}

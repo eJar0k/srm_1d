@@ -91,20 +91,14 @@ class TestFactoryFunctions:
 
     def test_bates_motor_length(self):
         geo = make_bates_motor(0.038, 0.070, 0.120, 4, 0.005)
-        # 4 propellant segments + 3 internal gaps + a 3-cell leading and
-        # 3-cell trailing buffer (MIN_BUFFER_CELLS in
-        # build_snapped_geometry; introduced 2026-05-20 to keep the
-        # throat boundary resolved by a multi-cell pressure gradient).
-        # Buffer cells inherit the snapped dx so the exact contribution
-        # depends on cells_target. With target=100 and L_prop=0.48m,
-        # dx clamps to the 5mm min-gap, giving 6*5mm = 30mm of extra
-        # buffer beyond the 1mm-each requested in the old single-cell
-        # convention.
+        # 4 propellant segments + 3 internal gaps (one cell each: dx clamps to
+        # the 5 mm min gap). G1: no head / aft buffer cells (the former
+        # MIN_BUFFER_CELLS = 3 buffers are gone; a head gap is lumped volume,
+        # not length).
         dx = geo.dx
         expected_segments = 4 * 0.120
         expected_internal_gaps = 3 * dx        # one cell each
-        expected_buffers = 2 * 3 * dx          # 3-cell lead + 3-cell trail
-        expected = expected_segments + expected_internal_gaps + expected_buffers
+        expected = expected_segments + expected_internal_gaps
         assert geo.L_motor == pytest.approx(expected, abs=1e-9)
 
     def test_web_thickness(self):
@@ -162,12 +156,14 @@ class TestEndfaceInjection:
         over 2 adjacent cells (partition of unity). Intermediate
         single-cell inter-segment gaps receive contributions from
         BOTH bordering faces, so the cell count is
-        8 faces × 2 cells − 3 shared gap cells = 13 distinct cells.
+        8 faces × 2 cells − 3 shared gap cells = 13 distinct cells; G1: the
+        head and aft faces sit on the walls (no buffer cells), where the hat
+        function puts the whole face mass in the one wall cell, so 11.
         """
         geo = make_example_bates()
         ga, prop, D_port, A_port, C_burn, D_hyd, is_grain, ef, P = \
             _init_geometry_arrays(geo)
-        assert int(np.sum(ef > 0)) == 13
+        assert int(np.sum(ef > 0)) == 11
 
     def test_inhibited_ends_no_faces(self):
         """Single cylinder with inhibited ends should have 0 burning faces."""

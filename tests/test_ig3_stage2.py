@@ -46,8 +46,8 @@ class TestDemarSizing:
         geo, nozzle = args["geo"], args["nozzle"]
         pyro = oma.load_pyrogen("bpnv")
         ch = oma.build_pyrogen_chamber(pyro, geo, nozzle)
-        case_v = np.pi / 4.0 * geo.D_outer ** 2 * geo.L_motor
-        v_in3 = max(case_v - geo.total_propellant_volume(), 0.0) / 0.0254 ** 3
+        # G1: the free volume is the geometry's own gas volume (no buffer cells)
+        v_in3 = max(geo.initial_gas_volume(), 0.0) / 0.0254 ** 3
         assert ch.m_pyrogen_initial == pytest.approx(v_in3 * 300.0 / pyro.impetus_W * 1e-3)
         assert ch.mass_auto and ch.resize is not None
         big = ch.resize(1.25 * ch.m_pyrogen_initial)
@@ -195,13 +195,13 @@ class TestNeverLitCells:
         s = res["summary"]
         assert s["ignited"]                                  # self-sustaining
         n = s["grain_cells_never_lit"]
-        assert 5 <= n <= 15                                   # BALLSstick's head-end block
+        assert 1 <= n <= 15                                   # BALLSstick's head-end block (G1: cells 0-2)
         assert s["grain_fraction_lit"] == pytest.approx(1.0 - n / s["grain_cells"])
         mask = np.asarray(s["grain_never_lit_mask"])
         idx = np.flatnonzero(mask)
         assert mask.sum() == n
         assert s["grain_never_lit_cell_range"] == [int(idx[0]), int(idx[-1])]
-        assert idx[0] == 3                                    # the head-most grain cell
+        assert idx[0] == 0                                    # the head-most grain cell (G1: cell 0)
         x0, x1 = s["grain_never_lit_x_range_mm"]
         assert 0.0 < x0 < x1
         msgs = [str(x.message) for x in w if issubclass(x.category, RuntimeWarning)]

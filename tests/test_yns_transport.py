@@ -42,7 +42,7 @@ def test_advect_species_pure_advection_pyrogen_pulse_moves_right():
     nozzle_mdot = 0.0  # nothing leaves yet
 
     Y_before = Y.copy()
-    _advect_species(Y, rho_old, rho_new, u, A_port, nozzle_mdot, dx, dt,
+    _advect_species(Y, rho_old, rho_new, u, A_port, A_port, nozzle_mdot, dx, dt,
                     mass_source, N, S)
 
     # After one step, some pyrogen should have moved from cell 0 to cell 1
@@ -82,7 +82,7 @@ def test_advect_species_source_only_no_flow():
     mass_source = np.zeros((N, S))
     mass_source[0, 0] = mdot_per_dx  # pyrogen source at cell 0
 
-    _advect_species(Y, rho_old, rho_new, u, A_port, 0.0, dx, dt,
+    _advect_species(Y, rho_old, rho_new, u, A_port, A_port, 0.0, dx, dt,
                     mass_source, N, S)
 
     # Cell 0 mass doubled (50% old ambient + 50% new pyrogen)
@@ -119,7 +119,7 @@ def test_advect_species_renormalization_repairs_fp_drift():
     Y[2, 2] = 1.0
 
     mass_source = np.zeros((N, S))
-    _advect_species(Y, rho_old, rho_new, u, A_port, 0.0, dx, dt,
+    _advect_species(Y, rho_old, rho_new, u, A_port, A_port, 0.0, dx, dt,
                     mass_source, N, S)
     # Renormalization should clean up cell 0
     assert abs(Y[0, :].sum() - 1.0) < 1.0e-12
@@ -146,7 +146,7 @@ def test_advect_species_nozzle_outflow_drains_last_cell():
 
     mass_source = np.zeros((N, S))
     Y_before = Y.copy()
-    _advect_species(Y, rho_old, rho_new, u, A_port, nozzle_mdot, dx, dt,
+    _advect_species(Y, rho_old, rho_new, u, A_port, A_port, nozzle_mdot, dx, dt,
                     mass_source, N, S)
     # Y composition at cell N-1 should remain 100% propellant (mass left
     # carries the same composition, so fraction is unchanged).
