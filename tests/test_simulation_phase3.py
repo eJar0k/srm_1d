@@ -165,6 +165,7 @@ def test_adjacent_radiation_heats_only_neighbors_and_conserves_sink():
         np.zeros((N, 15)), False, np.zeros((1, 1)), np.zeros((1, 1)), np.zeros(1), np.zeros(1),
         np.zeros(1, dtype=np.int64),   # SM2: diag, recorder off
         0, 0,                          # RT1: static driver; HE1: jet off
+        np.zeros(N),                   # QF1: fill-debit KE (sensible)
     )
 
     radiation_heat_power = out[4]
@@ -240,6 +241,7 @@ def test_adjacent_radiation_sink_can_be_disabled_for_diagnostics():
         np.zeros((N, 15)), False, np.zeros((1, 1)), np.zeros((1, 1)), np.zeros(1), np.zeros(1),
         np.zeros(1, dtype=np.int64),   # SM2: diag, recorder off
         0, 0,                          # RT1: static driver; HE1: jet off
+        np.zeros(N),                   # QF1: fill-debit KE (sensible)
     )
 
     assert out[4] > 0.0

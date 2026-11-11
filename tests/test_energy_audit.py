@@ -70,8 +70,9 @@ def chunc_short():
         # Cp*T convention (energy_convention 'sensible_enthalpy_CpT') and the T10 identity
         # 'regression fill debit cancels the geometry jump', whose debit is an ENTHALPY sink; under
         # the total-energy default the geometry jump is internal+kinetic energy, so the two differ
-        # by the p dV work of the opened volume (about 15 % of the debit in this short run, ~0.1 %
-        # of the source power; see DEVNOTES D1). The total-energy ledger is pinned in test_total_energy.
+        # by the p dV work of the opened volume (about 16 % of the debit in this short run, ~0.1 % of
+        # the source power). That difference is the physical boundary work, not a leak: QF1 pins it in
+        # TestRegressionFillDebitTotalEnergy below (total-energy default).
         energy_formulation='sensible', momentum_formulation='legacy',
         ignition_driver_temperature='static', head_end_jet_h='off')[0]
 
@@ -217,3 +218,64 @@ class TestRegressionFillDebit:
         r = chunc_short
         peak = np.max(np.abs(np.asarray(r["thermal_source_power"])))
         assert np.max(np.abs(np.asarray(r["source_ledger_mismatch_W"]))) <= 1e-6 * peak
+
+
+@pytest.fixture(scope="module")
+def chunc_short_total():
+    """Same run under the shipped default (total energy, conservative momentum, recovery driver, jet)."""
+    from srm_1d.openmotor_adapter import run_from_ric
+    return run_from_ric(
+        "motors/machbusterNew.ric", roughness=32e-6, kappa=0.44,
+        pyrogen="bpnv", pyrogen_mass=None, T_ignition=756.0, t_max=0.05,
+        print_interval=0.0, verbose=False, snapshot_interval=5e-4)[0]
+
+
+class TestRegressionFillDebitTotalEnergy:
+    """QF1: control volume with a moving boundary, d(rho E V)/dt = mdot h_f - p dV/dt.
+
+    The solver advances a fixed-area step and the geometry refresh then grows A_port at
+    fixed (rho, T, u), adding rho dV (Cv T + KE). The fill debit removes rho dV (Cp T + KE),
+    the TOTAL enthalpy of the gas that fills the opened volume, so debit + jump = p dV: the
+    work the gas does on the receding wall. (Before QF1 the debit carried Cp T only, so the
+    residual was the kinetic energy rho dV KE, ~0.4 % of the debit.)
+    """
+
+    @staticmethod
+    def _sums(r):
+        dt = np.asarray(r["dt"])[:-1]
+        f = lambda k: float(np.sum(np.asarray(r[k])[:-1] * dt))  # noqa: E731
+        g = lambda k: float(np.sum(np.asarray(r[k])[:-1]))  # noqa: E731
+        return (f("regression_fill_debit_massflow"), f("regression_fill_debit_power"),
+                f("regression_fill_pdv_power"),
+                g("mass_jump_geometry_kg"), g("storage_jump_geometry_J"))
+
+    def test_convention_is_total_energy(self, chunc_short_total):
+        assert chunc_short_total["summary"]["energy_convention"] == "total_energy_CvT_plus_KE"
+
+    def test_debit_minus_geometry_jump_is_the_boundary_work(self, chunc_short_total):
+        deb_kg, deb_J, pdv_J, geo_kg, geo_J = self._sums(chunc_short_total)
+        assert deb_J > 0.0 and pdv_J > 0.0
+        assert geo_kg == pytest.approx(deb_kg, rel=1e-2)
+        # the physical work is the ~16 % of the debit the total-energy jump does not cancel
+        assert 0.10 < pdv_J / deb_J < 0.25
+        # closure: debit - jump = p dV to 1 % of the work (the 0.3 % left is the step-vs-refresh
+        # sampling of rho, T, u: the same lag the mass identity shows at 6e-4)
+        assert deb_J - geo_J == pytest.approx(pdv_J, rel=1e-2)
+
+    def test_ke_is_in_the_debit(self, chunc_short_total):
+        """The kinetic-energy part of the jump is cancelled too: with a Cp T-only debit the
+        residual would be rho dV KE, which this run's velocities make ~3.6e-3 of the debit."""
+        deb_kg, deb_J, pdv_J, geo_kg, geo_J = self._sums(chunc_short_total)
+        assert abs(deb_J - geo_J - pdv_J) / deb_J < 1.5e-3
+
+    def test_energy_ledger_closes(self, chunc_short_total):
+        r = chunc_short_total
+        peak = np.max(np.abs(np.asarray(r["thermal_source_power"])))
+        assert np.max(np.abs(np.asarray(r["source_ledger_mismatch_W"]))) <= 1e-6 * peak
+        a = sensible_enthalpy_audit(r)
+        assert abs(a["run"]["budget_J"]["closure_error_with_jumps_frac_of_source"]) < 1e-9
+
+    def test_sensible_form_is_unchanged(self, chunc_short):
+        """Sensible keeps debit == jump (Cp T both sides, no work term) to the sampling lag."""
+        _, deb_J, _, _, geo_J = self._sums(chunc_short)
+        assert geo_J == pytest.approx(deb_J, rel=1e-2)

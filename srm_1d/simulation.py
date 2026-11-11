@@ -1420,6 +1420,9 @@ def _goodman_ignition_sources_and_mass(
     ign_driver_code,
     # HE1: head-end igniter-jet h (0 off, 1 max(bore, jet), 2 jet replaces bore)
     head_end_jet_code,
+    # QF1: cell kinetic energy per unit mass [J/kg] carried by the gas the
+    # regression fill debit removes (zeros under energy_formulation='sensible')
+    fill_ke,
 ):
     """Goodman surface-temperature ignition and propellant source assembly.
 
@@ -1458,6 +1461,9 @@ def _goodman_ignition_sources_and_mass(
     # the regressing grain opens, as mass [kg/s] and sensible enthalpy [W].
     fill_debit_massflow = 0.0
     fill_debit_power = 0.0
+    # QF1: p dV work rate of the opened volume, sum P*(r*C_burn)*dx [W]
+    # (diagnostic; the part of the geometry jump the debit leaves in the gas)
+    fill_pdv_power = 0.0
     # v0.7.3 Phase B.2: a cell radiates meaningfully if EITHER its
     # propellant is burning (existing criterion) OR its bore gas is
     # majority-pyrogen species (new criterion). Pyrogen-hot cells with
@@ -1830,12 +1836,19 @@ def _goodman_ignition_sources_and_mass(
         if fill_vol > 0.0:
             fill_mass = rho_gas[i] * fill_vol
             fill_enthalpy = fill_mass * Cp_mix_gas[i] * T[i]
+            # QF1: under the total-energy ledger the opened-volume gas carries
+            # its kinetic energy too: debit its TOTAL enthalpy rho (Cp T + KE),
+            # so debit + geometry jump (rho dV (Cv T + KE)) = -p dV, the work
+            # the gas does on the receding wall (control volume with a moving
+            # boundary: d(rho E V)/dt = mdot h_f - p dV/dt).
+            fill_enthalpy += fill_mass * fill_ke[i]
             mass_source[i] -= fill_mass
             thermal_source[i] -= fill_enthalpy
             for sp in range(S_local):
                 mass_source_by_species[i, sp] -= fill_mass * Y_species[i, sp]
             fill_debit_massflow += fill_mass * dx
             fill_debit_power += fill_enthalpy * dx
+            fill_pdv_power += P[i] * fill_vol * dx
 
     # Radiation gas-energy sink debit (solver-verification T9). Done AFTER
     # the cell loop: the sink on the LEFT neighbour (radiation_sink_power
@@ -1854,7 +1867,7 @@ def _goodman_ignition_sources_and_mass(
             radiation_sink_total_power,
             normal_sidewall_thermal_power, erosive_sidewall_thermal_power,
             endface_thermal_power, convective_wall_sink_power,
-            fill_debit_massflow, fill_debit_power)
+            fill_debit_massflow, fill_debit_power, fill_pdv_power)
 
 
 # ================================================================
@@ -1934,7 +1947,7 @@ def _run_time_loop(
     pressure_floor_cells_hist, pressure_floor_mass_hist,
     # --- T6 energy audit (accounting only) ---
     pressure_floor_energy_hist, convective_wall_sink_power_hist,
-    fill_debit_massflow_hist, fill_debit_power_hist,
+    fill_debit_massflow_hist, fill_debit_power_hist, fill_pdv_power_hist,
     nozzle_enthalpy_power_post_hist, nozzle_massflow_piso_hist,
     jump_eos_J_hist, jump_mixture_J_hist, jump_geometry_J_hist,
     jump_eos_kg_hist, jump_mixture_kg_hist, jump_geometry_kg_hist,
@@ -2077,6 +2090,8 @@ def _run_time_loop(
     # previous step, to difference against this step's pre-PISO storage.
     prev_gas_energy_after = 0.0
     prev_gas_mass_after = 0.0
+    # QF1: per-cell kinetic energy [J/kg] the fill debit carries (total-energy ledger)
+    fill_ke = np.zeros(N)
     first_bt_time = -1.0
     last_snapshot_t = -snapshot_interval
     termination_code = 0
@@ -2510,13 +2525,20 @@ def _run_time_loop(
                 cart_i_start, cart_i_end, dt, N, ignitable,
             )
 
+        # QF1: kinetic energy of the gas the fill debit removes, the SAME cell
+        # KE the total-energy ledger stores ((u_i^2 + u_{i+1}^2)/4); zero in
+        # the sensible form (Cp T convention carries no KE).
+        if total_energy:
+            for i in range(N):
+                fill_ke[i] = 0.25 * (u[i] * u[i] + u[i + 1] * u[i + 1])
+
         (n_burning, n_ignited, mass_sum,
          pyrogen_surface_heat_power, radiation_heat_power,
          radiation_sink_total_power,
          normal_sidewall_thermal_power, erosive_sidewall_thermal_power,
          endface_thermal_power,
          convective_wall_sink_power,
-         fill_debit_massflow, fill_debit_power) = _goodman_ignition_sources_and_mass(
+         fill_debit_massflow, fill_debit_power, fill_pdv_power) = _goodman_ignition_sources_and_mass(
             P, T, T_surf, delta, has_ignited, is_burning, is_grain,
             ignition_time, r_total, r_erosive,
             mass_source, thermal_source,
@@ -2548,6 +2570,7 @@ def _run_time_loop(
             solid_work, solid_age_fraction,
             ign_diag, rec_on, rec_h, rec_Td, rec_t, rec_dt, rec_k,
             ign_driver_code, head_end_jet_code,
+            fill_ke,
         )
 
         # v0.7.1 Phase 3.5: pyrogen mass injection uses pyrogen Cp for the
@@ -2873,6 +2896,7 @@ def _run_time_loop(
         convective_wall_sink_power_hist[hist_idx] = convective_wall_sink_power
         fill_debit_massflow_hist[hist_idx] = fill_debit_massflow
         fill_debit_power_hist[hist_idx] = fill_debit_power
+        fill_pdv_power_hist[hist_idx] = fill_pdv_power
         nozzle_enthalpy_power_post_hist[hist_idx] = nozzle_enthalpy_power_post
         nozzle_massflow_piso_hist[hist_idx] = nozzle_mdot_piso
         coupling_passes_hist[hist_idx] = n_coupling_passes
@@ -3809,6 +3833,7 @@ def _run_simulation_once(
     convective_wall_sink_power_hist = np.empty(max_hist)
     fill_debit_massflow_hist = np.empty(max_hist)
     fill_debit_power_hist = np.empty(max_hist)
+    fill_pdv_power_hist = np.empty(max_hist)
     nozzle_enthalpy_power_post_hist = np.empty(max_hist)
     nozzle_massflow_piso_hist = np.empty(max_hist)
     coupling_passes_hist = np.empty(max_hist)
@@ -3946,7 +3971,7 @@ def _run_simulation_once(
         min_pressure_hist, max_pressure_hist, max_mach_hist,
         pressure_floor_cells_hist, pressure_floor_mass_hist,
         pressure_floor_energy_hist, convective_wall_sink_power_hist,
-        fill_debit_massflow_hist, fill_debit_power_hist,
+        fill_debit_massflow_hist, fill_debit_power_hist, fill_pdv_power_hist,
         nozzle_enthalpy_power_post_hist, nozzle_massflow_piso_hist,
         jump_eos_J_hist, jump_mixture_J_hist, jump_geometry_J_hist,
         jump_eos_kg_hist, jump_mixture_kg_hist, jump_geometry_kg_hist,
@@ -4053,6 +4078,7 @@ def _run_simulation_once(
     convective_wall_sink_power_arr = _shrink_hist(convective_wall_sink_power_hist, n_steps)
     fill_debit_massflow_arr = _shrink_hist(fill_debit_massflow_hist, n_steps)
     fill_debit_power_arr = _shrink_hist(fill_debit_power_hist, n_steps)
+    fill_pdv_power_arr = _shrink_hist(fill_pdv_power_hist, n_steps)
     nozzle_enthalpy_power_post_arr = _shrink_hist(nozzle_enthalpy_power_post_hist, n_steps)
     nozzle_massflow_piso_arr = _shrink_hist(nozzle_massflow_piso_hist, n_steps)
     coupling_passes_arr = _shrink_hist(coupling_passes_hist, n_steps)
@@ -4445,6 +4471,7 @@ def _run_simulation_once(
         'convective_wall_sink_power': convective_wall_sink_power_arr,
         'regression_fill_debit_massflow': fill_debit_massflow_arr,
         'regression_fill_debit_power': fill_debit_power_arr,
+        'regression_fill_pdv_power': fill_pdv_power_arr,
         'nozzle_enthalpy_power_post_piso': nozzle_enthalpy_power_post_arr,
         'nozzle_massflow_piso': nozzle_massflow_piso_arr,
         'piso_coupling_passes': coupling_passes_arr,

@@ -331,6 +331,30 @@ in geometry/burn rate/ignition (called every step or every N steps).
 
 ## API Breaking Changes Log
 
+### QF1 (unreleased, 2026-11-10) -- total-energy regression-fill debit carries kinetic energy; p dV audit channel
+
+- **Derivation.** The gas in a cell is a control volume with a moving wall: `d(rho E V)/dt = mdot h_f - p dV/dt`. The solver advances a
+  fixed-area step; the geometry refresh then grows `A_port` at fixed `(rho, T, u)`, adding `rho dV (Cv T + KE)` (total energy). The T10
+  fill debit removes `rho dV` of gas. For the net to be the conservation-law result `mdot h_f - p dV`, the debit must carry the TOTAL enthalpy
+  of that gas, `rho dV (Cp T + KE)` (`E + p/rho = Cp T + KE`). So the roughly 16 % of the debit that the total-energy jump does not
+  cancel (the D1 "open item") is NOT a leak: it is the work the gas does on the receding wall, already correct with a `Cp T` debit. The real
+  inconsistency was only the kinetic energy `rho dV KE` (about 0.4 % of the debit in the 50 ms Chunc run).
+- **Change.** `_goodman_ignition_sources_and_mass` takes a trailing `fill_ke` [N] (J/kg) and debits `fill_mass * (Cp T + fill_ke)`; the time
+  loop fills `fill_ke = (u_i^2 + u_{i+1}^2)/4` (the cell KE the total-energy ledger stores) under `energy_formulation='total'` and zeros
+  under `'sensible'` (bit-identical there: the debit adds 0.0). The kernel also returns a third value `fill_pdv_power = sum P*(r C_burn)*dx`
+  [W] and `run_simulation` stamps it as the history `regression_fill_pdv_power` (diagnostic only; it is not in any source ledger).
+  `_run_time_loop` gains a trailing-hist arg `fill_pdv_power_hist`.
+- **Ledger closure (Chunc, 50 ms, total energy; sums over the run, `tests/test_energy_audit.py::TestRegressionFillDebitTotalEnergy`):**
+  debit - geometry jump - p dV, as a fraction of the debit: before -3.6e-3 (-2.2 % of p dV), after +5.1e-4 (+0.31 % of p dV; the remainder
+  is the per-step vs refresh-instant sampling of rho, T, u that the mass identity shows at 6e-4). Source-ledger mismatch and the
+  audit's closure-with-jumps are unchanged (<= 1e-6 of peak source / 1e-15).
+- **B0 moves (not re-recorded; G1 re-records first):** Chunc peak 9.95509 -> 9.95494 MPa (-1.5e-5 rel), plateau -5.2e-6, t_peak 2.2e-7;
+  BALLSstick peak 7.56231 -> 7.56222 (-1.2e-5), trough -4.9e-6, mid -3.7e-6; Hasegawa A peak 6.10856 -> 6.10855 (-1.3e-6); step counts
+  Chunc 541753 (=), BALLSstick 844549 -> 844548, Hasegawa A 2343883 -> 2343884. Two values sit just over the 1e-5 gate (1.5e-5, 1.2e-5).
+- Hard API change (internal): `_goodman_ignition_sources_and_mass(..., head_end_jet_code, fill_ke)` and its tuple has 13 entries; the three
+  tests that call it directly pass `np.zeros(N)`. The audit test fixture that pins `'sensible'` keeps its pin; the old D1 note about the
+  "p dV open item" is superseded by this entry.
+
 ### Conduction default flip (unreleased, 2026-10-31; user decision 2026-10-13) -- `solid_heating_model='conduction'`
 
 - **BEHAVIOUR CHANGE (default; every transient run shifts):** `run_simulation(solid_heating_model='conduction')`
@@ -574,7 +598,7 @@ in geometry/burn rate/ignition (called every step or every N steps).
   Full table: `docs/solver_verification/worklog/D1.md`.
 - Tests pinned to the pre-D1 step (reason in each): `tests/test_energy_audit.py` fixture (Cp*T convention; the T10 fill-debit identity is an
   ENTHALPY sink vs a total-energy geometry jump: they differ by the p dV work of the opened volume, about 15 % of the debit in the 50 ms run, ~0.1 % of the
-  source power; open item, not changed), `tests/test_ig3_stage2.py::TestNeverLitCells` (`head_end_jet_h='off'`: the jet lights the head-end block that test needs unlit).
+  source power; physical boundary work, resolved in QF1 with the kinetic-energy term and a p dV audit channel), `tests/test_ig3_stage2.py::TestNeverLitCells` (`head_end_jet_h='off'`: the jet lights the head-end block that test needs unlit).
   New: `tests/test_d1_defaults.py`; `tests/test_solver_config_upgrade.py` pins the four choice fields.
 - **CALIBRATION NOTE:** `T_ignition` 756 K, `k_solid` 0.271, `roughness` 32 um and `kappa` 0.44 were fit under the pre-D1 step (sensible energy, legacy momentum,
   static ignition driver, no head-end jet; and before that with the dead zones in place). The LHS re-fit under the new defaults is PENDING and user-triggered.
