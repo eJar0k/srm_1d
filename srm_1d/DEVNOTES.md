@@ -344,6 +344,11 @@ in geometry/burn rate/ignition (called every step or every N steps).
 - Effect on the canonical motors (N = 100): Chunc 0.815 g (1 attempt, slow start under the B0 cutoff; 3 attempts / 1.273 g under the 0.5 MPa default), BALLSstick 3 attempts 1.268 -> 1.982 g (469 psi equiv., real
   startup, t90 17 ms; G1 had a ~1 s hang-fire), Hasegawa A 7.861 g (1 attempt), pathfin54 4 attempts 0.439 -> 0.857 g (586 psi). B0: only the BALLSstick row re-recorded (G1 values in the gate comments).
   Details: `docs/solver_verification/worklog/AS1.md`.
+- **AS1 follow-up (pressure-cutoff arming; behaviour change, all runs):** the `P_cutoff` end-of-run (termination code 2, "burnout") used to fire as soon as one cell was lit, the igniter was spent and
+  `P[0] < P_cutoff`, killing slow starts before the grain lit and making the 0.5 MPa GUI path and the 0.01 MPa B0 harness reach different auto charges. It is now ARMED only when `t >= ignition_prompt_window_s` or
+  >= `ignition_prompt_fraction` of the grain cells are lit (existing conditions kept). `_run_time_loop`: `prompt_window_s` is now always the window (it was 0 unless the early stop was on) and a new bool
+  `prompt_early_stop` follows `prompt_fraction` (@njit signature change). Effect: Chunc auto under 0.5 MPa 1.273 -> 0.815 g (= the B0 row), pathfin54 4 attempts -> 1 (0.439 g, first light 404 ms: the 0.5 s window admits it);
+  BALLSstick / Hasegawa A unchanged; B0 unchanged (no row moved). Failed auto attempts now run to the window end (BALLSstick ~28 s each instead of ~5 s).
 
 ### QF1 (unreleased, 2026-11-10) -- total-energy regression-fill debit carries kinetic energy; p dV audit channel
 

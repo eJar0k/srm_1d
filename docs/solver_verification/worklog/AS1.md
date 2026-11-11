@@ -74,3 +74,35 @@ Cost: failed attempts are cut at the window or at the blowdown: 5-9 s each for C
 ## 6. Gates
 
 B0 (re-recorded: only the BALLSstick row moved; G1 values kept in comments): PASS, `results/as1/B0_output.txt`. Full suite: 945 passed, 2 failed in the first run (the two tests above); after fixing them the two files and `test_as1_prompt_start.py` pass (43 passed). The full 20-min suite was not repeated after the two fixes (expected 947 passed).
+
+## 7. Follow-up: the pressure cutoff is armed only once the grain has started
+
+**Bug.** The loop ended the run as a "burnout" (termination code 2) as soon as one cell was lit, the igniter was spent and `P[0] < P_cutoff`. A slow start
+(Chunc 0.815 g: first light 3.5 ms, t50 234 ms) was therefore killed before the grain lit, so the GUI / `run_from_ric` path (0.5 MPa) and the B0 harness (0.01 MPa)
+reached different auto charges for the same motor (Chunc 1.273 g vs 0.815 g).
+
+**Fix.** The cutoff is a tail-off end condition; it is ARMED only when `t >= ignition_prompt_window_s` or at least `ignition_prompt_fraction` of the grain cells are lit
+(the existing conditions `n_ignited > 0` and `pyrogen_done` stay). The window now reaches `_run_time_loop` for EVERY run (`prompt_window_s`, `prompt_fraction`, plus the separate
+bool `prompt_early_stop` for the window-end failure of auto attempts): an @njit signature change.
+
+**Results (N = 100, 0.5 MPa cutoff = the `run_from_ric` / GUI default; `results/as1/valid_cutoff.jsonl`, the pre-fix rows are in `valid_cutoff_before_arming.jsonl`):**
+
+| motor | before: attempts (charges) | after: attempts (charges, g) | lit fraction per attempt | final DeMar-equiv. | first light | t50 / t90 | peak |
+|---|---|---|---|---|---|---|---|
+| Chunc | 3 (0.815, 1.019, 1.273) | **1 (0.815)** | 0.99 | 300 psi | 3.5 ms | 234 / 235 ms | 10.51 MPa (identical to the B0 row: 543,997 steps) |
+| BALLSstick | 3 (1.268, 1.585, 1.982) | 3 (1.268, 1.585, 1.982) | 0.02, 0.03, 1.00 | 469 psi | 1.7 ms | 15.8 / 17.2 ms | 8.43 MPa |
+| Hasegawa A | 1 (7.861) | 1 (7.861) | 0.99 | 300 psi | 3.0 ms | 108 / 110 ms | late 6.017 MPa |
+| pathfin54 | 4 (0.439 ... 0.857) | **1 (0.439)** | 1.00 | 300 psi | **404 ms** | 485 / 491 ms | early (<0.5 s) 6.09, late 9.21 MPa at 1.3 s |
+
+- The two cutoffs now give the same auto charge for every canonical motor (the B0-cutoff rows are unchanged).
+- **pathfin54 is now accepted with its 300 psi charge although its first light is at 404 ms** and 95 % of the grain is lit by 485 ms: a 0.5 s window admits a 0.4 s ignition delay. Under the old
+  (blowdown) behaviour the cutoff had forced 4 attempts (0.857 g, first light 2 ms). This is the 0.5 s window (user-chosen), not the arming; the same applies to Chunc / Hasegawa A under the B0 cutoff.
+- Cost: failed attempts are no longer ended early by the blowdown cutoff; they run to the window end (BALLSstick 28-33 s per failed attempt vs 5 s before; the final runs unchanged).
+- An explicit hang-fire now runs to the window end (0.5 s) before the cutoff can fire; the hang-fire warning and the termination (code 2 after the window) are covered by `test_ig4_self_sustain::TestHangFire`.
+
+**Tests changed by the arming.** `tests/test_ig4_self_sustain.py` (`TestHangFire`, `TestPluginAlert::test_dud_raises_the_error_alert`) used pathfin54 at an explicit 0.585 g as the "hang-fire". That was the same
+slow start the old cutoff killed: with the cutoff armed after the window, pathfin54 lights ~0.4 s after firing whatever the charge (first light 0.40 / 0.42 / 0.44 / 0.47 s for 0.45 / 0.35 / 0.25 / 0.15 g; 100 / 38 / 7 / 3
+cells lit; 0.25 g and 0.15 g are `ignited False`, ended by the cutoff at 0.5 s). The tests now use 0.25 g (`DUD_G`) as the genuine hang-fire; message, termination (pressure cutoff after the window) and the plugin ERROR still come out right.
+
+**Gates (after the arming).** B0: PASS with no row moved (`results/as1/B0_output_arming.txt`). Full suite: 945 passed, 2 failed in the first run (the two IG4 tests above, `suite_arming.txt`, 24 min, peak 4.0 GB);
+after the fix `test_ig4_self_sustain.py` + `test_as1_prompt_start.py` pass (18 passed). The full suite was not repeated after the test fix (expected 947 passed).
