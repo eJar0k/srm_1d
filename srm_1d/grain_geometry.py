@@ -198,6 +198,10 @@ class MotorGeometry:
         is lumped 50/50 into the last cell of the grain before it and the
         first cell of the grain after it, and ``compile_geometry_arrays()['x_offset']``
         gives the physical axis (cell centre + the gaps before it).
+    lump_ratio_cap : float
+        G2: a lumped volume (head gap, inter-grain gaps, nozzle convergent) is spread
+        over consecutive cells so that no cell's added storage exceeds this multiple of its
+        own geometric volume (1.0 = storage at most doubles; 0 = no spreading).
     """
     L_motor: float
     D_outer: float
@@ -210,6 +214,7 @@ class MotorGeometry:
     cone_half_angle: float = 0.0
     aft_lump_volume: float = 0.0
     gaps_lumped: bool = False
+    lump_ratio_cap: float = 1.0
 
     @property
     def dx(self):
@@ -476,14 +481,34 @@ class MotorGeometry:
                 D_port[i] = Dk
                 cell_A_port_init[i] = np.pi / 4.0 * Dk * Dk
 
-        # G1: gas volume lumped into a cell's storage on top of A_port * dx:
-        # the head gap (head face uninhibited) in cell 0, the unresolved part
-        # of the nozzle convergent in the last cell. Constant in time.
+        # G1/G2: gas volume lumped into cells' storage on top of A_port * dx: the head gap
+        # (head face uninhibited), the unresolved part of the nozzle convergent, and the
+        # inter-grain gaps. Constant in time. A lump is SPREAD over consecutive cells so that
+        # no cell's added storage exceeds ``lump_ratio_cap`` x its own geometric volume
+        # (cell_A_port_init * dx): a concentrated lump many times the host cell's volume
+        # made the fill transient collapse (example_bates: the convergent was 25x the last
+        # cell's volume at N = 200, 50x at N = 400 -> Mach 120 abort when the front reached
+        # it). cap = 1 means "storage at most doubles"; 0 disables the spreading.
+        cap = float(self.lump_ratio_cap)
+
+        def _spread(volume, start, step, lo, hi):
+            """Add ``volume`` to cells start, start+step, ... (within [lo, hi]), each up to
+            cap x its own volume; the remainder goes to the last cell reached."""
+            rem, j = volume, start
+            while rem > 0.0:
+                last = (j + step < lo) or (j + step > hi)
+                room = cap * cell_A_port_init[j] * dx
+                take = rem if (cap <= 0.0 or last) else min(rem, room)
+                vol_extra[j] += take
+                rem -= take
+                j += step
+
         vol_extra = np.zeros(N)
-        vol_extra[0] += np.pi / 4.0 * cell_D_outer[0] ** 2 * self.head_gap
-        vol_extra[N - 1] += self.aft_lump_volume
-        # G2: lumped inter-grain gaps. Each gap's volume is split 50/50 into the two cells
-        # that abut at its (zero-length) interface; x_offset[i] = the gaps upstream of cell i.
+        _spread(np.pi / 4.0 * cell_D_outer[0] ** 2 * self.head_gap, 0, +1, 0, N - 1)
+        _spread(self.aft_lump_volume, N - 1, -1, 0, N - 1)
+        # G2: lumped inter-grain gaps. Each gap's volume is split 50/50 between the grain
+        # before and the grain after the (zero-length) interface, each half spread into its own
+        # grain's cells; x_offset[i] = the gaps upstream of cell i.
         x_offset = np.zeros(N)
         if self.gaps_lumped:
             for k in range(N_seg - 1):
@@ -494,8 +519,10 @@ class MotorGeometry:
                 left, right = edge - 1, edge
                 if left < 0 or right > N - 1:
                     continue
-                vol_extra[left] += 0.5 * np.pi / 4.0 * cell_D_outer[left] ** 2 * g
-                vol_extra[right] += 0.5 * np.pi / 4.0 * cell_D_outer[right] ** 2 * g
+                lo_l = int(round(self.segments[k].x_start / dx))
+                hi_r = int(round((self.segments[k + 1].x_start + self.segments[k + 1].length) / dx)) - 1
+                _spread(0.5 * np.pi / 4.0 * cell_D_outer[left] ** 2 * g, left, -1, lo_l, N - 1)
+                _spread(0.5 * np.pi / 4.0 * cell_D_outer[right] ** 2 * g, right, +1, 0, min(hi_r, N - 1))
                 x_offset[right:] += g
 
         # G2: per-cell burning-perimeter scale (segment L_true / L_snapped; 1 elsewhere).

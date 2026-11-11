@@ -136,13 +136,25 @@ def test_gap_volume_is_split_half_and_half_into_the_two_neighbours():
     A_case = np.pi / 4 * D_OUT ** 2
     ve = ga['vol_extra']
     edges = [int(round((s.x_start + s.length) / geo.dx)) for s in geo.segments[:-1]]
+    # each half (spread over its own grain's cells next to the interface) equals half the gap
+    # volume; the cells adjacent to the interface are both loaded
     for e in edges:
-        assert ve[e - 1] == pytest.approx(0.5 * A_case * GAP)
-        assert ve[e] == pytest.approx(0.5 * A_case * GAP)
-    # the default _spec head face is free -> the head gap is in cell 0; nothing else is lumped
-    assert ve[0] == pytest.approx(A_case * geo.head_gap)
-    assert np.count_nonzero(ve) == 2 * len(edges) + 1
+        assert ve[e - 1] > 0.0 and ve[e] > 0.0
+    # (the 50/50 split itself, free of the neighbours' spreads: a fine-grid single gap)
+    one = build_snapped_geometry([{'D_bore_fwd': D_BORE, 'length': 0.2, 'gap_after': GAP,
+                                   'inhibit_fwd': True},
+                                  {'D_bore_fwd': D_BORE, 'length': 0.2, 'inhibit_aft': True}],
+                                 D_OUT, target_propellant_cells=80)
+    g1 = one.compile_geometry_arrays()
+    e1 = int(round((one.segments[0].x_start + one.segments[0].length) / one.dx))
+    assert g1['vol_extra'][:e1].sum() == pytest.approx(0.5 * A_case * GAP, rel=1e-9)
+    assert g1['vol_extra'][e1:].sum() == pytest.approx(0.5 * A_case * GAP, rel=1e-9)
+    # the default _spec head face is free -> the head gap sits at the head; total is conserved
     assert ve.sum() == pytest.approx(len(edges) * A_case * GAP + A_case * geo.head_gap)
+    # no cell holds more than cap x its own volume, except the last one a spread reached
+    A_cell = ga['cell_A_port_init'] * geo.dx
+    over = np.flatnonzero(ve > geo.lump_ratio_cap * A_cell * (1 + 1e-9))
+    assert over.size <= 2 * len(edges) + 1
 
 
 def test_total_gas_volume_equals_the_legacy_gap_cells_volume():
@@ -207,3 +219,21 @@ def test_a_face_regressing_through_a_lump_conserves_mass_and_volume(frac):
     dV = float(np.sum(A_port - A_init) * dx)
     annulus = np.pi / 4 * (D_OUT ** 2 - D_BORE ** 2)
     assert dV == pytest.approx(n_faces * annulus * delta, rel=1e-9, abs=1e-15)
+
+
+@pytest.mark.parametrize('cells', [250, 400])
+def test_fine_grid_fill_does_not_collapse_with_a_big_convergent(cells):
+    """Regression (found by the G2 stability sweep): example_bates has a convergent 25x (N = 200)
+    to 50x (N = 400) the last cell's volume; lumped into ONE cell it made the fill transient abort
+    (Mach 120) when the front reached it. The lump is now spread (lump_ratio_cap)."""
+    import os
+    import warnings
+    from srm_1d.openmotor_adapter import run_from_ric
+    ric = os.path.join(os.path.dirname(__file__), '..', 'motors', 'example_bates.ric')
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        res = run_from_ric(ric, t_max=0.004, verbose=False, print_interval=0.0,
+                           target_propellant_cells=cells, pyrogen='bpnv',
+                           pyrogen_mass=2.68e-3)[0]      # explicit: never resized, 4 ms is the fill only
+    assert res['summary']['termination'] == 't_max reached'
+    assert float(np.max(res['max_mach'])) < 5.0
