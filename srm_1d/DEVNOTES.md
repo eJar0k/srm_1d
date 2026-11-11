@@ -377,7 +377,7 @@ in geometry/burn rate/ignition (called every step or every N steps).
   The OD-taper "pin" of the buffer cells in `compile_geometry_arrays` is removed (nothing left to pin).
 - **Auto igniter charge:** the free volume used by the DeMar sizing is now `geo.initial_gas_volume()` (cells' port volumes + lumped head gap and convergent) instead of case cylinder x `L_motor` minus propellant, which counted the full-diameter buffers: the auto charge falls by 25 % (Chunc 1.07 -> 0.81 g initial).
 - Findings, tables and the stability sweep: `docs/solver_verification/worklog/G1.md`; the Part 3 design memo (inter-grain gap lumping, length snapping): `docs/solver_verification/G1_NOTES.md`.
-- Tests: `tests/test_g1_ends.py`; older tests that counted buffer cells were updated.
+- Tests: `tests/test_g1_ends.py`; older tests that counted buffer cells or the old argument lists were updated. B0 re-recorded (D1 and QF1 values kept in comments).
 
 ### Conduction default flip (unreleased, 2026-10-31; user decision 2026-10-13) -- `solid_heating_model='conduction'`
 

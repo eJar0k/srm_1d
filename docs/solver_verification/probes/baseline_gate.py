@@ -73,7 +73,16 @@ _spec.loader.exec_module(_probe)
 # slow-ignition pressure, NOT a startup spike/trough: the auto-size criterion (grain out-produces the igniter)
 # accepts a charge that is too small for a prompt start once the free volume is physical. Flagged to the
 # user in worklog/G1.md. Hasegawa A: 9.58 -> 7.86 g, late peak 6.109 -> 6.017 MPa (t 2.64 -> 2.50 s).
-# Recorded from a run after a clean __pycache__ and a warm cache. The D1 values (the previous BASELINE) were:
+# Recorded on top of QF1 (the first G1 recording, before QF1's KE term, was Chunc 10.510546 / BALLS mid
+# 6.704349 / Hasegawa A 6.017199: a 1.5e-5 shift, as QF1 predicted) after a clean __pycache__.
+# The QF1 values (the previous BASELINE) were:
+#   chunc: peak 9.954942701677405, t_peak 0.4882626717511268,
+#          plateau 8.10882300869407, n_steps 541753
+#   balls: peak 7.56221990287067, trough 4.341708721229631,
+#          mid 4.8594489133399525, n_steps 844548
+#   haseg: peak 6.108548290011714, t_peak 2.6393358955391624,
+#          n_steps 2343878
+# and the D1 values before them:
 #   chunc: peak 9.95509537258403, t_peak 0.48826256590025513,
 #          plateau 8.108865458753694, n_steps 541753
 #   balls: peak 7.56231250893722, trough 4.3417299619930585,
@@ -208,11 +217,11 @@ _spec.loader.exec_module(_probe)
 #          mid 4.8594671206858635, n_steps 844549
 #   haseg: peak 6.10855599581484, t_peak 2.6393309440372743, n_steps 2343883
 BASELINE = {
-    'chunc': dict(peak=10.510545662955375, t_peak=0.2590537498677846,
-                  plateau=8.034841968624288, n_steps=543997),
-    'balls': dict(peak=0.29457719441985075, trough=0.07628399505464896,
-                  mid=6.704349487088566, n_steps=855216),
-    'haseg': dict(peak=6.0171988498924005, t_peak=2.499737871616094,
+    'chunc': dict(peak=10.510377787816175, t_peak=0.25905381442784203,
+                  plateau=8.034819676399866, n_steps=543997),
+    'balls': dict(peak=0.2945771944198506, trough=0.07628399187690121,
+                  mid=6.7042510894841545, n_steps=855216),
+    'haseg': dict(peak=6.017191292703041, t_peak=2.499738880086473,
                   n_steps=2334673),
 }
 RIC_FILE = {'chunc': 'machbusterNew.ric', 'balls': 'BALLSstick.ric',
