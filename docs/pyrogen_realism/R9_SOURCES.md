@@ -76,3 +76,28 @@ head-end h scales with the IGNITER mass flow through the port, shaped by X/Dp,
 not with the local mean axial velocity a 1-D cell sees near the closed end.
 That is a literature basis for a head-end model while the igniter runs. Nothing
 here covers the head end after igniter burn-out.
+
+## Update 2026-11-10: Jungowski comment and Carlson reply (AIAA J. 7(6), 1969, p. 1216)
+
+`docs/references/jungowski1969.pdf` (DOI 10.2514/3.55496) and `carlson1969.pdf`
+(10.2514/3.55497) are the same journal page.
+
+- **Jungowski:** Carlson & Seader distinguished only two head-end flow patterns
+  (supersonic-jet reattachment, and no reattachment). There are two more: a
+  subsonic reattachment, and a mixed, self-excited OSCILLATING reattachment.
+  Which one occurs depends on the dead-air pressure ratio, set by the overall
+  pressure ratio and the nozzle-to-duct area ratio. In his experiments the
+  subsonic reattachment sat at x/Dp = 1.8 (for Dp/Dt = 1.58), against 0.33 for
+  the supersonic one. Heat transfer could depend strongly on which pattern
+  occurs.
+- **Carlson's reply:**
+  - The reattachment point was NOT measured. It was computed with the jet-boundary
+    correlations of Love et al. (the point where a constant-pressure jet boundary
+    meets the wall). That point coincided with the measured heat-transfer maximum
+    within the thermocouple spacing.
+  - The regime transitions "perhaps" explain the changing Ap/At dependence in
+    Figs. 8-10.
+  - No jet measurements were made, so the regime in each test is unknown.
+- **For HE1:** neither paper defines Re_d, so that definition remains pending
+  Cohen-Derr-Price (CPIA 220, no DOI). Both papers support Peretz's x_im choice
+  (a jet-boundary calculation) and confirm Ap/At acts through the jet regime.
