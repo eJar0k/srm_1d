@@ -61,7 +61,19 @@ _spec = importlib.util.spec_from_file_location(
 _probe = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_probe)
 
-# RE-RECORDED 2026-11-10 by G1 (user decisions 2026-10-31 "Let's attempt A ..."): the head and aft
+# RE-RECORDED 2026-11-10 by G2 step 1 (user: "let's try it, can revert if not"): segment lengths are rounded
+# on CUMULATIVE position and each segment's burning perimeter is scaled by L_true / L_snapped (memo 2.2), so
+# the burning area and propellant mass equal the .ric values at every grid. Hasegawa A (lengths already
+# whole cells) is bit-identical; Chunc (lengths 15.6 / 84.4 cells) and BALLSstick move by <= 0.1 % (BALLS's
+# slow-ignition trough / mid by 0.1-0.2 %, its "peak" metric by 1.4 %). The G1 values (the previous BASELINE) were:
+#   chunc: peak 10.510377787816175, t_peak 0.25905381442784203,
+#          plateau 8.034819676399866, n_steps 543997
+#   balls: peak 0.2945771944198506, trough 0.07628399187690121,
+#          mid 6.7042510894841545, n_steps 855216
+#   haseg: peak 6.017191292703041, t_peak 2.499738880086473,
+#          n_steps 2334673
+#
+# (earlier) RE-RECORDED 2026-11-10 by G1 (user decisions 2026-10-31 "Let's attempt A ..."): the head and aft
 # gas-buffer cells (MIN_BUFFER_CELLS = 3, full case diameter, 3 dx long) are gone. Cell 0 is the first
 # grain cell against the closure; a head gap (none for these three motors: all grains are inhibited on the
 # head face) and the nozzle convergent are lumped into the end cells' gas storage (aft_end='lump'). Every
@@ -217,11 +229,11 @@ _spec.loader.exec_module(_probe)
 #          mid 4.8594671206858635, n_steps 844549
 #   haseg: peak 6.10855599581484, t_peak 2.6393309440372743, n_steps 2343883
 BASELINE = {
-    'chunc': dict(peak=10.510377787816175, t_peak=0.25905381442784203,
-                  plateau=8.034819676399866, n_steps=543997),
-    'balls': dict(peak=0.2945771944198506, trough=0.07628399187690121,
-                  mid=6.7042510894841545, n_steps=855216),
-    'haseg': dict(peak=6.017191292703041, t_peak=2.499738880086473,
+    'chunc': dict(peak=10.507843379242944, t_peak=0.2688650693535684,
+                  plateau=8.042167197218806, n_steps=543904),
+    'balls': dict(peak=0.2986488305172379, trough=0.07617901568410217,
+                  mid=6.718263141760218, n_steps=854784),
+    'haseg': dict(peak=6.017191292703045, t_peak=2.4997388800864724,
                   n_steps=2334673),
 }
 RIC_FILE = {'chunc': 'machbusterNew.ric', 'balls': 'BALLSstick.ric',

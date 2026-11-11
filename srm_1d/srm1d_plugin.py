@@ -494,6 +494,7 @@ def _per_grain_series(result, geo, prop):
 
     ga = geo.compile_geometry_arrays()
     cell_seg = np.asarray(ga['cell_segment_id'])
+    bscale = np.asarray(ga['cell_burn_scale'])
     n_grains = len(grains)
     n_frames = len(snapshots)
     dx = geo.dx
@@ -516,7 +517,8 @@ def _per_grain_series(result, geo, prop):
         for k in range(n_grains):
             cells = seg_cells[k]
             if cells.size:
-                mass[s, k] = rho * dx * float(np.sum(solid[cells]))
+                # G2: x burn_scale (L_true / L_snapped) so the grain's mass is the .ric one
+                mass[s, k] = rho * dx * float(np.sum(solid[cells] * bscale[cells]))
                 mach[s, k] = float(np.max(mach_field[cells]))
             if seg_aft[k] >= 0:
                 aft_port_area[s, k] = float(a_port[seg_aft[k]])
@@ -542,8 +544,8 @@ def _per_grain_series(result, geo, prop):
     # Volume loading: solid propellant volume / grain bounding volume. The
     # bounding volume is the grain cells' cylinder (A_outer · dx · n_cells),
     # matching openMotor's "fraction of the chamber occupied by propellant".
-    n_grain_cells = int(np.count_nonzero(cell_seg >= 0))
-    bounding_volume = A_outer * dx * max(n_grain_cells, 1)
+    n_grain_cells = float(np.sum(bscale[cell_seg >= 0]))      # G2: true length / dx
+    bounding_volume = A_outer * dx * max(n_grain_cells, 1.0)
     solid_volume = mass.sum(axis=1) / rho
     vol_loading = 100.0 * solid_volume / bounding_volume
 

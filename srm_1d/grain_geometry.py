@@ -126,10 +126,18 @@ class GrainSegment:
     fmm_tables: object = None  # list[FmmTable] for tapered grains
     fmm_station_frac: object = None  # ndarray of axial fractions, aligned
     od_ends: object = None  # list[dict] OD/end-taper entries (None = no OD taper)
+    # G2: the segment's TRUE (.ric) length. ``length`` is the modelled length, a whole
+    # number of cells; ``burn_scale = length_true / length`` multiplies the burning
+    # perimeter of the segment's cells so the burning area and the burned propellant
+    # mass are the true ones (None -> length, scale 1).
+    length_true: float = None
+    burn_scale: float = 1.0
 
     def __post_init__(self):
         if self.D_bore_aft is None:
             self.D_bore_aft = self.D_bore_fwd
+        if self.length_true is None:
+            self.length_true = self.length
 
     @property
     def is_tapered(self) -> bool:
@@ -463,6 +471,13 @@ class MotorGeometry:
         vol_extra[0] += np.pi / 4.0 * cell_D_outer[0] ** 2 * self.head_gap
         vol_extra[N - 1] += self.aft_lump_volume
 
+        # G2: per-cell burning-perimeter scale (segment L_true / L_snapped; 1 elsewhere).
+        cell_burn_scale = np.ones(N)
+        for i in range(N):
+            k = cell_segment_id[i]
+            if k >= 0:
+                cell_burn_scale[i] = self.segments[k].burn_scale
+
         # Per-cell radial regression depth (primary state for the hot
         # loop). Starts at 0 (no regression yet).
         regress = np.zeros(N)
@@ -496,6 +511,7 @@ class MotorGeometry:
             'regress': regress,
             'D_port': D_port,
             'vol_extra': vol_extra,
+            'cell_burn_scale': cell_burn_scale,
             'head_gap': float(self.head_gap),
         }
 
@@ -548,9 +564,10 @@ class MotorGeometry:
                 # Per-cell casting honors OD/end taper (cell_casting is the
                 # scalar casting_area when this segment has no OD taper).
                 mask = cell_segment_id == k
-                V += float(np.sum(cell_casting[mask] - cell_A_port_init[mask]) * dx)
+                # G2: x burn_scale = L_true / L_snapped (the cells span the snapped length)
+                V += float(np.sum(cell_casting[mask] - cell_A_port_init[mask]) * dx) * s.burn_scale
             elif s.fmm_table is not None:
-                V += (casting_area - s.fmm_table.initial_port_area) * s.length
+                V += (casting_area - s.fmm_table.initial_port_area) * s.length_true
             else:
                 # Cylindrical/conical: ∫ π/4 (D_outer² - D_bore(x)²) dx
                 # = π/4 · L · (D_outer² - (D_fwd² + D_fwd·D_aft + D_aft²)/3)
@@ -558,7 +575,7 @@ class MotorGeometry:
                 D_a = s.D_bore_aft
                 V += np.pi / 4.0 * (
                     self.D_outer**2 - (D_f**2 + D_f * D_a + D_a**2) / 3.0
-                ) * s.length
+                ) * s.length_true
         return V
 
 
@@ -631,6 +648,7 @@ def update_cell_geometry(
     cell_D_bore_init, cell_wall_web,
     cell_segment_type, cell_fmm_idx,
     fmm_offset, fmm_reg_flat, fmm_perim_flat, fmm_port_flat,
+    cell_burn_scale=None,
 ):
     """
     Compute per-cell geometry from the current state.
@@ -793,6 +811,9 @@ def update_cell_geometry(
                     f_active = 1.0
 
                 C_burn[i] = base_perimeter * grain_frac * f_active
+                if cell_burn_scale is not None:
+                    # G2: segment length rounding correction (L_true / L_snapped)
+                    C_burn[i] *= cell_burn_scale[i]
 
             # -----------------------------------------------
             # 2. End-face mass sources (Linear Distribution Kernel)
@@ -1222,10 +1243,21 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float,
     if head_gap < 0.0:
         raise ValueError("head_gap must be >= 0")
 
+    # G2: round on CUMULATIVE position (the error never exceeds dx/2 along the
+    # whole motor, instead of accumulating up to dx/2 per segment), and carry the
+    # rounding in ``burn_scale`` so the burning area and the burned mass stay true.
+    pos_true = 0.0        # true cumulative length of propellant + gaps [m]
+    edge_cursor = 0       # modelled position in cells
+
     for i, spec in enumerate(segments_spec):
         # Snap the propellant segment
-        n_seg = max(1, int(round(spec['length'] / dx)))
+        pos_true += spec['length']
+        e_end = max(edge_cursor + 1, int(round(pos_true / dx)))
+        n_seg = e_end - edge_cursor
         snapped_length = n_seg * dx
+        burn_scale = spec['length'] / snapped_length
+        if abs(burn_scale - 1.0) < 1.0e-12:
+            burn_scale = 1.0      # lengths already a whole number of cells: bit-identical
 
         # Tapered FMM grain: resolve the per-station tables now that the
         # cell count (n_seg) is known, so station density tracks the mesh.
@@ -1267,18 +1299,23 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float,
             fmm_tables=fmm_tables,
             fmm_station_frac=fmm_station_frac,
             od_ends=spec.get('od_ends', None),
+            length_true=spec['length'],
+            burn_scale=burn_scale,
         ))
 
         x_cursor += snapped_length
         total_cells += n_seg
-        
-        # Snap the trailing gap
+        edge_cursor = e_end
+
+        # Snap the trailing gap (at least one cell), also on cumulative position
         raw_gap = spec.get('gap_after', 0.0)
         if raw_gap > 1e-6:
-            n_gap = max(1, int(round(raw_gap / dx)))  # Stop forcing 3-cell minimum, allow 1 for speed
-            snapped_gap = n_gap * dx
-            x_cursor += snapped_gap
+            pos_true += raw_gap
+            g_end = max(edge_cursor + 1, int(round(pos_true / dx)))
+            n_gap = g_end - edge_cursor
+            x_cursor += n_gap * dx
             total_cells += n_gap
+            edge_cursor = g_end
             
     # G1 aft end: cone cells following the nozzle convergent, plus the lumped
     # remainder of its volume (see nozzle_convergent_cells).

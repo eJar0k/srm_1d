@@ -2013,6 +2013,7 @@ def _run_time_loop(
     ign_driver_code,              # RT1: 0 static, 1 recovery
     head_end_jet_code,            # HE1: 0 off, 1 max, 2 replace
     vol_extra, head_gap,          # G1: lumped gas volume per cell [m^3]; closure-to-grain gap [m]
+    cell_burn_scale,              # G2: per-cell burning-perimeter scale (L_true / L_snapped)
     # --- v0.8.0 Phase 6: live progress / cooperative cancel ---
     progress_state,               # [2] float64: [0]=progress 0..1 (written),
                                   #              [1]=cancel flag (read; >0.5 aborts)
@@ -2327,6 +2328,7 @@ def _run_time_loop(
                 cell_D_bore_init, cell_wall_web,
                 cell_segment_type, cell_fmm_idx,
                 fmm_offset, fmm_reg_flat, fmm_perim_flat, fmm_port_flat,
+                cell_burn_scale,
             )
             for i in range(N):
                 A_vol[i] = A_port[i] + vol_extra[i] / dx
@@ -3581,6 +3583,7 @@ def _run_simulation_once(
         ga['cell_segment_type'], ga['cell_fmm_idx'],
         ga['fmm_offset'], ga['fmm_reg_flat'],
         ga['fmm_perim_flat'], ga['fmm_port_flat'],
+        ga['cell_burn_scale'],
     )
 
     # Flow state
@@ -4039,6 +4042,7 @@ def _run_simulation_once(
         int(_ign_driver_code), int(_head_jet_code),
         # G1: lumped head-gap / nozzle-convergent gas volume
         ga['vol_extra'], float(ga['head_gap']),
+        ga['cell_burn_scale'],
         # v0.8.0 Phase 6: live progress / cooperative cancel
         progress_state,
     )
