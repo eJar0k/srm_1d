@@ -355,6 +355,30 @@ in geometry/burn rate/ignition (called every step or every N steps).
   tests that call it directly pass `np.zeros(N)`. The audit test fixture that pins `'sensible'` keeps its pin; the old D1 note about the
   "p dV open item" is superseded by this entry.
 
+### G1 (unreleased, 2026-10-31) -- physical head and aft ends: no 3-cell full-diameter gas buffers
+
+- **BEHAVIOUR CHANGE (every transient run shifts):** `build_snapped_geometry` no longer adds `MIN_BUFFER_CELLS = 3` gas cells at the head and aft
+  (they were 3 dx long: 24 mm at N = 100, 3 mm at N = 800 for Chunc, so the head-end volume changed with the grid; MU1 showed this was the
+  whole grid dependence of the startup). The first grain cell is cell 0, against the closure. `x_centers[0] = dx/2`; `N_cells` is 6 smaller; `L_motor`
+  shorter.
+- **Head gap = lumped volume, toggled by the head face's inhibition.** Face inhibited (`Top`/`Both`): bonded, gap 0. Face uninhibited: gap
+  `max(3 mm, 5 % D_outer)` (the inter-grain default). The volume `A_case * head_gap` is added to cell 0's gas STORAGE (`MotorGeometry.head_gap`,
+  `compile_geometry_arrays()['vol_extra']`); no cells are added, so the result is grid independent. `head_gap=` overrides.
+- **Aft end = the nozzle convergent** (`aft_end`): default `'lump'` -- the volume of the cone from the case ID to the throat (half angle = the nozzle's `convAngle`,
+  length `(D_case - D_t)/(2 tan a)`, as openMotor's nozzle preview) is lumped into the last cell's storage; `'cone'` keeps uniform-width cone cells only where the
+  nozzle BC's reservoir assumption holds (`bc_reservoir_area_ratio`, P0 error 1 %, a stated assumption) and lumps the rest; `'cone_nolump'`; `'none'`.
+- **Solver storage terms:** `A_vol = A_port + vol_extra/dx` is the gas STORAGE area; every `A_port * dx` volume (PISO continuity/pressure matrix, energy (sensible and total),
+  EOS/ledger accounting, species advection, ignition-ledger masses, source-CFL capacity, cartridge P_ig volume average) uses it; flow areas (`A_face`, cell-centre mass flux) stay `A_port`.
+  `vol_extra=None`/zeros is bit-identical to before (tested).
+- **API:** new keyword `vol_extra=None` on `_piso_step_with_energy_diagnostics` / `piso_step`; `_advect_species(..., A_port, A_vol, ...)`; `_run_time_loop(..., vol_extra, head_gap, ...)`;
+  `_goodman_ignition_sources_and_mass(..., head_gap)` (HE1 jet distance is measured from the closure: `x + head_gap`); `PyrogenChamber.resolve_injection_cells(..., head_gap=0.0)`;
+  `convert_geometry(..., nozzle=None, aft_end='lump', head_gap=None)`, `ric_to_sim_args(..., aft_end, head_gap)`, `build_snapped_geometry(..., head_gap, nozzle, aft_end)`;
+  new `MotorGeometry` fields (`head_gap, aft_end, n_cone_cells, cone_D_start, cone_half_angle, aft_lump_volume`) and `MotorGeometry.initial_gas_volume()`.
+  The OD-taper "pin" of the buffer cells in `compile_geometry_arrays` is removed (nothing left to pin).
+- **Auto igniter charge:** the free volume used by the DeMar sizing is now `geo.initial_gas_volume()` (cells' port volumes + lumped head gap and convergent) instead of case cylinder x `L_motor` minus propellant, which counted the full-diameter buffers: the auto charge falls by 25 % (Chunc 1.07 -> 0.81 g initial).
+- Findings, tables and the stability sweep: `docs/solver_verification/worklog/G1.md`; the Part 3 design memo (inter-grain gap lumping, length snapping): `docs/solver_verification/G1_NOTES.md`.
+- Tests: `tests/test_g1_ends.py`; older tests that counted buffer cells were updated.
+
 ### Conduction default flip (unreleased, 2026-10-31; user decision 2026-10-13) -- `solid_heating_model='conduction'`
 
 - **BEHAVIOUR CHANGE (default; every transient run shifts):** `run_simulation(solid_heating_model='conduction')`
