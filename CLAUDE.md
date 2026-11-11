@@ -369,8 +369,11 @@ you're changing):**
    - Ignition h is Peretz 1973 (`ignition_heat_transfer='peretz'`, local port
      area); the Ma/Gnielinski chain was 3-5x high at a cold wall.
    - DeMar flux OFF (it is not a measured flux).
-   - Auto igniter charge = DeMar M=V*P/W at 300 psi, plus a x1.25 auto-upsize
-     fallback until the grain's own gas generation exceeds the igniter's peak.
+   - Auto igniter charge = DeMar M=V*P/W at 300 psi, upsized x1.25 per attempt
+     until the start is prompt: >=95 % of grain cells lit within 0.5 s of
+     igniter firing (AS1, `worklog/AS1.md`). `P_cutoff` is armed only after
+     that, so a slow start is no longer ended as a "burnout". The window and a
+     harder initial guess are pending user decisions.
    - MIL-P-46994B Type I-A pellets with exact cylinder burn-back; the head
      basket area shrinks as the pellets burn.
    - The solid model is exact 1-D conduction (`solid_heating_model='conduction'`);
