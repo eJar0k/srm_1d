@@ -86,6 +86,11 @@ class AxialPayload:
     cell_wall_web : ndarray (n_cells,)
         Per-cell initial web thickness [m]; %web remaining =
         1 - regress/cell_wall_web. Empty when absent.
+    x_offset : ndarray (n_cells,)
+        G2: physical-axis offset per cell [m] = the lumped inter-grain gaps upstream of
+        the cell. ``x_cell`` is the contiguous CELL axis (what the slice viewer's cell
+        rectangles of width ``dx`` tile); ``x_cell + x_offset`` is the physical axial
+        position (the station positions use it). Zeros / empty when absent.
     seg_geom : dict
         Per-segment end-face burnback for the longitudinal slice (face
         recession). Keys: ``seg_x_start`` (N_seg,), ``seg_length`` (N_seg,),
@@ -103,6 +108,7 @@ class AxialPayload:
     cell_D_outer: np.ndarray = field(default_factory=lambda: np.array([], float))
     cell_wall_web: np.ndarray = field(default_factory=lambda: np.array([], float))
     seg_geom: dict = field(default_factory=dict)
+    x_offset: np.ndarray = field(default_factory=lambda: np.array([], float))
 
     @property
     def n_frames(self) -> int:
@@ -228,6 +234,8 @@ def build_axial_payload(
         cell_wall_web=(np.asarray(cww, dtype=float)
                        if cww is not None else np.array([], dtype=float)),
         seg_geom=seg_geom,
+        x_offset=(np.asarray(result.get('x_offset'), dtype=float)
+                  if result.get('x_offset') is not None else np.zeros(n_cells)),
     )
 
 

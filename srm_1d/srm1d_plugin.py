@@ -596,10 +596,12 @@ def _axial_payload_for_gui(result):
     payload = build_axial_payload(result, max_frames=4000)
     if payload is None:
         return None
-    stations = default_stations(payload.cell_segment_id, payload.x_cell)
+    # G2: station positions are PHYSICAL (cell axis + the lumped inter-grain gaps upstream)
+    stations = default_stations(payload.cell_segment_id, payload.x_cell + payload.x_offset)
     return {
         'snap_times': payload.snap_times,
         'x_cell': payload.x_cell,
+        'x_offset': payload.x_offset,   # G2: physical axis = x_cell + x_offset
         'cell_segment_id': payload.cell_segment_id,
         'fields': payload.fields,
         # Roadmap #2 longitudinal motor-slice geometry (constant per run).

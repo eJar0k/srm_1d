@@ -1144,7 +1144,7 @@ def convert_propellant(ric_propellant, gas_props=None):
 
 def convert_geometry(ric_grains, target_propellant_cells=100,
                      fmm_map_dim=1001, nozzle=None, aft_end='lump',
-                     head_gap=None):
+                     head_gap=None, lump_gaps=True):
     """
     Convert openMotor grain list to srm_1d MotorGeometry.
     The throat lives on a separate Nozzle object — see convert_nozzle().
@@ -1320,6 +1320,7 @@ def convert_geometry(ric_grains, target_propellant_cells=100,
         segments_spec, D_outer,
         target_propellant_cells=target_propellant_cells,
         head_gap=head_gap, nozzle=nozzle, aft_end=aft_end,
+        lump_gaps=lump_gaps,
     )
 
 
@@ -1362,7 +1363,8 @@ def convert_nozzle(ric_nozzle):
 # ================================================================
 
 def ric_to_sim_args(motor, gas_props=None, target_propellant_cells=100,
-                    aft_end='lump', head_gap=None, **sim_overrides):
+                    aft_end='lump', head_gap=None, lump_gaps=True,
+                    **sim_overrides):
     """
     Convert a loaded .ric motor dict to run_simulation keyword arguments.
 
@@ -1403,7 +1405,8 @@ def ric_to_sim_args(motor, gas_props=None, target_propellant_cells=100,
             head_gap = float(hg)
     geo = convert_geometry(motor['grains'],
                            target_propellant_cells=target_propellant_cells,
-                           nozzle=nozzle, aft_end=aft_end, head_gap=head_gap)
+                           nozzle=nozzle, aft_end=aft_end, head_gap=head_gap,
+                           lump_gaps=lump_gaps)
 
     P_amb = motor['config'].get('ambPressure', 101325.0)
 

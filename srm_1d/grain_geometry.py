@@ -132,6 +132,10 @@ class GrainSegment:
     # mass are the true ones (None -> length, scale 1).
     length_true: float = None
     burn_scale: float = 1.0
+    # G2 (memo 2.1): the physical gap [m] that follows this segment. With
+    # ``MotorGeometry.gaps_lumped`` the gap has NO cells: the grains abut in cell space
+    # and the gap volume is lumped 50/50 into the two neighbouring cells' storage.
+    gap_after: float = 0.0
 
     def __post_init__(self):
         if self.D_bore_aft is None:
@@ -189,6 +193,11 @@ class MotorGeometry:
     aft_lump_volume : float
         G1: the convergent volume not resolved by cone cells [m^3], lumped
         into the last cell's gas storage (``vol_extra[N-1]``).
+    gaps_lumped : bool
+        G2: inter-grain gaps carry no cells; each gap's volume ``A_case * gap``
+        is lumped 50/50 into the last cell of the grain before it and the
+        first cell of the grain after it, and ``compile_geometry_arrays()['x_offset']``
+        gives the physical axis (cell centre + the gaps before it).
     """
     L_motor: float
     D_outer: float
@@ -200,6 +209,7 @@ class MotorGeometry:
     cone_D_start: float = 0.0
     cone_half_angle: float = 0.0
     aft_lump_volume: float = 0.0
+    gaps_lumped: bool = False
 
     @property
     def dx(self):
@@ -276,8 +286,10 @@ class MotorGeometry:
         for k in range(N_seg - 1):
             seg_k_end = self.segments[k].x_start + self.segments[k].length
             seg_k1_start = self.segments[k + 1].x_start
-            if abs(seg_k_end - seg_k1_start) < 1e-8:
-                # Segments touch — inhibit shared faces
+            lumped_gap = self.gaps_lumped and self.segments[k].gap_after > 1e-6
+            if abs(seg_k_end - seg_k1_start) < 1e-8 and not lumped_gap:
+                # Segments touch — inhibit shared faces (a LUMPED gap abuts in cell
+                # space but is a real gap: the faces stay free)
                 self.segments[k].inhibit_aft = True
                 self.segments[k + 1].inhibit_fwd = True
 
@@ -470,6 +482,21 @@ class MotorGeometry:
         vol_extra = np.zeros(N)
         vol_extra[0] += np.pi / 4.0 * cell_D_outer[0] ** 2 * self.head_gap
         vol_extra[N - 1] += self.aft_lump_volume
+        # G2: lumped inter-grain gaps. Each gap's volume is split 50/50 into the two cells
+        # that abut at its (zero-length) interface; x_offset[i] = the gaps upstream of cell i.
+        x_offset = np.zeros(N)
+        if self.gaps_lumped:
+            for k in range(N_seg - 1):
+                g = self.segments[k].gap_after
+                if g <= 1e-6:
+                    continue
+                edge = int(round((self.segments[k].x_start + self.segments[k].length) / dx))
+                left, right = edge - 1, edge
+                if left < 0 or right > N - 1:
+                    continue
+                vol_extra[left] += 0.5 * np.pi / 4.0 * cell_D_outer[left] ** 2 * g
+                vol_extra[right] += 0.5 * np.pi / 4.0 * cell_D_outer[right] ** 2 * g
+                x_offset[right:] += g
 
         # G2: per-cell burning-perimeter scale (segment L_true / L_snapped; 1 elsewhere).
         cell_burn_scale = np.ones(N)
@@ -511,6 +538,7 @@ class MotorGeometry:
             'regress': regress,
             'D_port': D_port,
             'vol_extra': vol_extra,
+            'x_offset': x_offset,
             'cell_burn_scale': cell_burn_scale,
             'head_gap': float(self.head_gap),
         }
@@ -1158,7 +1186,8 @@ def nozzle_convergent_cells(D_start, D_throat, half_angle_deg, A_cut, dx,
 def build_snapped_geometry(segments_spec: list[dict], D_outer: float,
                            target_propellant_cells: int = 100,
                            head_gap=None, nozzle=None,
-                           aft_end: str = 'lump') -> MotorGeometry:
+                           aft_end: str = 'lump',
+                           lump_gaps: bool = True) -> MotorGeometry:
     """
     Intelligent geometry preprocessor that guarantees perfect node alignment
     and CFD minimum gap resolution via Integer-Snapping.
@@ -1205,6 +1234,11 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float,
         storage; no cone cells), 'cone' (cone cells where the nozzle BC's
         reservoir assumption holds + the rest lumped), 'cone_nolump' or
         'none'.  See ``nozzle_convergent_cells``.
+    lump_gaps : bool
+        G2: True (default) = inter-grain gaps carry no cells: their volume is
+        lumped 50/50 into the two neighbouring cells and dx is NOT clamped to the
+        smallest gap (BATES motors run at the target cell count).  False = the
+        legacy gap CELLS with the dx <= smallest-gap clamp (for A/B).
     """
     # 1. Sum total pure propellant length
     L_prop_total = sum(spec['length'] for spec in segments_spec)
@@ -1215,8 +1249,9 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float,
     # 3. The Nyquist-CFD Clamp (Enforce 3-cell minimum on physical gaps only)
     gaps = [spec.get('gap_after', 0.0) for spec in segments_spec if spec.get('gap_after', 0.0) > 1e-6]
     
-    # Only clamp if there are actual physical gaps between segments
-    if gaps:
+    # Only clamp if there are actual physical gaps between segments (legacy gap cells).
+    # G2: with lumped gaps there are no gap cells, so there is nothing to resolve.
+    if gaps and not lump_gaps:
         min_gap = min(gaps)
         max_allowed_dx = min_gap / 1.0 # Reverted to 1.0 from 3.0 to speed up run time, even though 3.0 increases resolution
         
@@ -1301,6 +1336,8 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float,
             od_ends=spec.get('od_ends', None),
             length_true=spec['length'],
             burn_scale=burn_scale,
+            gap_after=(spec.get('gap_after', 0.0)
+                       if spec.get('gap_after', 0.0) > 1e-6 else 0.0),
         ))
 
         x_cursor += snapped_length
@@ -1309,7 +1346,7 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float,
 
         # Snap the trailing gap (at least one cell), also on cumulative position
         raw_gap = spec.get('gap_after', 0.0)
-        if raw_gap > 1e-6:
+        if raw_gap > 1e-6 and not lump_gaps:
             pos_true += raw_gap
             g_end = max(edge_cursor + 1, int(round(pos_true / dx)))
             n_gap = g_end - edge_cursor
@@ -1335,7 +1372,7 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float,
     L_motor_snapped = x_cursor
     
     # Verify deviation is within acceptable physical limits (< 10mm)
-    if abs(L_motor_snapped - n_cone * dx - (L_prop_total + sum(gaps))) > 0.01:
+    if abs(L_motor_snapped - n_cone * dx - (L_prop_total + (0.0 if lump_gaps else sum(gaps)))) > 0.01:
         warnings.warn(f"Integer-snapping altered total motor length by more than 10mm. Check segment proportions.")
 
     return MotorGeometry(
@@ -1349,5 +1386,6 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float,
         cone_D_start=D_cone_start,
         cone_half_angle=half_angle,
         aft_lump_volume=aft_lump,
+        gaps_lumped=bool(lump_gaps),
     )
 

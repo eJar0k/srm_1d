@@ -64,16 +64,22 @@ def test_burning_area_and_mass_are_the_ric_values_at_every_grid(target):
 
 @pytest.mark.parametrize('target', [200, 331, 500])
 def test_rounding_is_on_cumulative_position(target):
-    # fine enough that the 1-cell minimum gap does not bind (dx < gap): every segment end lies
-    # within dx/2 of its TRUE cumulative position (propellant + gaps), not up to k*dx/2
+    # lumped gaps (cells = propellant only): every segment end lies within dx/2 of its TRUE
+    # cumulative propellant position, not up to k*dx/2; the legacy gap-cell build, when the
+    # 1-cell minimum gap does not bind (dx < gap), is held to the same bound including its gaps
     geo = build_snapped_geometry(_spec(), D_OUT, target_propellant_cells=target)
     dx = geo.dx
-    assert dx < GAP
     pos = 0.0
-    for k, (seg, L) in enumerate(zip(geo.segments, LENS)):
+    for seg, L in zip(geo.segments, LENS):
         pos += L
         assert abs(seg.x_start + seg.length - pos) <= 0.5 * dx + 1e-12
         assert seg.length_true == L and seg.burn_scale == pytest.approx(L / seg.length)
+    leg = build_snapped_geometry(_spec(), D_OUT, target_propellant_cells=target, lump_gaps=False)
+    assert leg.dx < GAP
+    pos = 0.0
+    for seg, L in zip(leg.segments, LENS):
+        pos += L
+        assert abs(seg.x_start + seg.length - pos) <= 0.5 * leg.dx + 1e-12
         pos += GAP
 
 
@@ -105,3 +111,99 @@ def test_endface_mass_rate_is_unchanged_by_the_scale():
     ga, C, ems = _init(geo)
     # two segments, four burning faces: 4 rho r A_face (= 2 x the 2-face value), whatever the rounding
     assert float(np.sum(ems) * geo.dx) == pytest.approx(2.0 * _analytical_mass_rate(0.08, 0.04, prop), rel=1e-3)
+
+
+# ---------------------------------------------------------------------------
+# G2 step 2 (memo 2.1): inter-grain gaps are lumped volume, not cells
+# ---------------------------------------------------------------------------
+
+def test_lumped_gaps_have_no_cells_and_no_dx_clamp():
+    spec = _spec(gap=0.003)
+    lumped = build_snapped_geometry(spec, D_OUT, target_propellant_cells=100)
+    legacy = build_snapped_geometry(spec, D_OUT, target_propellant_cells=100, lump_gaps=False)
+    assert lumped.gaps_lumped and not legacy.gaps_lumped
+    # no clamp: dx = L_prop / N; the legacy build clamps dx to the 3 mm gap
+    assert lumped.dx == pytest.approx(sum(LENS) / 100, rel=0.02)
+    assert legacy.dx <= 0.003 + 1e-12
+    assert lumped.N_cells < 0.7 * legacy.N_cells
+    ga = lumped.compile_geometry_arrays()
+    assert np.all(ga['cell_segment_id'] >= 0)             # every cell is a grain cell
+
+
+def test_gap_volume_is_split_half_and_half_into_the_two_neighbours():
+    geo = build_snapped_geometry(_spec(), D_OUT, target_propellant_cells=100)
+    ga = geo.compile_geometry_arrays()
+    A_case = np.pi / 4 * D_OUT ** 2
+    ve = ga['vol_extra']
+    edges = [int(round((s.x_start + s.length) / geo.dx)) for s in geo.segments[:-1]]
+    for e in edges:
+        assert ve[e - 1] == pytest.approx(0.5 * A_case * GAP)
+        assert ve[e] == pytest.approx(0.5 * A_case * GAP)
+    # the default _spec head face is free -> the head gap is in cell 0; nothing else is lumped
+    assert ve[0] == pytest.approx(A_case * geo.head_gap)
+    assert np.count_nonzero(ve) == 2 * len(edges) + 1
+    assert ve.sum() == pytest.approx(len(edges) * A_case * GAP + A_case * geo.head_gap)
+
+
+def test_total_gas_volume_equals_the_legacy_gap_cells_volume():
+    # same physical motor, legacy cells vs lumped gaps: the gap volume is the same
+    # (fine grid so the legacy build's whole-cell gap rounding is small)
+    lumped = build_snapped_geometry(_spec(), D_OUT, target_propellant_cells=3000)
+    legacy = build_snapped_geometry(_spec(), D_OUT, target_propellant_cells=3000, lump_gaps=False)
+    assert lumped.initial_gas_volume() == pytest.approx(legacy.initial_gas_volume(), rel=5e-3)
+
+
+def test_x_offset_is_the_gaps_upstream():
+    geo = build_snapped_geometry(_spec(), D_OUT, target_propellant_cells=100)
+    ga = geo.compile_geometry_arrays()
+    xo = ga['x_offset']
+    edges = [int(round((s.x_start + s.length) / geo.dx)) for s in geo.segments[:-1]]
+    assert xo[0] == 0.0 and xo[edges[0] - 1] == 0.0
+    assert xo[edges[0]] == pytest.approx(GAP) and xo[edges[1]] == pytest.approx(2 * GAP)
+    assert xo[-1] == pytest.approx(2 * GAP)
+    # physical axis length = propellant + gaps
+    assert ga['x_centers'][-1] + xo[-1] + 0.5 * geo.dx == pytest.approx(sum(LENS) + 2 * GAP, abs=geo.dx)
+
+
+def test_lumped_gap_faces_stay_free_not_auto_inhibited():
+    geo = build_snapped_geometry(_spec(), D_OUT, target_propellant_cells=100)
+    ga = geo.compile_geometry_arrays()
+    assert not ga['seg_inhibit_fwd'][1] and not ga['seg_inhibit_aft'][0]
+    # ... while a bonded interface (gap 0) still auto-inhibits
+    b = build_snapped_geometry(_spec(gap=0.0), D_OUT, target_propellant_cells=100)
+    gb = b.compile_geometry_arrays()
+    assert gb['seg_inhibit_fwd'][1] and gb['seg_inhibit_aft'][0]
+
+
+@pytest.mark.parametrize('frac', [0.0, 0.3, 1.0, 1.5, 3.7])
+def test_a_face_regressing_through_a_lump_conserves_mass_and_volume(frac):
+    """All four free faces recede by delta: the end-face mass source stays 4 rho r A_face (partition of
+    unity, also at the wall cells and the lumped interface), and the gas volume grows by exactly
+    4 A_annulus delta (the vacated propellant), whatever cell the faces are in."""
+    from tests.test_endface_conservation import _analytical_mass_rate, _make_test_propellant
+    prop = _make_test_propellant()
+    geo = build_snapped_geometry(_spec(inhibit=False), D_OUT, target_propellant_cells=100)
+    ga0, C0, ems0 = _init(geo)
+    N, dx = geo.N_cells, geo.dx
+    ga = geo.compile_geometry_arrays()
+    seg_id0 = ga['cell_segment_id'].copy()         # update_cell_geometry rewrites it in place
+    delta = frac * dx
+    fwd = ga['seg_fwd_regression'].copy(); fwd[:] = delta
+    aft = ga['seg_aft_regression'].copy(); aft[:] = delta
+    A_port, C, Dh = np.zeros(N), np.zeros(N), np.zeros(N)
+    ig, ems = np.zeros(N, dtype=np.bool_), np.zeros(N)
+    update_cell_geometry(
+        ga['regress'].copy(), ga['D_port'].copy(), ga['x_centers'], dx, N, ga['N_seg'],
+        ga['cell_D_outer'], ga['seg_x_start'], ga['seg_length'], fwd, aft,
+        ga['seg_inhibit_fwd'], ga['seg_inhibit_aft'], ga['cell_segment_id'],
+        np.full(N, 3e6), prop.rho_propellant, *prop.tab_arrays(), len(prop.tabs),
+        A_port, C, Dh, ig, ems, ga['cell_D_bore_init'], ga['cell_wall_web'],
+        ga['cell_segment_type'], ga['cell_fmm_idx'], ga['fmm_offset'],
+        ga['fmm_reg_flat'], ga['fmm_perim_flat'], ga['fmm_port_flat'], ga['cell_burn_scale'])
+    n_faces = 2 * len(geo.segments)
+    expect = n_faces / 2.0 * _analytical_mass_rate(D_OUT, D_BORE, prop)
+    assert float(np.sum(ems) * dx) == pytest.approx(expect, rel=1e-3)
+    A_init = np.where(seg_id0 >= 0, np.pi / 4 * D_BORE ** 2, np.pi / 4 * D_OUT ** 2)
+    dV = float(np.sum(A_port - A_init) * dx)
+    annulus = np.pi / 4 * (D_OUT ** 2 - D_BORE ** 2)
+    assert dV == pytest.approx(n_faces * annulus * delta, rel=1e-9, abs=1e-15)

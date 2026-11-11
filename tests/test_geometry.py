@@ -91,15 +91,13 @@ class TestFactoryFunctions:
 
     def test_bates_motor_length(self):
         geo = make_bates_motor(0.038, 0.070, 0.120, 4, 0.005)
-        # 4 propellant segments + 3 internal gaps (one cell each: dx clamps to
-        # the 5 mm min gap). G1: no head / aft buffer cells (the former
-        # MIN_BUFFER_CELLS = 3 buffers are gone; a head gap is lumped volume,
-        # not length).
-        dx = geo.dx
+        # 4 propellant segments. G1: no head / aft buffer cells; G2: the 3 internal
+        # 5 mm gaps carry no cells either (lumped volume): L_motor is the propellant
+        # length and the physical length is L_motor + the gaps.
         expected_segments = 4 * 0.120
-        expected_internal_gaps = 3 * dx        # one cell each
-        expected = expected_segments + expected_internal_gaps
-        assert geo.L_motor == pytest.approx(expected, abs=1e-9)
+        assert geo.L_motor == pytest.approx(expected_segments, abs=1e-9)
+        assert sum(s.gap_after for s in geo.segments) == pytest.approx(3 * 0.005)
+        assert geo.compile_geometry_arrays()['x_offset'][-1] == pytest.approx(3 * 0.005)
 
     def test_web_thickness(self):
         geo = make_single_cylinder(0.040, 0.080, 0.500)
@@ -165,7 +163,9 @@ class TestEndfaceInjection:
             _init_geometry_arrays(geo)
         # G2: gap cell counts follow the CUMULATIVE rounding now, so a gap can be two
         # cells (its two faces then touch distinct cells): 11 with one-cell gaps, up to 13.
-        assert 11 <= int(np.sum(ef > 0)) <= 13
+        # G2: no gap cells at all - the two faces at each of the 3 interfaces share
+        # the two abutting grain cells, so 8 faces touch 2 (wall) + 3 x 2 = 8 cells.
+        assert int(np.sum(ef > 0)) == 8
 
     def test_inhibited_ends_no_faces(self):
         """Single cylinder with inhibited ends should have 0 burning faces."""
