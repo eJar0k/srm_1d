@@ -61,6 +61,25 @@ _spec = importlib.util.spec_from_file_location(
 _probe = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_probe)
 
+# RE-RECORDED 2026-11-11 by NB1 (user decision 2026-11-10 "Prefer a physical fix, so taking the isentropic relations to
+# find actual stagnation properties at that choked boundary"), on top of G2 + AW1: run_simulation(nozzle_bc_stagnation=
+# 'isentropic') is the default. The last cell's (P, T) are the STATIC port-exit state and the throat flow is computed from the
+# true stagnation state P0 = P g(M_e) (area-Mach root for choked flow), so for a given gas generation the chamber static
+# pressure settles LOWER by about g(M_e) - 1 at the plateau (grain-exit Mach at the plateau: Chunc 0.126 -> P0/P 1.0095,
+# BALLSstick 0.128 -> 1.0098, Hasegawa A 0.111 -> 1.0073) and by more where the port Mach is higher (the startup).
+# Moves: Chunc peak 11.746 -> 11.091 (-5.6 %), t_peak 23.3 -> 22.8 ms, plateau 8.226 -> 8.157 (-0.85 %), peak/plateau 1.428 -> 1.360;
+# BALLSstick peak 8.759 -> 8.410 (-4.0 %), trough 4.434 -> 4.334 (-2.3 %), mid 4.932 -> 4.845 (-1.8 %); Hasegawa A late peak
+# 6.0137 -> 5.9573 (-0.9 %, 2.40 -> 2.43 s). Auto charges are unchanged (Chunc 1.273 g, BALLSstick 2.033 g, Hasegawa A 9.826 g).
+# The 'static' boundary (nozzle_bc_stagnation='static') reproduces the G2+AW1 values below bit for bit (verified on the merged
+# tree with docs/solver_verification/probes/nb1_motor_ab.py). Recorded from a clean-__pycache__ run, reproduced by a second run
+# (and by the A/B probe). The G2+AW1 values (the previous BASELINE; reproduce with nozzle_bc_stagnation='static') were:
+#   chunc: peak 11.746371710235893, t_peak 0.023301322075933252,
+#          plateau 8.22645613610499, n_steps 529946
+#   balls: peak 8.75891443393703, trough 4.433817839880108,
+#          mid 4.931795163190824, n_steps 842924
+#   haseg: peak 6.013705081415213, t_peak 2.4004083212637655,
+#          n_steps 2330324
+#
 # RE-RECORDED 2026-11-11 by the G2 merge on top of AS1: Chunc and Hasegawa A are UNCHANGED by the merge
 # (AS1 does not touch them; their values are G2's below). Only the BALLSstick row moves, because the AS1 row
 # (prompt-start charge, 1.982 g) is now run with G2's geometry (cumulative-position rounding with the
@@ -279,12 +298,12 @@ _spec.loader.exec_module(_probe)
 # and AW1 on the pre-G2 (AS1) base was: chunc peak 11.815737622775412, t_peak 0.022934548464792655,
 #   plateau 8.223107545259793, n_steps 529855; haseg peak 6.013696207978471, t_peak 2.4003433296274164, n_steps 2332212
 BASELINE = {
-    'chunc': dict(peak=11.746371710235893, t_peak=0.023301322075933252,
-                  plateau=8.22645613610499, n_steps=529946),
-    'balls': dict(peak=8.75891443393703, trough=4.433817839880108,
-                  mid=4.931795163190824, n_steps=842924),
-    'haseg': dict(peak=6.013705081415213, t_peak=2.4004083212637655,
-                  n_steps=2330324),
+    'chunc': dict(peak=11.091373734103097, t_peak=0.0228418625880795,
+                  plateau=8.156904979898155, n_steps=531719),
+    'balls': dict(peak=8.410209348265097, trough=4.3337723777969295,
+                  mid=4.8449869069546745, n_steps=846027),
+    'haseg': dict(peak=5.957335057263658, t_peak=2.4263434335772907,
+                  n_steps=2336970),
 }
 RIC_FILE = {'chunc': 'machbusterNew.ric', 'balls': 'BALLSstick.ric',
             'haseg': 'hasegawa_a.ric'}
