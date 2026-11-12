@@ -443,8 +443,8 @@ User: "let's try it, can revert if not" (memo `docs/solver_verification/G1_NOTES
   `max(3 mm, 5 % D_outer)` (the inter-grain default). The volume `A_case * head_gap` is added to cell 0's gas STORAGE (`MotorGeometry.head_gap`,
   `compile_geometry_arrays()['vol_extra']`); no cells are added, so the result is grid independent. `head_gap=` overrides.
 - **Aft end = the nozzle convergent** (`aft_end`): default `'lump'` -- the volume of the cone from the case ID to the throat (half angle = the nozzle's `convAngle`,
-  length `(D_case - D_t)/(2 tan a)`, as openMotor's nozzle preview) is lumped into the last cell's storage; `'cone'` keeps uniform-width cone cells only where the
-  nozzle BC's reservoir assumption holds (`bc_reservoir_area_ratio`, P0 error 1 %, a stated assumption) and lumps the rest; `'cone_nolump'`; `'none'`.
+  length `(D_case - D_t)/(2 tan a)`, as openMotor's nozzle preview) is lumped into the last cell's storage; `'cone'` keeps uniform-width cone cells only where
+  the cone area ratio stays above `bc_reservoir_area_ratio` (1 % P0 error, a stated assumption; since NB1 the isentropic nozzle boundary no longer needs static ~ stagnation, so the cut is a RESOLUTION GUARD on the area drop per cone cell, unchanged and not to be loosened: `docs/solver_verification/worklog/NB1.md` step 5) and lumps the rest; `'cone_nolump'`; `'none'`.
 - **Solver storage terms:** `A_vol = A_port + vol_extra/dx` is the gas STORAGE area; every `A_port * dx` volume (PISO continuity/pressure matrix, energy (sensible and total),
   EOS/ledger accounting, species advection, ignition-ledger masses, source-CFL capacity, cartridge P_ig volume average) uses it; flow areas (`A_face`, cell-centre mass flux) stay `A_port`.
   `vol_extra=None`/zeros is bit-identical to before (tested).
