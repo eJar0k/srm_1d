@@ -404,6 +404,17 @@ you're changing):**
        The startup is now grid-independent (N=50-200), and MUCH more violent
        with the real zero gap: Chunc 2.62 g peak/plateau 2.00 (exp 1.027). The
        T8 "grid-converged spike" numbers predate this.
+     - **G2 (2026-11-11, `worklog/G2.md`)** changed how grains map onto cells:
+       - grain lengths snap to the grid on cumulative position, with C_burn
+         scaled by L_true/L_snapped, so burn area and propellant volume are
+         exact;
+       - inter-grain gaps carry no cells (`lump_gaps=True`); their volume goes
+         50/50 into the neighbouring cells, and a physical `x_offset` axis
+         keeps true positions;
+       - every lumped volume is spread so no cell's storage more than doubles
+         (`lump_ratio_cap=1`). This fixes a fine-grid fill collapse.
+       - Open: Aeroblast's early plateau is 2 % below the legacy gap cells,
+         unexplained.
      - T_ignition/k_solid were fit under Goodman; the LHS re-fit is pending and
        user-triggered.
 2. **Core-loop performance (held).** `fastmath` shipped (+~30%,
