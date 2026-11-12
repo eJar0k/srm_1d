@@ -281,6 +281,12 @@ _SCALAR_UNITS = {
     'P_head': ('Head Pressure', 'Pa'),
     'P_exit': ('Nozzle Exit Pressure', 'Pa'),
     'D_throat': ('Throat Diameter', 'm'),
+    # TP1: nozzle-entrance stagnation state (feeds thrust/CF/Isp; P_head stays the
+    # head-end "chamber pressure" trace) + the exit-cell mixture the boundary used.
+    'P0_nozzle': ('Nozzle Entrance Stagnation Pressure', 'Pa'),
+    'T0_nozzle': ('Nozzle Entrance Stagnation Temperature', 'K'),
+    'gamma_nozzle': ('Exit-Cell Mixture Gamma', ''),
+    'R_nozzle': ('Exit-Cell Mixture Gas Constant', 'J/(kg*K)'),
     'Kn': ('Kn', ''),
     'massflow': ('Nozzle Mass Flow', 'kg/s'),
     'P_ig': ('Igniter Pressure', 'Pa'),

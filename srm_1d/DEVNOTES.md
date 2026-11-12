@@ -331,6 +331,19 @@ in geometry/burn rate/ignition (called every step or every N steps).
 
 ## API Breaking Changes Log
 
+### TP1 (unreleased, 2026-11-11) -- thrust, CF, Isp and impulse use the nozzle-entrance stagnation pressure
+
+- **BEHAVIOUR CHANGE (thrust path only; the flow solution and `P_head` are bit-identical).** `compute_motor_performance` / `compute_thrust_history` took the head-end static pressure `P_head` as the chamber pressure of `F = CF P_c A_t`.
+  They now take the STAGNATION pressure at the nozzle entrance (the port exit), `P0_nozzle = P_exit g(M_e)`, from the SAME boundary solve the step used (`M_choke` of the step, the boundary's own mass flow). `P_head` stays the
+  head-end ("chamber pressure") trace: the openMotor `pressure` channel, the CSV `Pressure (Pa)` column and every plot. Plateau effect: thrust and impulse -1 to -3.5 % (Chunc / BALLSstick / Hasegawa A), larger in the startup.
+- **New result keys (history, one row per step like the others):** `P0_nozzle` [Pa], `T0_nozzle` [K] (`'static'` boundary: = `P_exit`, `T_exit`; no flow or reverse inflow: the static cell state), `gamma_nozzle`, `R_nozzle` (exit-cell mixture the boundary used).
+  New perf keys: `P0_nozzle`, `c_star_sim` (array, `P0 A_t / mdot`), `c_star_sim_avg`. New channels `P0_nozzle`, `T0_nozzle`, `gamma_nozzle`, `R_nozzle`. CSV: a last performance column `Nozzle Stagnation Pressure (Pa)`.
+  A result without `P0_nozzle` (old pickle, hand-built dict) falls back to `P_head` with a `RuntimeWarning`.
+- **@njit signature changes:** `simulation._run_time_loop` gains four history arrays `P0_nozzle_hist, T0_nozzle_hist, gamma_nozzle_hist, R_nozzle_hist` (after `D_throat_hist`); new `solver._nozzle_entrance_stagnation(mdot, P_cell, T_cell, gamma, R, A_exit, M_choke) -> (P0, T0, M_e)`;
+  new `nozzle.compute_thrust_series(P0_arr, D_throat_arr, N, gamma, D_exit, div_loss, efficiency, throat_length, skin_loss, P_ambient, c_star, g0)` (thrust from a GIVEN throat history). `nozzle.compute_thrust_history` keeps its
+  signature (its second argument is now documented as the stagnation pressure) and is used only when the result has no recorded `D_throat`; `compute_motor_performance` otherwise uses the solver's own throat history (it always did, after a wasted second pass).
+- The throat erosion in the time loop uses the port-exit STATIC pressure `P[N-1]` (unchanged; see `worklog/TP1.md` for the throat/gamma/C* findings). Details and tables: `docs/solver_verification/worklog/TP1.md`.
+
 ### NB1 (unreleased, 2026-11-11) -- the nozzle boundary uses the true (isentropic) stagnation state
 
 - **BEHAVIOUR CHANGE (all runs, default).** `run_simulation(nozzle_bc_stagnation='isentropic')` (new kwarg; `'static'` = the pre-NB1 boundary, kept for A/B). The last cell's (P, T) are the STATIC port-exit

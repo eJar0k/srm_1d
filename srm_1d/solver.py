@@ -465,6 +465,43 @@ def _nozzle_boundary_flow(
 
 
 @njit(cache=True, fastmath=True)
+def _nozzle_entrance_stagnation(
+    mdot, P_cell, T_cell, gamma, R_specific, A_exit, M_choke,
+):
+    """TP1: stagnation state ``(P0, T0, M_e)`` at the nozzle entrance (the port
+    exit) implied by the boundary state ``_nozzle_boundary_flow`` just used.
+
+    ``mdot`` is that call's return value (same ``P_cell, T_cell, gamma,
+    R_specific, A_exit, M_choke``), so there is no second root solve: for
+    outflow the boundary mass flow is ``mdot = rho_e u_e A_e = c_e M_e`` with
+    ``c_e = A_e P sqrt(gamma/(R T))`` (exact in the subsonic branch; in the
+    choked branch ``M_e = M_choke`` to round-off, so the min() below only guards
+    that round-off).  Then ``P0 = P g(M_e)``, ``T0 = T (1 + (gamma-1)/2 M_e^2)``
+    -- the same ``g`` the boundary used for its choked mass flow.
+
+    Defined values outside the moving-outflow case (documented in TP1.md):
+    ``M_choke == 0`` (the ``'static'`` boundary, which treats the cell state as
+    the stagnation state), no flow (``mdot == 0``) and reverse inflow (the
+    boundary treats the throat as fed from a reservoir at rest, so nothing
+    feeds the thrust path through the port) all return ``(P_cell, T_cell,
+    0.0)`` -- the static state, i.e. the pre-TP1 value of the recorded
+    pressure at that end of the port.
+    """
+    if (M_choke <= 0.0 or mdot <= 0.0 or A_exit <= 0.0 or gamma <= 1.0
+            or R_specific <= 0.0):
+        return P_cell, T_cell, 0.0
+    Pc = max(P_cell, 1.0)
+    Tc = max(T_cell, 1.0)
+    c_e = A_exit * Pc * np.sqrt(gamma / (R_specific * Tc))
+    M_e = mdot / c_e
+    if M_e > M_choke:
+        M_e = M_choke
+    x = 0.5 * (gamma - 1.0)
+    f = 1.0 + x * M_e * M_e
+    return P_cell * f ** (gamma / (gamma - 1.0)), T_cell * f, M_e
+
+
+@njit(cache=True, fastmath=True)
 def _total_energy_update(
     rho, u_old, T, A_port, A_face, Cp_arr, R_arr, T_ceiling_arr,
     rho_new_1, u_new, P_new, thermal_source, A_throat,
