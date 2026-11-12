@@ -46,9 +46,13 @@ class TestHead:
         assert geo.head_gap == pytest.approx(max(0.003, 0.05 * D_OUT))
         ga = geo.compile_geometry_arrays()
         assert geo.N_cells == 50                        # no cells added
-        assert ga['vol_extra'][0] == pytest.approx(
-            np.pi / 4 * D_OUT ** 2 * geo.head_gap)
-        assert np.all(ga['vol_extra'][1:] == 0.0)
+        ve = ga['vol_extra']
+        # G2: the lump is spread over the first cells so none exceeds (cap x) its own volume
+        assert ve.sum() == pytest.approx(np.pi / 4 * D_OUT ** 2 * geo.head_gap)
+        nz = np.flatnonzero(ve)
+        assert nz[0] == 0 and np.array_equal(nz, np.arange(nz.size))      # contiguous from cell 0
+        A_cell = ga['cell_A_port_init'] * geo.dx
+        assert np.all(ve[:-1][nz[:-1]] <= geo.lump_ratio_cap * A_cell[nz[:-1]] * (1 + 1e-12)) if nz.size > 1 else True
 
     def test_grid_independent_gap_volume(self):
         v = []
@@ -118,11 +122,17 @@ class TestAft:
 
     def test_lump_goes_to_last_cell(self):
         noz = Nozzle(D_throat=D_T, D_exit=0.05, conv_angle=30.0)
-        geo = _geo(nozzle=noz, aft_end='lump')
+        geo = _geo(inhibit_fwd=True, nozzle=noz, aft_end='lump')
         ga = geo.compile_geometry_arrays()
         assert geo.n_cone_cells == 0
-        assert ga['vol_extra'][-1] == pytest.approx(geo.aft_lump_volume)
+        ve = ga['vol_extra']
+        assert ve.sum() == pytest.approx(geo.aft_lump_volume)       # G2: spread, not concentrated
+        nz = np.flatnonzero(ve)
+        assert nz[-1] == len(ve) - 1 and np.array_equal(nz, np.arange(len(ve) - nz.size, len(ve)))
         assert geo.aft_lump_volume > 0.0
+        # no cell but the last reached holds more than cap x its own volume
+        A_cell = ga['cell_A_port_init'] * geo.dx
+        assert np.all(ve[nz[1:]] <= geo.lump_ratio_cap * A_cell[nz[1:]] * (1 + 1e-12))
 
 
 class TestEndFaceAtWalls:
