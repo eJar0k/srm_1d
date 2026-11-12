@@ -358,7 +358,9 @@ class TestEndToEndContract:
         # Two grains + a gap present.
         spans = grain_cell_spans(result['cell_segment_id'])
         assert set(spans.keys()) == {0, 1}
-        assert gap_cell_indices(result['cell_segment_id']).size > 0
+        # G2: the inter-grain gap carries no cells (lumped volume, physical axis via x_offset)
+        assert gap_cell_indices(result['cell_segment_id']).size == 0
+        assert result['x_offset'][-1] == pytest.approx(0.010)
 
         # Payload + stations build cleanly off the real result.
         pl = build_axial_payload(result)

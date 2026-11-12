@@ -1,6 +1,12 @@
 # G1 Part 3 -- inter-grain gap lumping and length snapping (design study, no implementation)
 
-Status: memo only. Nothing here is implemented. What G1 DID implement (head gap and nozzle convergent lumped into a cell's
+**Status update (G2, 2026-11-11):** recommendations 2.2 and 2.1 were implemented and gated on branch `g2/snap-lump` -- see `worklog/G2.md`. Two corrections to this memo:
+(i) the "gap-growth term" of 2.1 is not needed (a receding face moves inside its own grain's cells, whose blended `A_port` already holds the vacated annulus; tested);
+(ii) section 3's claim that a lump "cannot create a new instability" was wrong in one case: a lump many times its host cell's volume (the nozzle convergent in one cell, 25-50x at N = 200-400) aborts the
+fill transient. Every lump is now spread so no cell's added storage exceeds `lump_ratio_cap` (= 1) times its own volume. The BATES gate gave 0.2-0.35 % rms pressure agreement and 1.4-2.1x fewer steps
+(not the 3-5x estimated here: the legacy clamp gave 140-214 cells, not ~270).
+
+Original status: memo only. Nothing here was implemented when it was written. What G1 DID implement (head gap and nozzle convergent lumped into a cell's
 gas storage, `A_vol = A_port + vol_extra/dx`) is the mechanism this memo builds on; its measured behaviour is in
 `worklog/G1.md`.
 

@@ -61,6 +61,44 @@ _spec = importlib.util.spec_from_file_location(
 _probe = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_probe)
 
+# RE-RECORDED 2026-11-11 by the G2 merge on top of AS1: Chunc and Hasegawa A are UNCHANGED by the merge
+# (AS1 does not touch them; their values are G2's below). Only the BALLSstick row moves, because the AS1 row
+# (prompt-start charge, 1.982 g) is now run with G2's geometry (cumulative-position rounding with the
+# L_true/L_snapped perimeter scale, spread lumps): peak 8.4329 -> 8.7589 MPa (+3.9 %: the startup-spike metric of
+# a 17 ms cascade is the sensitive one), trough 4.4314 -> 4.4338 (+0.05 %), mid 4.9252 -> 4.9318 (+0.13 %), steps
+# 844368 -> 842924. The AS1 values (the previous BASELINE) were:
+#   chunc: peak 10.510377787816175, t_peak 0.25905381442784203,
+#          plateau 8.034819676399866, n_steps 543997
+#   balls: peak 8.43291738963611, trough 4.43144847227655,
+#          mid 4.925227950671004, n_steps 844368
+#   haseg: peak 6.017191292703041, t_peak 2.499738880086473,
+#          n_steps 2334673
+#
+# (earlier) RE-RECORDED 2026-11-11 by G2 step 2 (memo 2.1): inter-grain gaps are lumped volume (none of these three
+# motors has a gap) and every lumped volume (head gap, gaps, nozzle convergent) is now SPREAD over consecutive
+# cells so that no cell's added storage exceeds 1x its own volume (lump_ratio_cap; a concentrated convergent
+# 25x the last cell's volume collapsed example_bates at N >= 200). Only Chunc's convergent (4.9x its last
+# cell) is affected: peak 10.5078 -> 10.5054 MPa (2.3e-4), BALLSstick mid 6.7183 -> 6.7177, Hasegawa A by 4e-6.
+# The G2 step-1 values (the previous BASELINE) were:
+#   chunc: peak 10.507843379242944, t_peak 0.2688650693535684,
+#          plateau 8.042167197218806, n_steps 543904
+#   balls: peak 0.2986488305172379, trough 0.07617901568410217,
+#          mid 6.718263141760218, n_steps 854784
+#   haseg: peak 6.017191292703045, t_peak 2.4997388800864724,
+#          n_steps 2334673
+#
+# (earlier) RE-RECORDED 2026-11-10 by G2 step 1 (user: "let's try it, can revert if not"): segment lengths are rounded
+# on CUMULATIVE position and each segment's burning perimeter is scaled by L_true / L_snapped (memo 2.2), so
+# the burning area and propellant mass equal the .ric values at every grid. Hasegawa A (lengths already
+# whole cells) is bit-identical; Chunc (lengths 15.6 / 84.4 cells) and BALLSstick move by <= 0.1 % (BALLS's
+# slow-ignition trough / mid by 0.1-0.2 %, its "peak" metric by 1.4 %). The G1 values (the previous BASELINE) were:
+#   chunc: peak 10.510377787816175, t_peak 0.25905381442784203,
+#          plateau 8.034819676399866, n_steps 543997
+#   balls: peak 0.2945771944198506, trough 0.07628399187690121,
+#          mid 6.7042510894841545, n_steps 855216
+#   haseg: peak 6.017191292703041, t_peak 2.499738880086473,
+#          n_steps 2334673
+#
 # RE-RECORDED 2026-11-10 by AS1 (prompt-start auto charge; user decision): the auto-sized charge now has to meet
 # "at least 95 % of the grain cells ignited within 0.5 s [0.1 s since AW1] of igniter firing" (attempts that miss it are failed at the
 # window end and retried at x1.25; the IG4 self-sustaining test alone had accepted hang-fires). The DeMar 300 psi
@@ -237,12 +275,12 @@ _spec.loader.exec_module(_probe)
 #          plateau 8.034819676399866, n_steps 543997
 #   haseg: peak 6.017191292703041, t_peak 2.499738880086473, n_steps 2334673
 BASELINE = {
-    'chunc': dict(peak=11.815737622775412, t_peak=0.022934548464792655,
-                  plateau=8.223107545259793, n_steps=529855),
-    'balls': dict(peak=8.43291738963611, trough=4.43144847227655,
-                  mid=4.925227950671004, n_steps=844368),
-    'haseg': dict(peak=6.013696207978471, t_peak=2.4003433296274164,
-                  n_steps=2332212),
+    'chunc': dict(peak=10.50543183884138, t_peak=0.26895876003485647,
+                  plateau=8.042229974246869, n_steps=543930),
+    'balls': dict(peak=8.75891443393703, trough=4.433817839880108,
+                  mid=4.931795163190824, n_steps=842924),
+    'haseg': dict(peak=6.017212393308495, t_peak=2.4997984460722247,
+                  n_steps=2334680),
 }
 RIC_FILE = {'chunc': 'machbusterNew.ric', 'balls': 'BALLSstick.ric',
             'haseg': 'hasegawa_a.ric'}

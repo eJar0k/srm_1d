@@ -126,10 +126,22 @@ class GrainSegment:
     fmm_tables: object = None  # list[FmmTable] for tapered grains
     fmm_station_frac: object = None  # ndarray of axial fractions, aligned
     od_ends: object = None  # list[dict] OD/end-taper entries (None = no OD taper)
+    # G2: the segment's TRUE (.ric) length. ``length`` is the modelled length, a whole
+    # number of cells; ``burn_scale = length_true / length`` multiplies the burning
+    # perimeter of the segment's cells so the burning area and the burned propellant
+    # mass are the true ones (None -> length, scale 1).
+    length_true: float = None
+    burn_scale: float = 1.0
+    # G2 (memo 2.1): the physical gap [m] that follows this segment. With
+    # ``MotorGeometry.gaps_lumped`` the gap has NO cells: the grains abut in cell space
+    # and the gap volume is lumped 50/50 into the two neighbouring cells' storage.
+    gap_after: float = 0.0
 
     def __post_init__(self):
         if self.D_bore_aft is None:
             self.D_bore_aft = self.D_bore_fwd
+        if self.length_true is None:
+            self.length_true = self.length
 
     @property
     def is_tapered(self) -> bool:
@@ -181,6 +193,15 @@ class MotorGeometry:
     aft_lump_volume : float
         G1: the convergent volume not resolved by cone cells [m^3], lumped
         into the last cell's gas storage (``vol_extra[N-1]``).
+    gaps_lumped : bool
+        G2: inter-grain gaps carry no cells; each gap's volume ``A_case * gap``
+        is lumped 50/50 into the last cell of the grain before it and the
+        first cell of the grain after it, and ``compile_geometry_arrays()['x_offset']``
+        gives the physical axis (cell centre + the gaps before it).
+    lump_ratio_cap : float
+        G2: a lumped volume (head gap, inter-grain gaps, nozzle convergent) is spread
+        over consecutive cells so that no cell's added storage exceeds this multiple of its
+        own geometric volume (1.0 = storage at most doubles; 0 = no spreading).
     """
     L_motor: float
     D_outer: float
@@ -192,6 +213,8 @@ class MotorGeometry:
     cone_D_start: float = 0.0
     cone_half_angle: float = 0.0
     aft_lump_volume: float = 0.0
+    gaps_lumped: bool = False
+    lump_ratio_cap: float = 1.0
 
     @property
     def dx(self):
@@ -268,8 +291,10 @@ class MotorGeometry:
         for k in range(N_seg - 1):
             seg_k_end = self.segments[k].x_start + self.segments[k].length
             seg_k1_start = self.segments[k + 1].x_start
-            if abs(seg_k_end - seg_k1_start) < 1e-8:
-                # Segments touch — inhibit shared faces
+            lumped_gap = self.gaps_lumped and self.segments[k].gap_after > 1e-6
+            if abs(seg_k_end - seg_k1_start) < 1e-8 and not lumped_gap:
+                # Segments touch — inhibit shared faces (a LUMPED gap abuts in cell
+                # space but is a real gap: the faces stay free)
                 self.segments[k].inhibit_aft = True
                 self.segments[k + 1].inhibit_fwd = True
 
@@ -456,12 +481,56 @@ class MotorGeometry:
                 D_port[i] = Dk
                 cell_A_port_init[i] = np.pi / 4.0 * Dk * Dk
 
-        # G1: gas volume lumped into a cell's storage on top of A_port * dx:
-        # the head gap (head face uninhibited) in cell 0, the unresolved part
-        # of the nozzle convergent in the last cell. Constant in time.
+        # G1/G2: gas volume lumped into cells' storage on top of A_port * dx: the head gap
+        # (head face uninhibited), the unresolved part of the nozzle convergent, and the
+        # inter-grain gaps. Constant in time. A lump is SPREAD over consecutive cells so that
+        # no cell's added storage exceeds ``lump_ratio_cap`` x its own geometric volume
+        # (cell_A_port_init * dx): a concentrated lump many times the host cell's volume
+        # made the fill transient collapse (example_bates: the convergent was 25x the last
+        # cell's volume at N = 200, 50x at N = 400 -> Mach 120 abort when the front reached
+        # it). cap = 1 means "storage at most doubles"; 0 disables the spreading.
+        cap = float(self.lump_ratio_cap)
+
+        def _spread(volume, start, step, lo, hi):
+            """Add ``volume`` to cells start, start+step, ... (within [lo, hi]), each up to
+            cap x its own volume; the remainder goes to the last cell reached."""
+            rem, j = volume, start
+            while rem > 0.0:
+                last = (j + step < lo) or (j + step > hi)
+                room = cap * cell_A_port_init[j] * dx
+                take = rem if (cap <= 0.0 or last) else min(rem, room)
+                vol_extra[j] += take
+                rem -= take
+                j += step
+
         vol_extra = np.zeros(N)
-        vol_extra[0] += np.pi / 4.0 * cell_D_outer[0] ** 2 * self.head_gap
-        vol_extra[N - 1] += self.aft_lump_volume
+        _spread(np.pi / 4.0 * cell_D_outer[0] ** 2 * self.head_gap, 0, +1, 0, N - 1)
+        _spread(self.aft_lump_volume, N - 1, -1, 0, N - 1)
+        # G2: lumped inter-grain gaps. Each gap's volume is split 50/50 between the grain
+        # before and the grain after the (zero-length) interface, each half spread into its own
+        # grain's cells; x_offset[i] = the gaps upstream of cell i.
+        x_offset = np.zeros(N)
+        if self.gaps_lumped:
+            for k in range(N_seg - 1):
+                g = self.segments[k].gap_after
+                if g <= 1e-6:
+                    continue
+                edge = int(round((self.segments[k].x_start + self.segments[k].length) / dx))
+                left, right = edge - 1, edge
+                if left < 0 or right > N - 1:
+                    continue
+                lo_l = int(round(self.segments[k].x_start / dx))
+                hi_r = int(round((self.segments[k + 1].x_start + self.segments[k + 1].length) / dx)) - 1
+                _spread(0.5 * np.pi / 4.0 * cell_D_outer[left] ** 2 * g, left, -1, lo_l, N - 1)
+                _spread(0.5 * np.pi / 4.0 * cell_D_outer[right] ** 2 * g, right, +1, 0, min(hi_r, N - 1))
+                x_offset[right:] += g
+
+        # G2: per-cell burning-perimeter scale (segment L_true / L_snapped; 1 elsewhere).
+        cell_burn_scale = np.ones(N)
+        for i in range(N):
+            k = cell_segment_id[i]
+            if k >= 0:
+                cell_burn_scale[i] = self.segments[k].burn_scale
 
         # Per-cell radial regression depth (primary state for the hot
         # loop). Starts at 0 (no regression yet).
@@ -496,6 +565,8 @@ class MotorGeometry:
             'regress': regress,
             'D_port': D_port,
             'vol_extra': vol_extra,
+            'x_offset': x_offset,
+            'cell_burn_scale': cell_burn_scale,
             'head_gap': float(self.head_gap),
         }
 
@@ -548,9 +619,10 @@ class MotorGeometry:
                 # Per-cell casting honors OD/end taper (cell_casting is the
                 # scalar casting_area when this segment has no OD taper).
                 mask = cell_segment_id == k
-                V += float(np.sum(cell_casting[mask] - cell_A_port_init[mask]) * dx)
+                # G2: x burn_scale = L_true / L_snapped (the cells span the snapped length)
+                V += float(np.sum(cell_casting[mask] - cell_A_port_init[mask]) * dx) * s.burn_scale
             elif s.fmm_table is not None:
-                V += (casting_area - s.fmm_table.initial_port_area) * s.length
+                V += (casting_area - s.fmm_table.initial_port_area) * s.length_true
             else:
                 # Cylindrical/conical: ∫ π/4 (D_outer² - D_bore(x)²) dx
                 # = π/4 · L · (D_outer² - (D_fwd² + D_fwd·D_aft + D_aft²)/3)
@@ -558,7 +630,7 @@ class MotorGeometry:
                 D_a = s.D_bore_aft
                 V += np.pi / 4.0 * (
                     self.D_outer**2 - (D_f**2 + D_f * D_a + D_a**2) / 3.0
-                ) * s.length
+                ) * s.length_true
         return V
 
 
@@ -631,6 +703,7 @@ def update_cell_geometry(
     cell_D_bore_init, cell_wall_web,
     cell_segment_type, cell_fmm_idx,
     fmm_offset, fmm_reg_flat, fmm_perim_flat, fmm_port_flat,
+    cell_burn_scale=None,
 ):
     """
     Compute per-cell geometry from the current state.
@@ -793,6 +866,9 @@ def update_cell_geometry(
                     f_active = 1.0
 
                 C_burn[i] = base_perimeter * grain_frac * f_active
+                if cell_burn_scale is not None:
+                    # G2: segment length rounding correction (L_true / L_snapped)
+                    C_burn[i] *= cell_burn_scale[i]
 
             # -----------------------------------------------
             # 2. End-face mass sources (Linear Distribution Kernel)
@@ -1137,7 +1213,8 @@ def nozzle_convergent_cells(D_start, D_throat, half_angle_deg, A_cut, dx,
 def build_snapped_geometry(segments_spec: list[dict], D_outer: float,
                            target_propellant_cells: int = 100,
                            head_gap=None, nozzle=None,
-                           aft_end: str = 'lump') -> MotorGeometry:
+                           aft_end: str = 'lump',
+                           lump_gaps: bool = True) -> MotorGeometry:
     """
     Intelligent geometry preprocessor that guarantees perfect node alignment
     and CFD minimum gap resolution via Integer-Snapping.
@@ -1184,6 +1261,11 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float,
         storage; no cone cells), 'cone' (cone cells where the nozzle BC's
         reservoir assumption holds + the rest lumped), 'cone_nolump' or
         'none'.  See ``nozzle_convergent_cells``.
+    lump_gaps : bool
+        G2: True (default) = inter-grain gaps carry no cells: their volume is
+        lumped 50/50 into the two neighbouring cells and dx is NOT clamped to the
+        smallest gap (BATES motors run at the target cell count).  False = the
+        legacy gap CELLS with the dx <= smallest-gap clamp (for A/B).
     """
     # 1. Sum total pure propellant length
     L_prop_total = sum(spec['length'] for spec in segments_spec)
@@ -1194,8 +1276,9 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float,
     # 3. The Nyquist-CFD Clamp (Enforce 3-cell minimum on physical gaps only)
     gaps = [spec.get('gap_after', 0.0) for spec in segments_spec if spec.get('gap_after', 0.0) > 1e-6]
     
-    # Only clamp if there are actual physical gaps between segments
-    if gaps:
+    # Only clamp if there are actual physical gaps between segments (legacy gap cells).
+    # G2: with lumped gaps there are no gap cells, so there is nothing to resolve.
+    if gaps and not lump_gaps:
         min_gap = min(gaps)
         max_allowed_dx = min_gap / 1.0 # Reverted to 1.0 from 3.0 to speed up run time, even though 3.0 increases resolution
         
@@ -1222,10 +1305,21 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float,
     if head_gap < 0.0:
         raise ValueError("head_gap must be >= 0")
 
+    # G2: round on CUMULATIVE position (the error never exceeds dx/2 along the
+    # whole motor, instead of accumulating up to dx/2 per segment), and carry the
+    # rounding in ``burn_scale`` so the burning area and the burned mass stay true.
+    pos_true = 0.0        # true cumulative length of propellant + gaps [m]
+    edge_cursor = 0       # modelled position in cells
+
     for i, spec in enumerate(segments_spec):
         # Snap the propellant segment
-        n_seg = max(1, int(round(spec['length'] / dx)))
+        pos_true += spec['length']
+        e_end = max(edge_cursor + 1, int(round(pos_true / dx)))
+        n_seg = e_end - edge_cursor
         snapped_length = n_seg * dx
+        burn_scale = spec['length'] / snapped_length
+        if abs(burn_scale - 1.0) < 1.0e-12:
+            burn_scale = 1.0      # lengths already a whole number of cells: bit-identical
 
         # Tapered FMM grain: resolve the per-station tables now that the
         # cell count (n_seg) is known, so station density tracks the mesh.
@@ -1267,18 +1361,25 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float,
             fmm_tables=fmm_tables,
             fmm_station_frac=fmm_station_frac,
             od_ends=spec.get('od_ends', None),
+            length_true=spec['length'],
+            burn_scale=burn_scale,
+            gap_after=(spec.get('gap_after', 0.0)
+                       if spec.get('gap_after', 0.0) > 1e-6 else 0.0),
         ))
 
         x_cursor += snapped_length
         total_cells += n_seg
-        
-        # Snap the trailing gap
+        edge_cursor = e_end
+
+        # Snap the trailing gap (at least one cell), also on cumulative position
         raw_gap = spec.get('gap_after', 0.0)
-        if raw_gap > 1e-6:
-            n_gap = max(1, int(round(raw_gap / dx)))  # Stop forcing 3-cell minimum, allow 1 for speed
-            snapped_gap = n_gap * dx
-            x_cursor += snapped_gap
+        if raw_gap > 1e-6 and not lump_gaps:
+            pos_true += raw_gap
+            g_end = max(edge_cursor + 1, int(round(pos_true / dx)))
+            n_gap = g_end - edge_cursor
+            x_cursor += n_gap * dx
             total_cells += n_gap
+            edge_cursor = g_end
             
     # G1 aft end: cone cells following the nozzle convergent, plus the lumped
     # remainder of its volume (see nozzle_convergent_cells).
@@ -1298,7 +1399,7 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float,
     L_motor_snapped = x_cursor
     
     # Verify deviation is within acceptable physical limits (< 10mm)
-    if abs(L_motor_snapped - n_cone * dx - (L_prop_total + sum(gaps))) > 0.01:
+    if abs(L_motor_snapped - n_cone * dx - (L_prop_total + (0.0 if lump_gaps else sum(gaps)))) > 0.01:
         warnings.warn(f"Integer-snapping altered total motor length by more than 10mm. Check segment proportions.")
 
     return MotorGeometry(
@@ -1312,5 +1413,6 @@ def build_snapped_geometry(segments_spec: list[dict], D_outer: float,
         cone_D_start=D_cone_start,
         cone_half_angle=half_angle,
         aft_lump_volume=aft_lump,
+        gaps_lumped=bool(lump_gaps),
     )
 
