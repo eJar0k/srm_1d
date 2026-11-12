@@ -1427,6 +1427,9 @@ def _goodman_ignition_sources_and_mass(
     # G1: closure-to-grain gap [m] (lumped into cell 0); the HE1 jet distance
     # is measured from the closure = igniter exit, so it is x + head_gap
     head_gap,
+    # G2: per-cell burning-perimeter scale (L_true / L_snapped); the regression fill debit
+    # must use the GEOMETRIC opened volume (unscaled perimeter), None = 1
+    cell_burn_scale=None,
 ):
     """Goodman surface-temperature ignition and propellant source assembly.
 
@@ -1835,7 +1838,13 @@ def _goodman_ignition_sources_and_mass(
         # GROSS generation (total_mass_produced / mass_balance_error).
         fill_vol = 0.0
         if is_burning[i] and C_burn[i] > 0.0:
-            fill_vol += r_total[i] * C_burn[i]
+            if cell_burn_scale is not None:
+                # G2: C_burn carries L_true/L_snapped (propellant mass and burn area are the
+                # true ones); the cell's A_port grows with the UNscaled perimeter, and it is
+                # that opened volume whose gas the debit must cancel.
+                fill_vol += r_total[i] * C_burn[i] / cell_burn_scale[i]
+            else:
+                fill_vol += r_total[i] * C_burn[i]
         if endface_msource[i] > 0.0:
             fill_vol += endface_msource[i] / rho_propellant
         if fill_vol > 0.0:
@@ -2016,6 +2025,8 @@ def _run_time_loop(
     ign_driver_code,              # RT1: 0 static, 1 recovery
     head_end_jet_code,            # HE1: 0 off, 1 max, 2 replace
     vol_extra, head_gap,          # G1: lumped gas volume per cell [m^3]; closure-to-grain gap [m]
+    cell_burn_scale,              # G2: per-cell burning-perimeter scale (L_true / L_snapped)
+    x_offset,                     # G2: physical-axis offset per cell (lumped inter-grain gaps upstream) [m]
     # --- v0.8.0 Phase 6: live progress / cooperative cancel ---
     progress_state,               # [2] float64: [0]=progress 0..1 (written),
                                   #              [1]=cancel flag (read; >0.5 aborts)
@@ -2176,7 +2187,12 @@ def _run_time_loop(
             if is_grain[i]:
                 front_seed_idx = i
                 break
-    x_front = x_centers[front_seed_idx]
+    # G2: PHYSICAL axial position of each cell centre (lumped inter-grain gaps
+    # upstream added back). The grid geometry kernel keeps the cell axis
+    # (``x_centers``); every distance-dependent closure (Peretz / Ma x-from-head,
+    # HE1 jet, DeMar / radiation view factors, flame-front speed) uses this.
+    x_phys = x_centers + x_offset
+    x_front = x_phys[front_seed_idx]
     for i in range(N):
         ignitable[i] = True  # default exposed; gate active only when enabled
 
@@ -2331,6 +2347,7 @@ def _run_time_loop(
                 cell_D_bore_init, cell_wall_web,
                 cell_segment_type, cell_fmm_idx,
                 fmm_offset, fmm_reg_flat, fmm_perim_flat, fmm_port_flat,
+                cell_burn_scale,
             )
             for i in range(N):
                 A_vol[i] = A_port[i] + vol_extra[i] / dx
@@ -2352,7 +2369,7 @@ def _run_time_loop(
                 max_burn_refresh_gap = gap_burn
             t_last_burn_refresh = t
             r_total_new, r_erosive_new = compute_burn_rates(
-                P, Re, D_hyd, x_centers, is_burning, roughness,
+                P, Re, D_hyd, x_phys, is_burning, roughness,
                 Pr, k_thermal, Cp_gas,
                 T_flame, T_surface,
                 rho_propellant, Cps, T_initial,
@@ -2520,7 +2537,7 @@ def _run_time_loop(
             cart_i_start, cart_i_end,
             T_flame_pyrogen, pellet_emissivity,
             radiation_absorption_length_m,
-            x_centers, A_port,
+            x_phys, A_port,
         )
 
         # v0.7.2 Phase B-v2: flame-front augmentation. Always computed
@@ -2539,7 +2556,7 @@ def _run_time_loop(
         # short-circuits on flame_front_enabled=False).
         if flame_front_enabled:
             x_front = _advance_flame_front(
-                is_burning, x_centers, flame_front_velocity,
+                is_burning, x_phys, flame_front_velocity,
                 x_front, front_direction, front_seed_idx,
                 cart_i_start, cart_i_end, dt, N, ignitable,
             )
@@ -2563,7 +2580,7 @@ def _run_time_loop(
             mass_source, thermal_source,
             C_burn, endface_msource, pyrogen_surface_heat_flux,
             radiation_heat_flux, radiation_sink_power, radiation_emitter,
-            x_centers, Re, D_hyd, f_darcy,
+            x_phys, Re, D_hyd, f_darcy,
             t, dt, rho_propellant, T_flame, T_initial,
             Pr, k_thermal, roughness, kappa, solid_alpha, k_solid,
             T_ignition, N, dx, mdot_igniter, T_ig,
@@ -2589,7 +2606,7 @@ def _run_time_loop(
             solid_work, solid_age_fraction,
             ign_diag, rec_on, rec_h, rec_Td, rec_t, rec_dt, rec_k,
             ign_driver_code, head_end_jet_code,
-            fill_ke, head_gap,
+            fill_ke, head_gap, cell_burn_scale,
         )
 
         # v0.7.1 Phase 3.5: pyrogen mass injection uses pyrogen Cp for the
@@ -3287,13 +3304,13 @@ def _run_simulation_once(
     stop_if_unignitable=True,
     # AS1: the prompt-start criterion. The motor "starts promptly" if at least
     # ``ignition_prompt_fraction`` of the grain cells have ignited within
-    # ``ignition_prompt_window_s`` of igniter firing (t = 0). User-chosen values (0.95, 0.5 s),
-    # not tuned. ``summary['prompt_start']`` / ``['prompt_lit_fraction']`` report it for any
+    # ``ignition_prompt_window_s`` of igniter firing (t = 0). User-chosen values (0.95, 0.1 s;
+    # the window was 0.5 s until AW1, 2026-11-11, user: "Shorten to 0.05-0.1s"), not tuned. ``summary['prompt_start']`` / ``['prompt_lit_fraction']`` report it for any
     # run (a run shorter than the window is judged at its end). ``prompt_early_stop`` (set by
     # ``run_simulation`` for auto-sized charges) ends an attempt that has not met it by the
     # window end (termination_code 7).
     ignition_prompt_fraction=0.95,
-    ignition_prompt_window_s=0.5,
+    ignition_prompt_window_s=0.1,
     prompt_early_stop=False,
 ):
     """
@@ -3648,6 +3665,7 @@ def _run_simulation_once(
         ga['cell_segment_type'], ga['cell_fmm_idx'],
         ga['fmm_offset'], ga['fmm_reg_flat'],
         ga['fmm_perim_flat'], ga['fmm_port_flat'],
+        ga['cell_burn_scale'],
     )
 
     # Flow state
@@ -3774,7 +3792,7 @@ def _run_simulation_once(
     # G1: the jet decays with the distance from the igniter exit (the closure),
     # which is the head gap plus the distance into the first cell's coordinates.
     pyrogen_axial_weights = _compute_pyrogen_axial_weights(
-        x_centers + ga['head_gap'], dx_arr, L_jet, N
+        x_centers + ga['x_offset'] + ga['head_gap'], dx_arr, L_jet, N
     )
 
     # v0.7.3 Phase A: igniter topology resolution. forward_plenum
@@ -4109,6 +4127,7 @@ def _run_simulation_once(
         int(_ign_driver_code), int(_head_jet_code),
         # G1: lumped head-gap / nozzle-convergent gas volume
         ga['vol_extra'], float(ga['head_gap']),
+        ga['cell_burn_scale'], ga['x_offset'],
         # v0.8.0 Phase 6: live progress / cooperative cancel
         progress_state,
     )
@@ -4407,9 +4426,9 @@ def _run_simulation_once(
              int(np.flatnonzero(is_grain & (ignition_time >= 1.0e9))[-1])]
             if np.any(is_grain & (ignition_time >= 1.0e9)) else None),
         'grain_never_lit_x_range_mm': (
-            [float(x_centers[np.flatnonzero(
+            [float((x_centers + ga['x_offset'])[np.flatnonzero(
                 is_grain & (ignition_time >= 1.0e9))[0]]) * 1e3,
-             float(x_centers[np.flatnonzero(
+             float((x_centers + ga['x_offset'])[np.flatnonzero(
                  is_grain & (ignition_time >= 1.0e9))[-1]]) * 1e3]
             if np.any(is_grain & (ignition_time >= 1.0e9)) else None),
         'stop_if_unignitable': bool(stop_if_unignitable),
@@ -4601,6 +4620,7 @@ def _run_simulation_once(
         # face-receded extent (which would push 'fore' inward over the burn).
         'cell_segment_id': cell_segment_id_init,
         'x_cell': x_centers.copy(),
+        'x_offset': ga['x_offset'].copy(),
         # v0.8.x roadmap #2 (longitudinal motor-slice viewer): constant
         # per-cell geometry for drawing the burnback slice. All live OUTSIDE
         # the @njit loop (scalars + a geometry array), so no snapshot channel
@@ -4779,12 +4799,12 @@ def run_simulation(*args, ignition_retry_factor=1.25,
 
     SUCCESS = PROMPT START (AS1, user-chosen): at least
     ``ignition_prompt_fraction`` (0.95) of the grain cells ignited within
-    ``ignition_prompt_window_s`` (0.5 s) of igniter firing (t = 0). A run shorter
+    ``ignition_prompt_window_s`` (0.1 s) of igniter firing (t = 0). A run shorter
     than the window is judged at its end. The IG4 "self-sustaining" test (after
     the igniter is spent the grain's own gas generation exceeds the igniter's peak,
     ``_self_sustaining``) is kept as the ``summary['ignited']`` flag and for the
     plugin's no-ignition / hang-fire ERROR, but is NOT a separate retry condition:
-    a grain that is 95 % lit within 0.5 s while the igniter is still out-producing it
+    a grain that is 95 % lit within the window while the igniter is still out-producing it
     after burnout does not occur (checked on the canonical motors; it would be
     reported by a warning). The IG4 test alone accepted a hang-fire (BALLSstick lit
     over ~1 s, t90 971 ms).
@@ -4824,7 +4844,7 @@ def run_simulation(*args, ignition_retry_factor=1.25,
     if int(ignition_retry_max_attempts) < 1:
         raise ValueError("ignition_retry_max_attempts must be >= 1")
     pf = bound.arguments.get('ignition_prompt_fraction', 0.95)
-    pw = bound.arguments.get('ignition_prompt_window_s', 0.5)
+    pw = bound.arguments.get('ignition_prompt_window_s', 0.1)
     if not (0.0 < float(pf) <= 1.0):
         raise ValueError("ignition_prompt_fraction must be in (0, 1]")
     if not float(pw) > 0.0:

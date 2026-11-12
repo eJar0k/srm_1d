@@ -297,8 +297,11 @@ class TestGeometryConversion:
         analytical expectation only within a few-cell tolerance."""
         geo = convert_geometry(SAMPLE_RIC_GRAINS)
         expected_gap = max(0.003, 0.07 * 0.05)
+        # G2: gaps carry no cells (lumped volume); the physical length is L_motor + the gaps
+        phys_L = geo.L_motor + sum(s.gap_after for s in geo.segments)
         expected_L = 4 * 0.12 + 5 * expected_gap
-        assert abs(geo.L_motor - expected_L) < 5 * geo.dx
+        assert abs(phys_L - expected_L) < 5 * geo.dx
+        assert geo.segments[0].gap_after == pytest.approx(expected_gap)
 
     def test_bonded_inhibited_interface_gets_no_default_gap(self):
         """Both inhibited interface faces means adjacent grains are bonded."""
@@ -352,9 +355,10 @@ class TestGeometryConversion:
                 'inhibitedEnds': 'Bottom', 'length': 0.100}},
         ]
         geo = convert_geometry(grains)
-        first_end = geo.segments[0].x_start + geo.segments[0].length
-        second_start = geo.segments[1].x_start
-        assert second_start - first_end > 0.0
+        # G2: the default gap is kept as a LUMPED volume (no cells), faces stay free
+        assert geo.segments[0].gap_after == pytest.approx(max(0.003, 0.05 * 0.05))
+        ga = geo.compile_geometry_arrays()
+        assert ga['x_offset'][-1] == pytest.approx(geo.segments[0].gap_after)
 
     def test_target_propellant_cells(self):
         geo = convert_geometry(SAMPLE_RIC_GRAINS, target_propellant_cells=200)

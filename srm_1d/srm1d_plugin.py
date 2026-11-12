@@ -498,6 +498,7 @@ def _per_grain_series(result, geo, prop):
 
     ga = geo.compile_geometry_arrays()
     cell_seg = np.asarray(ga['cell_segment_id'])
+    bscale = np.asarray(ga['cell_burn_scale'])
     n_grains = len(grains)
     n_frames = len(snapshots)
     dx = geo.dx
@@ -520,7 +521,8 @@ def _per_grain_series(result, geo, prop):
         for k in range(n_grains):
             cells = seg_cells[k]
             if cells.size:
-                mass[s, k] = rho * dx * float(np.sum(solid[cells]))
+                # G2: x burn_scale (L_true / L_snapped) so the grain's mass is the .ric one
+                mass[s, k] = rho * dx * float(np.sum(solid[cells] * bscale[cells]))
                 mach[s, k] = float(np.max(mach_field[cells]))
             if seg_aft[k] >= 0:
                 aft_port_area[s, k] = float(a_port[seg_aft[k]])
@@ -546,8 +548,8 @@ def _per_grain_series(result, geo, prop):
     # Volume loading: solid propellant volume / grain bounding volume. The
     # bounding volume is the grain cells' cylinder (A_outer · dx · n_cells),
     # matching openMotor's "fraction of the chamber occupied by propellant".
-    n_grain_cells = int(np.count_nonzero(cell_seg >= 0))
-    bounding_volume = A_outer * dx * max(n_grain_cells, 1)
+    n_grain_cells = float(np.sum(bscale[cell_seg >= 0]))      # G2: true length / dx
+    bounding_volume = A_outer * dx * max(n_grain_cells, 1.0)
     solid_volume = mass.sum(axis=1) / rho
     vol_loading = 100.0 * solid_volume / bounding_volume
 
@@ -598,10 +600,12 @@ def _axial_payload_for_gui(result):
     payload = build_axial_payload(result, max_frames=4000)
     if payload is None:
         return None
-    stations = default_stations(payload.cell_segment_id, payload.x_cell)
+    # G2: station positions are PHYSICAL (cell axis + the lumped inter-grain gaps upstream)
+    stations = default_stations(payload.cell_segment_id, payload.x_cell + payload.x_offset)
     return {
         'snap_times': payload.snap_times,
         'x_cell': payload.x_cell,
+        'x_offset': payload.x_offset,   # G2: physical axis = x_cell + x_offset
         'cell_segment_id': payload.cell_segment_id,
         'fields': payload.fields,
         # Roadmap #2 longitudinal motor-slice geometry (constant per run).
@@ -749,7 +753,7 @@ def _result_to_om_simresult(motor, result, perf, geo=None, prop=None):
             "charge {:.3g} g). The motor does ignite, but the startup is not prompt: a larger "
             "igniter charge may be needed.".format(
                 100.0 * float(summary.get('prompt_lit_fraction', 0.0)),
-                float(summary.get('prompt_window_effective_s', 0.5)),
+                float(summary.get('prompt_window_effective_s', 0.1)),
                 100.0 * float(summary.get('prompt_fraction_required', 0.95)),
                 1.0e3 * float(summary.get('first_ignition_time_s', float('nan'))),
                 1.0e3 * float(summary.get('ignition_t90_s', float('nan'))),

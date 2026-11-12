@@ -370,10 +370,14 @@ you're changing):**
      area); the Ma/Gnielinski chain was 3-5x high at a cold wall.
    - DeMar flux OFF (it is not a measured flux).
    - Auto igniter charge = DeMar M=V*P/W at 300 psi, upsized x1.25 per attempt
-     until the start is prompt: >=95 % of grain cells lit within 0.5 s of
-     igniter firing (AS1, `worklog/AS1.md`). `P_cutoff` is armed only after
-     that, so a slow start is no longer ended as a "burnout". The window and a
-     harder initial guess are pending user decisions.
+     until the start is prompt: >=95 % of grain cells lit within 0.1 s of
+     igniter firing (AS1 `worklog/AS1.md`; the window was cut from 0.5 s by
+     AW1, user decision 2026-11-11; 300 psi is kept as the amateur floor).
+     `P_cutoff` is armed only after that, so a slow start is no longer ended
+     as a "burnout". Ignition comes out all-or-nothing. Auto charges:
+     - Chunc 1.27 g (peak 11.75 MPa, pk/plateau 1.43);
+     - BALLSstick 1.98 g;
+     - Hasegawa A 9.83 g.
    - MIL-P-46994B Type I-A pellets with exact cylinder burn-back; the head
      basket area shrinks as the pellets burn.
    - The solid model is exact 1-D conduction (`solid_heating_model='conduction'`);
@@ -404,6 +408,17 @@ you're changing):**
        The startup is now grid-independent (N=50-200), and MUCH more violent
        with the real zero gap: Chunc 2.62 g peak/plateau 2.00 (exp 1.027). The
        T8 "grid-converged spike" numbers predate this.
+     - **G2 (2026-11-11, `worklog/G2.md`)** changed how grains map onto cells:
+       - grain lengths snap to the grid on cumulative position, with C_burn
+         scaled by L_true/L_snapped, so burn area and propellant volume are
+         exact;
+       - inter-grain gaps carry no cells (`lump_gaps=True`); their volume goes
+         50/50 into the neighbouring cells, and a physical `x_offset` axis
+         keeps true positions;
+       - every lumped volume is spread so no cell's storage more than doubles
+         (`lump_ratio_cap=1`). This fixes a fine-grid fill collapse.
+       - Open: Aeroblast's early plateau is 2 % below the legacy gap cells,
+         unexplained.
      - T_ignition/k_solid were fit under Goodman; the LHS re-fit is pending and
        user-triggered.
 2. **Core-loop performance (held).** `fastmath` shipped (+~30%,

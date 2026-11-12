@@ -111,8 +111,8 @@ def test_flame_front_spreads_ignition_in_full_sim():
         T_ignition=850.0, P_cutoff=0.05e6,
         snapshot_interval=0.05, print_interval=20.0, verbose=False,
         flame_front_enabled=True, flame_front_velocity=3.0,
-        # AS1: a deliberate 3 m/s flame-spread front cannot light 95 % of this grain within the 0.5 s default
-        # prompt window with ANY charge (89 % at 0.5 s up to 58 g), so the auto-size would exhaust its cap;
+        # AS1: a deliberate 3 m/s flame-spread front cannot light 95 % of this grain within the default
+        # prompt window with ANY charge (89 % at 0.5 s up to 58 g; the default is now 0.1 s), so the auto-size would exhaust its cap;
         # the test is about the front, so give it a window longer than the front's travel time.
         ignition_prompt_window_s=3.0,
     )

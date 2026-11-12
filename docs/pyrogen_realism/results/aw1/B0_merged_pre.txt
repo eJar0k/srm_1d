@@ -1,0 +1,42 @@
+C:\tmp\sv\aw1\srm_1d\openmotor_adapter.py:1602: RuntimeWarning: auto-sized BPNV charge raised from 0.815 g to 1.27 g (3 attempts, factor 1.25, DeMar-equivalent 469 psi (initial guess 300 psi)) so that 95 % of the grain ignites within 0.1 s of igniter firing. Set the charge explicitly to fix it.
+  result = run_simulation(geo, prop, **args)
+C:\tmp\sv\aw1\srm_1d\grain_geometry.py:1403: UserWarning: Integer-snapping altered total motor length by more than 10mm. Check segment proportions.
+  warnings.warn(f"Integer-snapping altered total motor length by more than 10mm. Check segment proportions.")
+C:\tmp\sv\aw1\srm_1d\openmotor_adapter.py:1602: RuntimeWarning: auto-sized BPNV charge raised from 1.3 g to 2.03 g (3 attempts, factor 1.25, DeMar-equivalent 469 psi (initial guess 300 psi)) so that 95 % of the grain ignites within 0.1 s of igniter firing. Set the charge explicitly to fix it.
+  result = run_simulation(geo, prop, **args)
+C:\tmp\sv\aw1\srm_1d\openmotor_adapter.py:1602: RuntimeWarning: auto-sized BPNV charge raised from 7.86 g to 9.83 g (2 attempts, factor 1.25, DeMar-equivalent 375 psi (initial guess 300 psi)) so that 95 % of the grain ignites within 0.1 s of igniter firing. Set the charge explicitly to fix it.
+  result = run_simulation(geo, prop, **args)
+C:\tmp\sv\aw1\srm_1d\openmotor_adapter.py:1602: RuntimeWarning: 1 of 100 grain cells never ignited (cells 0-0, x = 8-8 mm; 99 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+  result = run_simulation(geo, prop, **args)
+[provenance] srm_1d imported from C:\tmp\sv\aw1\srm_1d
+[provenance] git HEAD 53a8d5260319c251c54f69be818ed12f8cb5adec  dirty=False
+[provenance] numpy 2.2.6  numba 0.63.1  python 3.10.5
+[ric-source] motors/machbusterNew.ric: unmodified -> using working-tree copy
+[provenance] machbusterNew.ric sha256 a234a1dcf054dfb337e508360170e504228e9be85dfbd984940ea8326819df0e  (C:\tmp\sv\aw1\motors\machbusterNew.ric)
+[ric-source] motors/BALLSstick.ric: unmodified -> using working-tree copy
+[provenance] BALLSstick.ric sha256 7fd189d62aabcdc5a5a788611d7b2c3cd94b91fbcc3e111f15e89423074cbd73  (C:\tmp\sv\aw1\motors\BALLSstick.ric)
+[ric-source] motors/hasegawa_a.ric: unmodified -> using working-tree copy
+[provenance] hasegawa_a.ric sha256 ccb7fccc972fd6074beff0b0099d1fdd2f731549d4628ea0eccbef97ca69185d  (C:\tmp\sv\aw1\motors\hasegawa_a.ric)
+[ric-source] motors/machbusterNew.ric: unmodified -> using working-tree copy
+
+[chunc] wall 67.7 s, termination='t_max reached'
+  peak     got       11.746371710235893  ref        10.50543183884138  rel 1.181e-01  MISMATCH
+  t_peak   got     0.023301322075933252  ref      0.26895876003485647  rel 9.134e-01  MISMATCH
+  plateau  got         8.22645613610499  ref        8.042229974246869  rel 2.291e-02  MISMATCH
+  n_steps  got                   529946  ref                   543930  rel 2.571e-02  MISMATCH
+[ric-source] motors/BALLSstick.ric: unmodified -> using working-tree copy
+
+[balls] wall 38.4 s, termination='t_max reached'
+  peak     got         8.75891443393703  ref         8.75891443393703  rel 0.000e+00  OK
+  trough   got        4.433817839880108  ref        4.433817839880108  rel 0.000e+00  OK
+  mid      got        4.931795163190824  ref        4.931795163190824  rel 0.000e+00  OK
+  n_steps  got                   842924  ref                   842924  rel 0.000e+00  OK
+[ric-source] motors/hasegawa_a.ric: unmodified -> using working-tree copy
+
+[haseg] wall 62.8 s, termination='t_max reached'
+  peak     got        6.013705081415213  ref        6.017212393308495  rel 5.829e-04  MISMATCH
+  t_peak   got       2.4004083212637655  ref       2.4997984460722247  rel 3.976e-02  MISMATCH
+  n_steps  got                  2330324  ref                  2334680  rel 1.866e-03  MISMATCH
+
+B0 RESULT: FAIL
+[guarded_run] exit=1 timed_out=False wall_s=171.2 peak_job_gb=2.81 mem_cap_gb=6.0 timeout_min=30.0

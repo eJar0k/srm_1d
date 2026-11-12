@@ -34,11 +34,14 @@ def main():
     ap.add_argument('--t-max', type=float, default=0.5)
     ap.add_argument('--mass', type=float, default=None, help='igniter charge [g]; default = the motor file / auto')
     ap.add_argument('--jet', default=None)
+    ap.add_argument('--no-lump-gaps', action='store_true', help='G2: legacy gap cells + dx clamp')
     a = ap.parse_args()
     kw = dict(t_max=a.t_max, verbose=False, print_interval=0.0, target_propellant_cells=a.cells,
               snapshot_interval=a.t_max / 50.0, )
     if a.jet is not None:
         kw['head_end_jet_h'] = (False if a.jet == 'off' else a.jet)
+    if a.no_lump_gaps:
+        kw['lump_gaps'] = False
     if a.aft is not None:
         kw['aft_end'] = a.aft
     if a.head_gap_mm is not None:

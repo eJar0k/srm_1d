@@ -344,6 +344,20 @@ in geometry/burn rate/ignition (called every step or every N steps).
 - Probes that use the static orifice branch as a pressure outlet (the EN1 duct harness `docs/solver_verification/probes/en1_verification.py`) now pass `nozzle_isentropic=False` explicitly.
   Details, verification tables and the B0 re-record: `docs/solver_verification/worklog/NB1.md`.
 
+### AW1 (unreleased, 2026-11-11) -- prompt window default 0.5 -> 0.1 s
+
+- **DEFAULT CHANGE (user decision "Shorten to 0.05-0.1s"; the 300 psi DeMar initial guess stays, "an approximate floor
+  for most amateur motors"):** `run_simulation(ignition_prompt_window_s=0.1)` (was 0.5). It also sets when the
+  `P_cutoff` end-of-run is armed (see AS1 follow-up below).
+- 0.05 and 0.1 s pick identical charges on Chunc, BALLSstick, Hasegawa A and pathfin54: in this model a charge either
+  lights 99-100 % of the grain within 9-17 ms or only 0-7 % by the window. 0.1 s (the lenient end) was taken.
+- Effect (N = 100, auto charges):
+  - Chunc 0.815 -> 1.273 g (469 psi equiv.), t90 235 -> 8.6 ms, peak 10.51 -> 11.82 MPa at 23 ms, pk/plateau 1.31 -> 1.44;
+  - Hasegawa A 7.861 -> 9.826 g (375 psi), t90 110 -> 12.5 ms, late peak 6.017 -> 6.014 MPa;
+  - pathfin54 0.439 -> 0.857 g (586 psi), first light 404 -> 2.1 ms;
+  - BALLSstick unchanged (1.982 g).
+- B0 Chunc and Hasegawa A rows re-recorded. Results: `docs/pyrogen_realism/results/aw1/`.
+
 ### AS1 (unreleased, 2026-11-11) -- prompt-start success criterion for the auto igniter charge
 
 - **BEHAVIOUR CHANGE (auto charges only):** the fallback now succeeds when at least `ignition_prompt_fraction` = 0.95 of the grain cells ignited within `ignition_prompt_window_s` = 0.5 s of igniter
@@ -362,6 +376,38 @@ in geometry/burn rate/ignition (called every step or every N steps).
   >= `ignition_prompt_fraction` of the grain cells are lit (existing conditions kept). `_run_time_loop`: `prompt_window_s` is now always the window (it was 0 unless the early stop was on) and a new bool
   `prompt_early_stop` follows `prompt_fraction` (@njit signature change). Effect: Chunc auto under 0.5 MPa 1.273 -> 0.815 g (= the B0 row), pathfin54 4 attempts -> 1 (0.439 g, first light 404 ms: the 0.5 s window admits it);
   BALLSstick / Hasegawa A unchanged; B0 unchanged (no row moved). Failed auto attempts now run to the window end (BALLSstick ~28 s each instead of ~5 s).
+
+### G2 (unreleased, 2026-11-11) -- length rounding that preserves mass; inter-grain gaps lumped (no gap cells, no dx clamp)
+
+User: "let's try it, can revert if not" (memo `docs/solver_verification/G1_NOTES.md` 2.2 then 2.1). Record: `docs/solver_verification/worklog/G2.md`.
+
+- **Step 1 (2.2): mass-preserving length rounding.** Segment ends are rounded on CUMULATIVE position (the error never exceeds dx/2 along the
+  motor instead of up to dx/2 per segment), and each segment's burning perimeter is scaled by `L_true / L_snapped`
+  (`GrainSegment.burn_scale`, `length_true`; per-cell `compile_geometry_arrays()['cell_burn_scale']`, applied in `update_cell_geometry`
+  via its new trailing arg). Burning area and the burned propellant mass equal the `.ric` values to round-off at every N; `total_propellant_volume()` uses
+  the true lengths. Lengths that are already whole cells keep scale exactly 1.0 (bit-identical: Hasegawa A B0 unchanged; Chunc / BALLSstick move <= 0.1 %).
+  The regression fill debit (T10/QF1) uses the UNscaled perimeter (`/cell_burn_scale`) because the cell's `A_port` grows with the geometric perimeter.
+  The plugin's per-grain mass / volume loading use the scale.
+- **Step 2 (2.1): inter-grain gaps are lumped volume.** `build_snapped_geometry(..., lump_gaps=True)` (default; `False` = the legacy gap cells with the
+  `dx <= smallest gap` clamp, kept for A/B): gaps carry no cells, the dx clamp is gone (BATES motors run at the target cell count), and each gap's volume
+  `A_case * gap` is added 50/50 to the last cell before it and the first cell after it (`vol_extra`, G1 mechanism). `GrainSegment.gap_after`;
+  `MotorGeometry.gaps_lumped`; `compile_geometry_arrays()['x_offset']` = the gaps upstream of each cell (physical axis = `x_centers + x_offset`).
+  A lumped interface is NOT auto-inhibited (its faces stay free). No "gap-growth" term was needed: a receding face moves inside its OWN grain's cells, whose
+  blended `A_port` already contains the vacated annulus (tested: gas volume grows by exactly `A_annulus * delta` per face, also across the lumped interface).
+- **Physical axis:** every distance-dependent closure uses `x_phys = x_centers + x_offset` (Peretz / Ma x-from-head, HE1 jet (+ head_gap), DeMar / radiation view factors,
+  flame-front speed, pyrogen axial weights). The cell axis (`x_centers`) stays contiguous for the geometry kernel and the slice viewer. `result['x_offset']`;
+  `AxialPayload.x_offset`; plugin payload `x_offset`; station positions are physical.
+- **API:** `update_cell_geometry(..., cell_burn_scale=None)`; `_run_time_loop(..., cell_burn_scale, x_offset, ...)`; `_goodman_ignition_sources_and_mass(..., cell_burn_scale=None)`;
+  `convert_geometry` / `ric_to_sim_args(..., lump_gaps=True)`; `GrainSegment(length_true, burn_scale, gap_after)`; `MotorGeometry(gaps_lumped)`. Cell counts and `L_motor`
+  change for gapped motors (`L_motor` = propellant length; physical length = `L_motor + sum(gap_after)`).
+- **Lump spreading (found by the stability sweep):** every lumped volume (head gap, inter-grain gaps, nozzle convergent) is SPREAD over consecutive cells
+  so that no cell's added storage exceeds `MotorGeometry.lump_ratio_cap` (= 1.0, i.e. storage at most doubles; 0 disables) times its own volume. A concentrated
+  convergent (example_bates: 25x the last cell's volume at N=200, 50x at N=400) made the fill transient abort (Mach 120) when the front reached it; this was latent
+  in G1's single-cell lump (legacy gap cells at N=400 collapse too) and the gap lumping lowered the threshold to N>=200. cap 1 and cap 3 both survive N=400; the
+  canonical motors move by 2e-4 (only Chunc's 4.9x convergent is spread).
+- Behaviour: canonical motors (all grains bonded, no gaps) change only through step 1 (<= 0.1 %) and the lump spreading (2e-4); gapped BATES motors: pressure traces agree with the clamped-cell runs to
+  0.2-0.3 % rms (Aeroblast_flight_2 1.9 % rms: a 1.7 % lower early plateau and a 0.5 % shorter burn), with 1.4-2.1x fewer steps.
+- Tests: `tests/test_g2_snap.py` (27); updated `test_adapter` (2), `test_geometry` (2), `test_station_viz` (1). B0 re-recorded (G1 values in the comment).
 
 ### QF1 (unreleased, 2026-11-10) -- total-energy regression-fill debit carries kinetic energy; p dV audit channel
 
