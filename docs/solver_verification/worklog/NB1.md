@@ -163,4 +163,4 @@ P_head stays the right quantity to compare with a head-end transducer. C* and Is
 * Full pytest suite under the guard: 687 passed in the first chunk (stopped by `-x` at `test_solver_config_upgrade.py`, which
   asserts the exact set of plugin config keys; updated for the new `nozzle_bc_stagnation` choice field), then the remaining
   files from `test_solver_config_upgrade.py` on: 333 passed. Total 1020 passed, 0 failed (22 + 7.4 min).
-* B0 after the re-record: see the final line below (re-run on the committed tree).
+* B0 after the re-record, clean __pycache__, committed tree: PASS (all floats within 4e-14, n_steps exact: Chunc 545969, BALLSstick 847603, Hasegawa A 2341103). Re-record on top of G2 + the AS1-window change is still to do when they land.
