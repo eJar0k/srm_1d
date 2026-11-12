@@ -45,10 +45,12 @@ ENERGY_KEY = 'energy_formulation'
 MOMENTUM_KEY = 'momentum_formulation'
 DRIVER_KEY = 'ignition_driver_temperature'
 JET_KEY = 'head_end_jet_h'
+NOZZLE_BC_KEY = 'nozzle_bc_stagnation'   # NB1 choice field; default read from run_simulation
 _ENERGY_CHOICES = ('total', 'sensible')
 _MOMENTUM_CHOICES = ('conservative', 'legacy')
 _DRIVER_CHOICES = ('recovery', 'static')
 _JET_CHOICES = ('max', 'replace', 'off')
+_NOZZLE_BC_CHOICES = ('isentropic', 'static')   # NB1; first = default
 # srm_1d.simulation._SOLID_MODES (pinned by tests/test_solver_config_upgrade.py); default first.
 _SOLID_HEATING_CHOICES = ('conduction', 'peretz', 'goodman')
 
@@ -110,6 +112,8 @@ def _transient_config_schema():
     schema.props[MOMENTUM_KEY] = EnumProperty('Momentum Predictor', list(_MOMENTUM_CHOICES))
     schema.props[DRIVER_KEY] = EnumProperty('Ignition Driver Temperature', list(_DRIVER_CHOICES))
     schema.props[JET_KEY] = EnumProperty('Head-End Igniter-Jet Heat Transfer', list(_JET_CHOICES))
+    # NB1: nozzle-boundary stagnation state ('static' = the pre-NB1 static-as-stagnation boundary).
+    schema.props[NOZZLE_BC_KEY] = EnumProperty('Nozzle Boundary Stagnation', list(_NOZZLE_BC_CHOICES))
     # Seed defaults: DERIVED from run_simulation's signature (so they cannot
     # drift from the solver again -- they once did, 50 um / 0.45 / 850 K were
     # the pre-v0.7.5 values), roughness converted m -> um at this boundary.
@@ -143,7 +147,7 @@ def _solver_config_defaults():
     out[ROUGHNESS_KEY] = round(out[ROUGHNESS_KEY] * 1.0e6, 9)   # m -> um
     out[IGN_H_KEY] = str(params[IGN_H_KEY].default)             # IG3 choice field
     out[SOLID_KEY] = str(params[SOLID_KEY].default)             # choice field
-    for key in (ENERGY_KEY, MOMENTUM_KEY, DRIVER_KEY, JET_KEY):  # D1 choice fields
+    for key in (ENERGY_KEY, MOMENTUM_KEY, DRIVER_KEY, JET_KEY, NOZZLE_BC_KEY):  # D1/NB1 choice fields
         d = params[key].default
         out[key] = 'off' if d is False else str(d)
     return out

@@ -1133,20 +1133,27 @@ def _aft_casing_diameter(seg, D_outer, snapped_length):
 AFT_END_MODES = ('cone', 'cone_nolump', 'lump', 'none')
 
 
-BC_RESERVOIR_P0_TOL = 0.01      # stated model assumption (see below)
+BC_RESERVOIR_P0_TOL = 0.01      # stated model assumption; since NB1 a resolution guard (see below)
 BC_RESERVOIR_GAMMA = 1.2        # typical composite-propellant gamma, for the area-Mach relation
 
 
 def bc_reservoir_area_ratio(p0_tol=BC_RESERVOIR_P0_TOL, gamma=BC_RESERVOIR_GAMMA):
-    """Smallest A/A_throat for which the nozzle BC's reservoir assumption stays
-    within ``p0_tol``.
+    """Smallest A/A_throat of a resolved convergent (cone) cell: the cone-cut area ratio.
 
-    ``_nozzle_boundary_flow`` takes the last cell's STATIC P and T as the
-    stagnation values.  A cell moving at Mach M has P0/P = (1 + (g-1)/2 M^2)^(g/(g-1)),
-    so the BC under-states P0 by that factor - 1.  Setting it to ``p0_tol`` gives M, and the
-    isentropic area-Mach relation gives the area ratio A/A* of a passage with that Mach.
-    ``p0_tol`` = 1 % is a STATED MODEL ASSUMPTION (the pressure-trace comparison precision of
-    the B0 gate / validation), not a fit; the G1 worklog shows the sensitivity.
+    NB1 (2026-11-11) changed the meaning of this cut.  Before NB1 ``_nozzle_boundary_flow``
+    took the last cell's STATIC P and T as the stagnation values, so a cell moving at Mach M
+    under-stated P0 by P0/P - 1 = (1 + (g-1)/2 M^2)^(g/(g-1)) - 1, and this function chose the
+    area ratio A/A* of the passage with that Mach for ``P0/P - 1 = p0_tol``.  The default
+    boundary is now the isentropic one (true stagnation state, ``nozzle_bc_stagnation``), so that
+    bound is no longer an error bound of the BC.  The cut is KEPT, unchanged, as a RESOLUTION
+    GUARD: a steep convergent resolved by one or two cells drops the area by ~2x within a cell, and
+    the cell-centre-state / cell-face-flow placement of the boundary is then a first-order
+    O(dx dA/dx) discretisation error (Chunc, ``aft_end='cone'``, isentropic: cut 4.64 ->
+    plateau within 0.3 % of ``aft_end='lump'``; cut 1.5 -> 2 cone cells and -5 %; the static
+    boundary showed the mirror +5 %).  ``p0_tol`` = 1 % remains a STATED MODEL ASSUMPTION (the
+    pressure-trace comparison precision of the B0 gate / validation), not a fit; see
+    docs/solver_verification/worklog/NB1.md step 5.  A principled replacement would bound the
+    area ratio between neighbouring cone cells (a design choice, not made here).
     """
     g = gamma
     M2 = 2.0 / (g - 1.0) * ((1.0 + p0_tol) ** ((g - 1.0) / g) - 1.0)

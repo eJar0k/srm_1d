@@ -322,7 +322,7 @@ class TestNozzleBoundary:
         P = 2.0e6
         A = 1.0e-4
         mdot, dmdp, upstream_T, state = _nozzle_boundary_flow(
-            P, T, A, gamma, R, 101325.0, 293.0,
+            P, T, A, gamma, R, 101325.0, 293.0, 0.0, 0.0,
         )
         gamma_fn = np.sqrt(gamma) * (2.0 / (gamma + 1.0)) ** (
             (gamma + 1.0) / (2.0 * (gamma - 1.0))
@@ -336,9 +336,9 @@ class TestNozzleBoundary:
         gamma = 1.2
         R = 300.0
         A = 1.0e-4
-        out = _nozzle_boundary_flow(110000.0, 300.0, A, gamma, R, 101325.0, 293.0)
-        bal = _nozzle_boundary_flow(101325.0, 300.0, A, gamma, R, 101325.0, 293.0)
-        inflow = _nozzle_boundary_flow(90000.0, 300.0, A, gamma, R, 101325.0, 293.0)
+        out = _nozzle_boundary_flow(110000.0, 300.0, A, gamma, R, 101325.0, 293.0, 0.0, 0.0)
+        bal = _nozzle_boundary_flow(101325.0, 300.0, A, gamma, R, 101325.0, 293.0, 0.0, 0.0)
+        inflow = _nozzle_boundary_flow(90000.0, 300.0, A, gamma, R, 101325.0, 293.0, 0.0, 0.0)
 
         assert out[0] > 0.0
         assert out[1] > 0.0
