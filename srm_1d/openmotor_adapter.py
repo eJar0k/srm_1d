@@ -1764,8 +1764,14 @@ def result_to_csv(result, perf=None, geo=None, propellant=None,
     # Build headers
     headers = ['Time (s)', 'Kn', 'Pressure (Pa)', 'Exit Pressure (Pa)',
                'dThroat (m)']
+    # TP1: 'Pressure (Pa)' stays the head-end ("chamber pressure") trace; thrust and
+    # Isp are computed from the nozzle-entrance stagnation pressure, exported as the
+    # last performance column so the earlier column positions are unchanged.
+    has_p0 = perf is not None and 'P0_nozzle' in perf
     if perf is not None:
         headers.extend(['Force (N)', 'Isp (s)'])
+        if has_p0:
+            headers.append('Nozzle Stagnation Pressure (Pa)')
     if grain_met is not None:
         n_grains = grain_met['regression'].shape[1]
         for k in range(n_grains):
@@ -1804,6 +1810,8 @@ def result_to_csv(result, perf=None, geo=None, propellant=None,
         if perf is not None:
             row.append(f"{perf['thrust'][i]:.2f}")
             row.append(f"{perf['Isp'][i]:.2f}")
+            if has_p0:
+                row.append(f"{perf['P0_nozzle'][i]:.2f}")
         if reg_interp is not None:
             for k in range(n_grains):
                 row.append(f"{reg_interp[i, k]:.8f}")

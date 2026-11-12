@@ -42,6 +42,7 @@ Units:
 """
 
 import math
+import warnings
 import numpy as np
 from dataclasses import dataclass
 
@@ -315,35 +316,64 @@ def compute_thrust_isp(
 
 
 @njit(cache=True)
+def compute_thrust_series(
+    P0_arr, D_throat_arr, N_points,
+    gamma, D_exit,
+    div_loss, efficiency, throat_length, skin_loss,
+    P_ambient, c_star, g0,
+):
+    """
+    Thrust, CF, Isp, P_exit for a given nozzle-entrance stagnation-pressure
+    history ``P0_arr`` [Pa] and a given throat-diameter history ``D_throat_arr``
+    [m] (the solver's own throat history; nothing is integrated here).
+    """
+    thrust = np.zeros(N_points)
+    C_F = np.zeros(N_points)
+    Isp = np.zeros(N_points)
+    P_exit = np.zeros(N_points)
+    PI = 3.141592653589793
+    A_exit = PI / 4.0 * D_exit * D_exit
+    for i in range(N_points):
+        D_t = D_throat_arr[i]
+        A_t = PI / 4.0 * D_t * D_t
+        eps = A_exit / A_t
+        throat_loss = _throat_aspect_loss(throat_length, D_t)
+        thrust[i], C_F[i], Isp[i], P_exit[i] = compute_thrust_isp(
+            P0_arr[i], gamma, eps,
+            div_loss, efficiency, throat_loss, skin_loss,
+            A_t, P_ambient, g0, c_star,
+        )
+    return thrust, C_F, Isp, P_exit
+
+
+@njit(cache=True)
 def compute_thrust_history(
-    time_arr, P_head_arr, N_points,
+    time_arr, P0_arr, N_points,
     gamma, D_throat_initial, D_exit,
     erosion_coeff, slag_coeff,
     div_loss, efficiency, throat_length, skin_loss,
     P_ambient, c_star, g0,
 ):
     """
-    Thrust, CF, Isp, P_exit, D_throat over the pressure history.
-    Throat diameter is integrated forward via forward Euler:
+    Thrust, CF, Isp, P_exit, D_throat over a nozzle-entrance stagnation-pressure
+    history ``P0_arr`` [Pa] (TP1: the stagnation pressure at the port exit, NOT the
+    head-end static pressure).
+
+    FALLBACK throat integration, used only when the caller has no recorded throat
+    history (``compute_motor_performance`` uses the solver's own ``D_throat``
+    whenever the result carries one).  Throat diameter is integrated forward via
+    forward Euler:
         e_rate = erosion_coeff [μm/(s·MPa)] × P [MPa] × 1e-6
         s_rate = slag_coeff   [(m·MPa)/s]   / P [MPa]
         dD/dt = 2 × (e_rate − s_rate)
+    (the solver itself integrates this with the port-exit static pressure).
     """
-    thrust = np.zeros(N_points)
-    C_F = np.zeros(N_points)
-    Isp = np.zeros(N_points)
-    P_exit = np.zeros(N_points)
     D_throat_arr = np.zeros(N_points)
-
-    PI = 3.141592653589793
-    A_exit = PI / 4.0 * D_exit * D_exit
-
     D_t = D_throat_initial
     D_throat_arr[0] = D_t
 
     for i in range(N_points):
-        P = P_head_arr[i]
-        P_MPa = P / 1e6
+        P_MPa = P0_arr[i] / 1e6
 
         if i > 0:
             dt = time_arr[i] - time_arr[i - 1]
@@ -356,16 +386,12 @@ def compute_thrust_history(
             D_t = max(D_t, 1e-6)
             D_throat_arr[i] = D_t
 
-        A_t = PI / 4.0 * D_t * D_t
-        eps = A_exit / A_t
-        throat_loss = _throat_aspect_loss(throat_length, D_t)
-
-        thrust[i], C_F[i], Isp[i], P_exit[i] = compute_thrust_isp(
-            P, gamma, eps,
-            div_loss, efficiency, throat_loss, skin_loss,
-            A_t, P_ambient, g0, c_star,
-        )
-
+    thrust, C_F, Isp, P_exit = compute_thrust_series(
+        P0_arr, D_throat_arr, N_points,
+        gamma, D_exit,
+        div_loss, efficiency, throat_length, skin_loss,
+        P_ambient, c_star, g0,
+    )
     return thrust, C_F, Isp, P_exit, D_throat_arr
 
 
@@ -373,16 +399,41 @@ def compute_thrust_history(
 # Post-processing: combine simulation result + Nozzle into perf dict
 # ================================================================
 
+def _nozzle_entrance_pressure(sc):
+    """Pressure that feeds the thrust path: the nozzle-entrance STAGNATION
+    pressure ``P0_nozzle`` recorded by the solver (TP1).  A result without it
+    (an old pickle, or a hand-built dict) falls back to the head-end pressure
+    ``P_head`` with a warning -- that over-predicts thrust by P_head/P0_nozzle
+    (about 1-3 % at the plateau, more in the startup).
+    """
+    if 'P0_nozzle' in sc and sc['P0_nozzle'] is not None and \
+            len(sc['P0_nozzle']) == len(sc['time']):
+        return np.asarray(sc['P0_nozzle'], dtype=float)
+    warnings.warn(
+        "result has no 'P0_nozzle' (nozzle-entrance stagnation pressure); "
+        "falling back to the head-end pressure 'P_head' for thrust, CF and Isp. "
+        "Thrust and impulse are over-predicted by P_head/P0_nozzle "
+        "(~1-3 % at the plateau). Re-run the simulation to get P0_nozzle.",
+        RuntimeWarning, stacklevel=3)
+    return np.asarray(sc['P_head'], dtype=float)
+
+
 def compute_motor_performance(result, nozzle, propellant, P_ambient=None):
     """
     Compute thrust/Isp from simulation results.
 
+    The chamber pressure of ``F = CF · P_c · A_t`` is the stagnation pressure at
+    the nozzle entrance (``result['P0_nozzle']``, TP1), not the head-end static
+    pressure; ``result['P_head']`` remains the head-end ("chamber pressure")
+    trace.
+
     Parameters
     ----------
     result : dict or SimulationChannels
-        Output from run_simulation (keys: 'time', 'P_head', optionally
-        'D_throat', 'P_ambient'), or the channel-model equivalent. A dict
-        is re-shaped via ``as_channels`` (pure, no recompute).
+        Output from run_simulation (keys: 'time', 'P0_nozzle' (falls back to
+        'P_head' with a warning), optionally 'D_throat', 'massflow',
+        'P_ambient'), or the channel-model equivalent. A dict is re-shaped
+        via ``as_channels`` (pure, no recompute).
     nozzle : Nozzle
     propellant : Propellant
     P_ambient : float or None
@@ -399,7 +450,7 @@ def compute_motor_performance(result, nozzle, propellant, P_ambient=None):
         P_ambient = sc.extras.get('P_ambient', 101325.0)
 
     time_arr = sc['time']
-    P_arr = sc['P_head']
+    P_arr = _nozzle_entrance_pressure(sc)
     N = len(time_arr)
     g0 = 9.80665
 
@@ -412,31 +463,26 @@ def compute_motor_performance(result, nozzle, propellant, P_ambient=None):
     div_loss = nozzle.divergence_losses()
     skin_loss = nozzle.skin_losses()
 
-    thrust, C_F, Isp, P_exit, D_throat_arr = compute_thrust_history(
-        time_arr, P_arr, N,
-        gamma, nozzle.D_throat, nozzle.D_exit,
-        nozzle.erosion_coeff, nozzle.slag_coeff,
-        div_loss, nozzle.efficiency, nozzle.throat_length, skin_loss,
-        P_ambient, c_star, g0,
-    )
-
-    # If the simulation already computed a throat history (because
-    # erosion/slag was active during the sim), use that — it's what
-    # actually drove the nozzle BC.
+    # If the simulation already computed a throat history (it always does:
+    # run_simulation erodes the throat in-loop when erosion/slag is active),
+    # use that -- it is what actually drove the nozzle BC.  Only a result with
+    # no recorded throat history is re-integrated (from P_arr).
     if 'D_throat' in sc and len(sc['D_throat']) == N:
-        D_throat_arr = sc['D_throat']
-        PI = 3.141592653589793
-        A_exit_val = PI / 4.0 * nozzle.D_exit ** 2
-        for i in range(N):
-            D_t = D_throat_arr[i]
-            A_t = PI / 4.0 * D_t * D_t
-            eps = A_exit_val / A_t
-            throat_loss = _throat_aspect_loss(nozzle.throat_length, D_t)
-            thrust[i], C_F[i], Isp[i], P_exit[i] = compute_thrust_isp(
-                P_arr[i], gamma, eps,
-                div_loss, nozzle.efficiency, throat_loss, skin_loss,
-                A_t, P_ambient, g0, c_star,
-            )
+        D_throat_arr = np.asarray(sc['D_throat'], dtype=float)
+        thrust, C_F, Isp, P_exit = compute_thrust_series(
+            P_arr, D_throat_arr, N,
+            gamma, nozzle.D_exit,
+            div_loss, nozzle.efficiency, nozzle.throat_length, skin_loss,
+            P_ambient, c_star, g0,
+        )
+    else:
+        thrust, C_F, Isp, P_exit, D_throat_arr = compute_thrust_history(
+            time_arr, P_arr, N,
+            gamma, nozzle.D_throat, nozzle.D_exit,
+            nozzle.erosion_coeff, nozzle.slag_coeff,
+            div_loss, nozzle.efficiency, nozzle.throat_length, skin_loss,
+            P_ambient, c_star, g0,
+        )
 
     total_impulse = 0.0
     for i in range(N - 1):
@@ -463,6 +509,28 @@ def compute_motor_performance(result, nozzle, propellant, P_ambient=None):
         avg_CF = 0.0
         peak_CF = 0.0
 
+    # TP1: C*_sim = P0_nozzle * A_t / mdot_nozzle (instantaneous), and the
+    # burn-window mean (integral P0 A_t dt / integral mdot dt).  Equal to the
+    # propellant's C* at a steady plateau up to the nozzle-efficiency
+    # definitions; with P_head it would be inflated by P_head/P0.
+    mdot_arr = sc['massflow'] if 'massflow' in sc else None
+    c_star_sim = np.zeros(N)
+    c_star_sim_avg = 0.0
+    if mdot_arr is not None and len(mdot_arr) == N and N > 0:
+        mdot_arr = np.asarray(mdot_arr, dtype=float)
+        A_t_arr = np.pi / 4.0 * D_throat_arr * D_throat_arr
+        ok = mdot_arr > 1.0e-9
+        c_star_sim[ok] = P_arr[ok] * A_t_arr[ok] / mdot_arr[ok]
+        if np.any(burning):
+            bi = np.where(burning)[0]
+            sl = slice(int(bi[0]), int(bi[-1]) + 1)
+            dts = np.diff(time_arr[sl])
+            pa = P_arr[sl] * A_t_arr[sl]
+            md = mdot_arr[sl]
+            num = float(np.sum(0.5 * (pa[1:] + pa[:-1]) * dts))
+            den = float(np.sum(0.5 * (md[1:] + md[:-1]) * dts))
+            c_star_sim_avg = num / den if den > 0.0 else 0.0
+
     D_throat_final = D_throat_arr[-1] if len(D_throat_arr) > 0 else nozzle.D_throat
     throat_change_mm = (D_throat_final - nozzle.D_throat) * 1000
 
@@ -472,6 +540,9 @@ def compute_motor_performance(result, nozzle, propellant, P_ambient=None):
         'Isp': Isp,
         'P_exit': P_exit,
         'D_throat': D_throat_arr,
+        'P0_nozzle': P_arr,
+        'c_star_sim': c_star_sim,
+        'c_star_sim_avg': c_star_sim_avg,
         'total_impulse': total_impulse,
         'average_thrust': avg_thrust,
         'peak_thrust': peak_thrust,

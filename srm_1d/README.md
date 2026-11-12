@@ -184,7 +184,9 @@ Two dev/analysis modules — full docs in
 ```python
 result['time']       # ndarray, simulation times [s]
 result['P_head']     # ndarray, head-end pressure [Pa]
-result['P_exit']     # ndarray, nozzle-end pressure [Pa]
+result['P_exit']     # ndarray, nozzle-end (last-cell static) pressure [Pa]
+result['P0_nozzle']  # ndarray, nozzle-entrance STAGNATION pressure [Pa] (feeds thrust/CF/Isp; P_head is the head-end trace)
+result['T0_nozzle']  # ndarray, nozzle-entrance stagnation temperature [K]
 result['D_throat']   # ndarray, throat diameter [m]
 result['Kn']         # ndarray, burning area / throat area
 result['massflow']   # ndarray, nozzle mass flow [kg/s]

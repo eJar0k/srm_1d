@@ -42,6 +42,7 @@ from .solver import (
     compute_dt_cfl,
     compute_dt_source_cap,
     _nozzle_boundary_flow,
+    _nozzle_entrance_stagnation,
     _nozzle_choke_mach,
 )
 from .burn_rate import (
@@ -1939,6 +1940,7 @@ def _run_time_loop(
     pyrogen_params_arr, chamber_params_arr, plenum_state,
     # --- Output: time history (pre-allocated) ---
     time_hist, P_head_hist, P_exit_hist, D_throat_hist,
+    P0_nozzle_hist, T0_nozzle_hist, gamma_nozzle_hist, R_nozzle_hist,
     Kn_hist, massflow_hist, P_ig_hist, T_ig_hist, mdot_ig_hist,
     mdot_grain_hist,
     m_pyrogen_hist,
@@ -2779,15 +2781,23 @@ def _run_time_loop(
         # ============================================
         total_mass_produced += mass_sum * dx * dt
         # v0.7.1 Phase 3: nozzle uses cell-N-1 mixture thermo.
+        M_choke_post = _nozzle_choke_mach(A_port[N - 1], A_throat, gamma_mix_arr[N - 1],
+                                          nozzle_isentropic)
         nozzle_mdot, _dmdp_nozzle, nozzle_upstream_T, _nozzle_state = _nozzle_boundary_flow(
             P[N - 1], T[N - 1], A_throat,
             gamma_mix_arr[N - 1], R_mix_arr[N - 1],
             P_ambient, ambient_temperature,
             A_port[N - 1],
-            _nozzle_choke_mach(A_port[N - 1], A_throat, gamma_mix_arr[N - 1],
-                               nozzle_isentropic),
+            M_choke_post,
         )
         total_mass_nozzle += nozzle_mdot * dt
+        # TP1: the stagnation state at the nozzle entrance implied by THIS boundary
+        # solve (same M_choke, same mdot).  Feeds the thrust / CF / Isp path.
+        P0_nozzle, T0_nozzle, _M_entrance = _nozzle_entrance_stagnation(
+            nozzle_mdot, P[N - 1], T[N - 1],
+            gamma_mix_arr[N - 1], R_mix_arr[N - 1],
+            A_port[N - 1], M_choke_post,
+        )
         # T6: post-PISO nozzle enthalpy power (final P, final T) for the
         # PISO-vs-reconstruction nozzle ledger comparison.
         nozzle_enthalpy_power_post = (
@@ -2886,6 +2896,10 @@ def _run_time_loop(
         P_head_hist[hist_idx] = P[0]
         P_exit_hist[hist_idx] = P[N - 1]
         D_throat_hist[hist_idx] = D_throat
+        P0_nozzle_hist[hist_idx] = P0_nozzle
+        T0_nozzle_hist[hist_idx] = T0_nozzle
+        gamma_nozzle_hist[hist_idx] = gamma_mix_arr[N - 1]
+        R_nozzle_hist[hist_idx] = R_mix_arr[N - 1]
         Kn_hist[hist_idx] = Kn
         massflow_hist[hist_idx] = nozzle_mdot
         P_ig_hist[hist_idx] = P_ig
@@ -3887,6 +3901,12 @@ def _run_simulation_once(
     P_head_hist = np.empty(max_hist)
     P_exit_hist = np.empty(max_hist)
     D_throat_hist = np.empty(max_hist)
+    # TP1: nozzle-entrance stagnation state + the exit-cell mixture (gamma, R) the
+    # nozzle boundary used, one row per step like every other history array.
+    P0_nozzle_hist = np.empty(max_hist)
+    T0_nozzle_hist = np.empty(max_hist)
+    gamma_nozzle_hist = np.empty(max_hist)
+    R_nozzle_hist = np.empty(max_hist)
     Kn_hist = np.empty(max_hist)
     massflow_hist = np.empty(max_hist)
     P_ig_hist = np.empty(max_hist)
@@ -4050,6 +4070,7 @@ def _run_simulation_once(
         pyrogen_params_arr, chamber_params_arr, plenum_state,
         # Output: time history
         time_hist, P_head_hist, P_exit_hist, D_throat_hist,
+        P0_nozzle_hist, T0_nozzle_hist, gamma_nozzle_hist, R_nozzle_hist,
         Kn_hist, massflow_hist, P_ig_hist, T_ig_hist, mdot_ig_hist,
         mdot_grain_hist,
         m_pyrogen_hist,
@@ -4141,6 +4162,10 @@ def _run_simulation_once(
     P_head_arr = _shrink_hist(P_head_hist, n_steps)
     P_exit_arr = _shrink_hist(P_exit_hist, n_steps)
     D_throat_arr = _shrink_hist(D_throat_hist, n_steps)
+    P0_nozzle_arr = _shrink_hist(P0_nozzle_hist, n_steps)
+    T0_nozzle_arr = _shrink_hist(T0_nozzle_hist, n_steps)
+    gamma_nozzle_arr = _shrink_hist(gamma_nozzle_hist, n_steps)
+    R_nozzle_arr = _shrink_hist(R_nozzle_hist, n_steps)
     Kn_arr = _shrink_hist(Kn_hist, n_steps)
     massflow_arr = _shrink_hist(massflow_hist, n_steps)
     P_ig_arr = _shrink_hist(P_ig_hist, n_steps)
@@ -4539,6 +4564,9 @@ def _run_simulation_once(
     result_dict = {
         'time': time_arr, 'P_head': P_head_arr, 'P_exit': P_exit_arr,
         'D_throat': D_throat_arr, 'Kn': Kn_arr, 'massflow': massflow_arr,
+        # TP1: nozzle-entrance stagnation state (thrust path) + exit-cell mixture
+        'P0_nozzle': P0_nozzle_arr, 'T0_nozzle': T0_nozzle_arr,
+        'gamma_nozzle': gamma_nozzle_arr, 'R_nozzle': R_nozzle_arr,
         'P_ig': P_ig_arr, 'T_ig': T_ig_arr, 'mdot_ig': mdot_ig_arr, 'mdot_grain': mdot_grain_arr,
         'm_pyrogen': m_pyrogen_arr,
         'gas_sensible_energy_before': gas_sensible_energy_before_arr,

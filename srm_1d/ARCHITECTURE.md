@@ -149,13 +149,19 @@ or load named motors from `srm_1d/motors/*.ric`.)
   adjusted-CF formula:
       CF_adj = divLoss × throatLoss × efficiency
              × (skinLoss × CF_ideal + (1 − skinLoss))
-- `compute_thrust_history(t, P, ..., erosion, slag, div_loss, efficiency,
-  throat_length, skin_loss, ...)` — Integrates throat diameter over the
-  pressure history. throat_loss is recomputed each step from the current
-  D_throat. Returns thrust, CF, Isp, Pe, D_throat arrays.
+- `compute_thrust_series(P0, D_throat, N, ...)` — thrust, CF, Isp, Pe from a
+  nozzle-entrance stagnation-pressure history and a GIVEN throat history.
+- `compute_thrust_history(t, P0, ..., erosion, slag, div_loss, efficiency,
+  throat_length, skin_loss, ...)` — Fallback: integrates throat diameter over
+  the pressure history (only when the result has no recorded D_throat), then
+  calls `compute_thrust_series`. Returns thrust, CF, Isp, Pe, D_throat arrays.
 - `compute_motor_performance(result, nozzle, propellant, P_ambient=...)` —
-  Post-processing. Uses simulation's D_throat history when available
-  (in-loop coupling).
+  Post-processing. TP1: the chamber pressure of F = CF P_c A_t is the
+  nozzle-entrance STAGNATION pressure `result['P0_nozzle']` (recorded per step
+  from the same boundary solve the solver used), not the head-end `P_head`
+  (which stays the "chamber pressure" trace); falls back to `P_head` with a
+  warning for results without it. Uses simulation's D_throat history when
+  available (in-loop coupling). Also returns `c_star_sim` (P0 A_t / mdot).
 - `print_performance_summary(perf, nozzle)` — Formatted output with
   divergence/throat/skin loss factors and throat change.
 
