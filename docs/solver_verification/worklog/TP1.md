@@ -148,7 +148,7 @@ What it can and cannot tell:
 
 ## Gates
 
-* **Unit tests** (`tests/test_tp1_thrust_pressure.py`, 26): static mode gives `P0 = P_exit`; choked `P0/P = g(M_choke)` to
+* **Unit tests** (`tests/test_tp1_thrust_pressure.py`): static mode gives `P0 = P_exit`; choked `P0/P = g(M_choke)` to
   1e-10 and equals the boundary's own `Gamma A_t P0 / sqrt(R T0)` flow (gamma 1.1/1.2/1.4, area ratios 1.05..20); subsonic
   outflow recovers `M_e` and the throat flow from `(P0, T0)` to 1e-8; `A_exit <= A_throat` gives `M_e = 1`; no-flow / reverse
   flow return the static state; P0 = P_head reproduces the old thrust and CF point by point; thrust follows `P0_nozzle`, not
@@ -169,4 +169,8 @@ What it can and cannot tell:
 
 ## Results block
 
-(filled in below)
+* Full suite (pre-merge, 0f70601 + TP1, clean run under the guard): **1081 passed**, 0 failed, 19 min, peak 4.1 GB.
+* Merged `openmotor-frontend` (NB1 landed, 4e4c796; the merge brings only docs and NB1's B0 re-record, no code): clean
+  `__pycache__`, **B0 PASS** against NB1's new BASELINE (floats within 2e-15; Hasegawa A n_steps 2337265 vs 2336970, 1.3e-4,
+  inside the 5e-4 gate). TP1 + NB1 + channels + adapter + plugin + config-upgrade tests after the merge: 183 passed.
+* The motor tables above are from the pre-merge tree; the merge changes no code and B0 reproduces the same values, so they stand.
