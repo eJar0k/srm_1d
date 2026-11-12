@@ -735,6 +735,27 @@ def _result_to_om_simresult(motor, result, perf, geo=None, prop=None):
             "igniter / propellant / geometry.".format(why, p_peak_mpa),
             'srm_1d'))
 
+    # AS1: the grain lit and sustains combustion but not PROMPTLY (fewer than the required
+    # fraction of the grain ignited within the prompt window after igniter firing): the trace
+    # is usable, so this is a WARNING, not an ERROR (a never-lit / hang-fire motor was already
+    # reported above as an ERROR).
+    if (summary.get('prompt_start') is False
+            and not (canceled or collapsed or no_ignition or dud)):
+        from motorlib.simResult import SimAlert, SimAlertLevel, SimAlertType
+        sr.addAlert(SimAlert(
+            SimAlertLevel.WARNING, SimAlertType.VALUE,
+            "srm_1d: slow ignition -- only {:.0f} % of the grain lit within {:g} s of igniter "
+            "firing (required {:.0f} %; first light {:.3g} ms, t90 {:.3g} ms, final igniter "
+            "charge {:.3g} g). The motor does ignite, but the startup is not prompt: a larger "
+            "igniter charge may be needed.".format(
+                100.0 * float(summary.get('prompt_lit_fraction', 0.0)),
+                float(summary.get('prompt_window_effective_s', 0.5)),
+                100.0 * float(summary.get('prompt_fraction_required', 0.95)),
+                1.0e3 * float(summary.get('first_ignition_time_s', float('nan'))),
+                1.0e3 * float(summary.get('ignition_t90_s', float('nan'))),
+                1.0e3 * float(summary.get('pyrogen_mass_final_kg', 0.0))),
+            'srm_1d'))
+
     # v0.8.x station-viz: attach the per-station axial payload (capability-
     # gated side attribute; the GUI station panel consumes it, QS ignores it).
     axial = _axial_payload_for_gui(result)

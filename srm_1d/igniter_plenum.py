@@ -187,6 +187,9 @@ class PyrogenChamber:
     # a new auto charge (derived volume / burn area / throat recomputed).
     mass_auto: bool = False
     resize: Optional[Callable] = field(default=None, repr=False, compare=False)
+    # AS1: the motor's initial free gas volume [in^3] (what DeMar's M = V P / W sizes against); 0 = unknown.
+    # Only used to report the DeMar-equivalent pressure of the final charge.
+    free_volume_in3: float = 0.0
 
     def __post_init__(self):
         if self.m_pyrogen_initial <= 0.0:

@@ -603,6 +603,8 @@ def build_pyrogen_chamber(
         )._as_auto(_resize)
 
     chamber = PyrogenChamber(
+        free_volume_in3=(max(geo.initial_gas_volume(), 0.0) / (0.0254 ** 3)
+                         if callable(getattr(geo, 'initial_gas_volume', None)) else 0.0),
         pyrogen=pyrogen,
         m_pyrogen_initial=pyrogen_mass,
         A_burn_initial=pyrogen_burn_area,

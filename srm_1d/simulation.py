@@ -2014,6 +2014,8 @@ def _run_time_loop(
     ignition_h_code,
     peretz_ap_code,               # IG3: 0 local, 1 head, 2 aft (peretz mode only)
     stop_if_unignitable,          # IG3: bool, end the run once ignition is impossible
+    prompt_window_s, prompt_fraction,   # AS1: prompt-start window [s] and fraction (always passed)
+    prompt_early_stop,                  # AS1: bool, fail the attempt at the window end if not met
     # --- SM1: solid-heating model + conduction state ---
     solid_model_code,             # 0 goodman, 1 peretz, 2 conduction
     solid_y, solid_T, solid_age, solid_nact, solid_work, solid_age_fraction,
@@ -2111,6 +2113,7 @@ def _run_time_loop(
     first_bt_time = -1.0
     last_snapshot_t = -snapshot_interval
     termination_code = 0
+    prompt_checked = False
     p_peak = 0.0  # v0.8.0: running max head pressure, for the taildown metric
 
     D_throat = D_throat_init
@@ -2979,10 +2982,25 @@ def _run_time_loop(
             snap_idx += 1
             last_snapshot_t = t
 
-        # Pressure cutoff (only after pyrogen is consumed and vented)
+        # Pressure cutoff (only after pyrogen is consumed and vented). AS1: the cutoff is a tail-off
+        # (burnout) end condition, so it is ARMED only once the grain has started: at least
+        # ``prompt_fraction`` of the grain cells lit, or the prompt window elapsed. Before that
+        # the chamber sitting near ambient is the ignition delay of a slow start, not burnout (a
+        # single lit cell, a spent igniter and P < P_cutoff used to end the run as a "burnout").
         if n_ignited > 0 and pyrogen_done and P[0] < P_cutoff:
-            termination_code = 2
-            break
+            cutoff_armed = t >= prompt_window_s
+            if not cutoff_armed:
+                n_g_c = 0
+                n_l_c = 0
+                for i in range(N):
+                    if is_grain[i]:
+                        n_g_c += 1
+                        if ignition_time[i] < 1.0e9:
+                            n_l_c += 1
+                cutoff_armed = n_l_c >= prompt_fraction * n_g_c
+            if cutoff_armed:
+                termination_code = 2
+                break
 
         # IG3: ignition-impossible early stop (a physical bound, not a tuned
         # timeout). No grain cell has lit, and the pyrogen charge is fully
@@ -3004,6 +3022,24 @@ def _run_time_loop(
                     T_gas_max = T[i]
             if T_gas_max < T_ignition:
                 termination_code = 6
+                break
+
+        # AS1: prompt-start early stop. At the end of the prompt window (measured from
+        # igniter firing, t = 0) the fraction of grain cells that ignited within it must
+        # reach ``prompt_fraction``; an attempt that has not is failed here instead of
+        # burning on. Only when ``prompt_early_stop`` (auto charges); explicit charges and full runs
+        # are never cut at the window.
+        if prompt_early_stop and (not prompt_checked) and t >= prompt_window_s:
+            prompt_checked = True
+            n_g_p = 0
+            n_l_p = 0
+            for i in range(N):
+                if is_grain[i]:
+                    n_g_p += 1
+                    if ignition_time[i] <= prompt_window_s:
+                        n_l_p += 1
+            if n_l_p < prompt_fraction * n_g_p:
+                termination_code = 7
                 break
 
         # Numerical-collapse trip: classified abort to avoid burning the
@@ -3257,6 +3293,16 @@ def _run_simulation_once(
     # impossible (see the check in _run_time_loop). Never affects a motor that
     # lights; only shortens a run that would otherwise idle to t_max.
     stop_if_unignitable=True,
+    # AS1: the prompt-start criterion. The motor "starts promptly" if at least
+    # ``ignition_prompt_fraction`` of the grain cells have ignited within
+    # ``ignition_prompt_window_s`` of igniter firing (t = 0). User-chosen values (0.95, 0.5 s),
+    # not tuned. ``summary['prompt_start']`` / ``['prompt_lit_fraction']`` report it for any
+    # run (a run shorter than the window is judged at its end). ``prompt_early_stop`` (set by
+    # ``run_simulation`` for auto-sized charges) ends an attempt that has not met it by the
+    # window end (termination_code 7).
+    ignition_prompt_fraction=0.95,
+    ignition_prompt_window_s=0.5,
+    prompt_early_stop=False,
 ):
     """
     Run a complete transient simulation (one attempt; see ``run_simulation``
@@ -4049,6 +4095,9 @@ def _run_simulation_once(
         int(_ign_h_code),
         int(_ap_code),
         bool(stop_if_unignitable),
+        float(ignition_prompt_window_s),
+        float(ignition_prompt_fraction),
+        bool(prompt_early_stop),
         # SM1: solid-heating model + conduction state
         int(_solid_code), solid_y, solid_T, solid_age, solid_nact, solid_work,
         float(CONDUCTION_AGE_FRACTION),
@@ -4239,6 +4288,7 @@ def _run_simulation_once(
         2: "pressure cutoff", 3: "history array full",
         4: "numerical collapse aborted", 5: "canceled by user",
         6: "ignition impossible (stopped early)",
+        7: "prompt start not met (stopped at the prompt window)",
     }
     term_str = termination_names.get(termination_code, "unknown")
     if termination_code == 3:
@@ -4360,6 +4410,8 @@ def _run_simulation_once(
                  is_grain & (ignition_time >= 1.0e9))[-1]]) * 1e3]
             if np.any(is_grain & (ignition_time >= 1.0e9)) else None),
         'stop_if_unignitable': bool(stop_if_unignitable),
+        **_prompt_summary(is_grain, ignition_time, time_arr, ignition_prompt_fraction,
+                          ignition_prompt_window_s, pyrogen_chamber),
         'solid_heating_model': solid_heating_model,
         'diagnostic_disable_erosive': bool(diagnostic_disable_erosive),
         'diagnostic_disable_endfaces': bool(diagnostic_disable_endfaces),
@@ -4621,6 +4673,37 @@ class PyrogenAutoSizeError(RuntimeError):
         self.masses_kg = tuple(masses_kg)
 
 
+def _prompt_summary(is_grain, ignition_time, time_arr, fraction, window_s, chamber):
+    """AS1: prompt-start bookkeeping of one run (see ``_run_simulation_once``).
+
+    ``prompt_lit_fraction`` = grain cells with ignition time <= the effective window
+    (``min(window, end of run)``) over all grain cells; ``prompt_start`` = that fraction
+    >= ``fraction``. Also the grain's t50 / t90 ignition times and the DeMar-equivalent
+    pressure of the charge (M W / V_free, psi)."""
+    t_end = float(time_arr[-1]) if len(time_arr) > 0 else 0.0
+    w_eff = min(float(window_s), t_end)
+    n_g = max(int(np.count_nonzero(is_grain)), 1)
+    lit_w = int(np.count_nonzero(is_grain & (ignition_time <= w_eff)))
+    frac = lit_w / n_g
+    tl = np.sort(ignition_time[is_grain & (ignition_time < 1.0e9)])
+    out = {
+        'prompt_fraction_required': float(fraction),
+        'prompt_window_s': float(window_s),
+        'prompt_window_effective_s': float(w_eff),
+        'prompt_lit_fraction': float(frac),
+        'prompt_start': bool(frac >= float(fraction) - 1.0e-12),
+    }
+    for p in (50, 90):
+        k = int(np.ceil(p / 100.0 * n_g)) - 1
+        out[f'ignition_t{p}_s'] = float(tl[k]) if 0 <= k < tl.size else float('nan')
+    V = float(getattr(chamber, 'free_volume_in3', 0.0) or 0.0)
+    W = float(getattr(getattr(chamber, 'pyrogen', None), 'impetus_W', 0.0) or 0.0)
+    m_g = float(getattr(chamber, 'm_pyrogen_initial', 0.0)) * 1.0e3
+    out['pyrogen_free_volume_in3'] = V
+    out['pyrogen_demar_equiv_psi'] = (m_g * W / V) if V > 0.0 and W > 0.0 else float('nan')
+    return out
+
+
 def _self_sustaining(res):
     """True iff the GRAIN, not the igniter, drives the chamber once the
     igniter is spent.
@@ -4689,43 +4772,46 @@ def _run_once_growing_history(bound):
 def run_simulation(*args, ignition_retry_factor=1.25,
                    ignition_retry_max_attempts=10, **kwargs):
     """Run a complete transient simulation (all parameters as
-    :func:`_run_simulation_once`, documented below), with the IG3 ignition
+    :func:`_run_simulation_once`, documented below), with the IG3/AS1 ignition
     fallback for AUTO-SIZED pyrogen charges.
 
-    SUCCESS = the grain, not the igniter, drives the chamber once the igniter
-    is spent (``_self_sustaining``: after the pyrogen is consumed the grain's
-    own gas-generation rate exceeds, at some step, the igniter's peak
-    gas-generation rate of that attempt; compared at the last step if the run
-    ended first). One lit cell that cannot out-produce the igniter is a
-    hang-fire, not a success. It does NOT require every grain cell to light: cells the convective-only
-    ignition model never heats (e.g. BALLSstick's stagnant head-end 10 %) are
-    reported by a warning and by the ``grain_*`` summary keys instead, because
-    a bigger igniter charge is not the remedy (it only inflates the startup
-    spike).
+    SUCCESS = PROMPT START (AS1, user-chosen): at least
+    ``ignition_prompt_fraction`` (0.95) of the grain cells ignited within
+    ``ignition_prompt_window_s`` (0.5 s) of igniter firing (t = 0). A run shorter
+    than the window is judged at its end. The IG4 "self-sustaining" test (after
+    the igniter is spent the grain's own gas generation exceeds the igniter's peak,
+    ``_self_sustaining``) is kept as the ``summary['ignited']`` flag and for the
+    plugin's no-ignition / hang-fire ERROR, but is NOT a separate retry condition:
+    a grain that is 95 % lit within 0.5 s while the igniter is still out-producing it
+    after burnout does not occur (checked on the canonical motors; it would be
+    reported by a warning). The IG4 test alone accepted a hang-fire (BALLSstick lit
+    over ~1 s, t90 971 ms).
 
     If the pyrogen charge was auto-sized (``PyrogenChamber.mass_auto``, i.e.
-    ``build_pyrogen_chamber(pyrogen_mass=None)``) and the run is not a
-    success, a run in which NO cell can light stops early
-    (``stop_if_unignitable``: no energy source left and every grain-cell gas
-    temperature below ``T_ignition``) and is retried at ``ignition_retry_factor``
-    times the charge (default 1.25, the user-approved step), at most
-    ``ignition_retry_max_attempts`` attempts in all (default 10, i.e. up to
-    1.25**9 = 7.5x the initial charge). If it still fails,
-    :class:`PyrogenAutoSizeError` is raised. A successful upsize is reported
-    with a ``RuntimeWarning`` naming the final charge.
+    ``build_pyrogen_chamber(pyrogen_mass=None)``; initial guess DeMar M = V P / W at
+    300 psi) and the prompt start is not met, the attempt is failed AT THE WINDOW END
+    (``prompt_early_stop``, termination_code 7; or earlier by ``stop_if_unignitable``
+    when nothing can light, code 6) and retried at ``ignition_retry_factor`` times the
+    charge (default 1.25), at most ``ignition_retry_max_attempts`` attempts in all
+    (default 10, up to 1.25**9 = 7.5x). After the cap: if the grain never sustained
+    combustion :class:`PyrogenAutoSizeError` is raised; if it did light (just not
+    promptly) the last attempt is re-run to completion and returned with a warning
+    and ``summary['prompt_start'] == False``. A successful upsize is reported with a
+    ``RuntimeWarning`` naming the final charge and its DeMar-equivalent pressure.
 
-    An EXPLICITLY set charge is never resized: a run that is not a success
-    returns normally with ``summary['ignited'] == False`` and a warning.
+    An EXPLICITLY set charge is never resized: a run that does not meet the prompt
+    start returns normally with ``summary['prompt_start'] == False`` and a warning
+    giving the lit fraction at the window (``summary['ignited']`` False = never
+    self-sustaining, a hang-fire).
 
-    At the end of EVERY run (auto or explicit) grain cells that never lit are
-    reported with a ``RuntimeWarning`` (count, cell-index range, x range) and
-    ``summary['grain_cells_never_lit']`` / ``['grain_never_lit_mask']`` /
-    ``['grain_fraction_lit']`` / ``['grain_never_lit_cell_range']`` /
-    ``['grain_never_lit_x_range_mm']``.
-
-    ``summary`` also gains ``ignition_attempts``, ``ignition_attempt_masses_kg``,
-    ``ignition_attempt_wall_s``, ``pyrogen_mass_auto``, ``pyrogen_mass_final_kg``
-    and ``pyrogen_resized``; ``summary['ignited']`` is the success flag.
+    At the end of EVERY run grain cells that never lit are reported with a
+    ``RuntimeWarning`` (count, cell-index range, x range) and the
+    ``summary['grain_*']`` keys. ``summary`` also gains ``ignition_attempts``,
+    ``ignition_attempt_masses_kg``, ``ignition_attempt_wall_s``,
+    ``ignition_attempt_prompt_fractions``, ``ignition_attempt_terminations``,
+    ``pyrogen_mass_auto``, ``pyrogen_mass_final_kg``, ``pyrogen_resized``,
+    ``pyrogen_demar_equiv_psi`` (M W / V_free of the final charge), ``prompt_start``,
+    ``prompt_lit_fraction``, ``ignition_t50_s``, ``ignition_t90_s``.
     """
     import inspect
     import warnings
@@ -4735,21 +4821,33 @@ def run_simulation(*args, ignition_retry_factor=1.25,
         raise ValueError("ignition_retry_factor must be > 1")
     if int(ignition_retry_max_attempts) < 1:
         raise ValueError("ignition_retry_max_attempts must be >= 1")
+    pf = bound.arguments.get('ignition_prompt_fraction', 0.95)
+    pw = bound.arguments.get('ignition_prompt_window_s', 0.5)
+    if not (0.0 < float(pf) <= 1.0):
+        raise ValueError("ignition_prompt_fraction must be in (0, 1]")
+    if not float(pw) > 0.0:
+        raise ValueError("ignition_prompt_window_s must be > 0")
     auto = bool(getattr(chamber, 'mass_auto', False))
     progress = bound.arguments.get('progress_state')
     masses = []
     t_wall = []
+    fracs = []
+    terms = []
     attempt = 0
     while True:
         attempt += 1
         masses.append(float(getattr(chamber, 'm_pyrogen_initial', 0.0)))
         bound.arguments['pyrogen_chamber'] = chamber
+        bound.arguments['prompt_early_stop'] = auto
         t0 = clock.time()
         res = _run_once_growing_history(bound)
         t_wall.append(clock.time() - t0)
         summ = res['summary']
         ignited = _self_sustaining(res)
-        if ignited or int(summ['termination_code']) in (3, 4, 5):
+        fracs.append(float(summ['prompt_lit_fraction']))
+        terms.append(int(summ['termination_code']))
+        prompt_ok = bool(summ['prompt_start'])
+        if prompt_ok or int(summ['termination_code']) in (3, 4, 5):
             break
         if not auto or attempt >= int(ignition_retry_max_attempts):
             break
@@ -4757,40 +4855,72 @@ def run_simulation(*args, ignition_retry_factor=1.25,
         chamber = chamber.resize(masses[-1] * float(ignition_retry_factor))
         if progress is not None:       # restart the live progress bar
             progress[0] = 0.0
+    name = chamber.pyrogen.name
+    # Auto charge that never met the prompt start and whose last attempt was cut at the window:
+    # complete the last attempt (no early stop) so the returned result is a full run.
+    if (auto and not prompt_ok and terms[-1] == 7):
+        res = summ = None
+        bound.arguments['prompt_early_stop'] = False
+        t0 = clock.time()
+        res = _run_once_growing_history(bound)
+        t_wall[-1] += clock.time() - t0
+        summ = res['summary']
+        ignited = _self_sustaining(res)
+        fracs[-1] = float(summ['prompt_lit_fraction'])
+        terms[-1] = int(summ['termination_code'])
+        prompt_ok = bool(summ['prompt_start'])
     summ['ignited'] = bool(ignited)
     summ['ignition_attempts'] = attempt
     summ['ignition_attempt_masses_kg'] = list(masses)
     summ['ignition_attempt_wall_s'] = list(t_wall)
+    summ['ignition_attempt_prompt_fractions'] = list(fracs)
+    summ['ignition_attempt_terminations'] = list(terms)
     summ['pyrogen_mass_auto'] = auto
     summ['pyrogen_mass_final_kg'] = masses[-1]
     summ['pyrogen_resized'] = bool(auto and attempt > 1)
-    name = chamber.pyrogen.name
-    if auto and not ignited and int(summ['termination_code']) not in (3, 4, 5):
+    term = int(summ['termination_code'])
+    ch_psi = summ.get('pyrogen_demar_equiv_psi')
+    psi_txt = (f", DeMar-equivalent {ch_psi:.0f} psi (initial guess 300 psi)"
+               if ch_psi == ch_psi else "")
+    if auto and not prompt_ok and not ignited and term not in (3, 4, 5):
         raise PyrogenAutoSizeError(
             f"auto-sized {name} charge did not light the motor in {attempt} "
             f"attempts (charges tried: "
             f"{', '.join(f'{m * 1e3:.3g}' for m in masses)} g, factor "
-            f"{ignition_retry_factor:g}). Check the igniter topology / "
-            f"propellant, or set the charge explicitly.", masses_kg=masses)
-    if ignited and auto and attempt > 1:
+            f"{ignition_retry_factor:g}; lit fraction at {pw:g} s: "
+            f"{', '.join(f'{100 * v:.0f} %' for v in fracs)}). Check the igniter "
+            f"topology / propellant, or set the charge explicitly.", masses_kg=masses)
+    if prompt_ok and auto and attempt > 1:
         warnings.warn(
             f"auto-sized {name} charge raised from {masses[0] * 1e3:.3g} g "
             f"to {masses[-1] * 1e3:.3g} g ({attempt} attempts, factor "
-            f"{ignition_retry_factor:g}) to light the motor. Set the "
-            f"charge explicitly to fix it.", RuntimeWarning, stacklevel=2)
-    if not ignited and not auto:
-        hang = (" The run ended by the pressure cutoff with the chamber still "
-                "sitting at the igniter's dribble pressure (a hang-fire)."
-                if int(summ['termination_code']) == 2 else "")
+            f"{ignition_retry_factor:g}{psi_txt}) so that {100 * pf:.0f} % of the grain "
+            f"ignites within {pw:g} s of igniter firing. Set the charge explicitly "
+            f"to fix it.", RuntimeWarning, stacklevel=2)
+    if not prompt_ok and term not in (3, 4, 5):
+        eventually = ("the grain did light and sustains combustion (a slow start)"
+                      if ignited else "the grain never reached self-sustaining combustion (a hang-fire)")
+        hang = (" The run ended by the pressure cutoff with the chamber still at the "
+                "igniter's dribble pressure." if term == 2 else "")
+        who = ("auto-sized" if auto else "explicitly set")
+        tail = (f" The auto-sizing cap ({attempt} attempts, up to "
+                f"{masses[-1] / masses[0]:.1f}x) was reached." if auto else
+                " Explicit charges are never resized.")
         warnings.warn(
-            f"the motor did not reach self-sustaining combustion with the "
-            f"explicitly set {name} charge of {masses[-1] * 1e3:.3g} g "
-            f"({summ['grain_cells_ignited']} of {summ['grain_cells']} grain "
-            f"cells lit; grain gas generation "
-            f"{summ['grain_mdot_after_igniter_kg_s']:.3g} kg/s after the "
-            f"igniter vs the igniter's peak {summ['igniter_peak_mdot_kg_s']:.3g} "
-            f"kg/s). Explicit charges are never resized. Termination: "
-            f"{summ['termination']}.{hang}", RuntimeWarning, stacklevel=2)
+            f"prompt start not met with the {who} {name} charge of {masses[-1] * 1e3:.3g} g"
+            f"{psi_txt}: {100 * summ['prompt_lit_fraction']:.0f} % of the grain cells "
+            f"({summ['grain_cells_ignited']} of {summ['grain_cells']} ever) lit within "
+            f"{summ['prompt_window_effective_s']:g} s of igniter firing (required "
+            f"{100 * pf:.0f} %); first light {summ['first_ignition_time_s'] * 1e3:.3g} ms, "
+            f"t90 {summ['ignition_t90_s'] * 1e3:.3g} ms; {eventually}.{tail}"
+            f"{hang}", RuntimeWarning, stacklevel=2)
+    if prompt_ok and not ignited:
+        warnings.warn(
+            f"prompt start met ({100 * summ['prompt_lit_fraction']:.0f} % of the grain lit within "
+            f"{summ['prompt_window_effective_s']:g} s) but the grain's own gas generation "
+            f"({summ['grain_mdot_after_igniter_kg_s']:.3g} kg/s) does not exceed the igniter's "
+            f"peak ({summ['igniter_peak_mdot_kg_s']:.3g} kg/s) after the igniter is spent.",
+            RuntimeWarning, stacklevel=2)
     n_never = int(summ['grain_cells_never_lit'])
     if n_never > 0 and summ['grain_cells_ignited'] > 0:
         c0, c1 = summ['grain_never_lit_cell_range']
