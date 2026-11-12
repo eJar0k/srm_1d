@@ -39,7 +39,7 @@ def test_schema_defaults_equal_run_simulation_defaults(solver):
                         'kappa', 'T_ignition', 'ignition_heat_transfer',
                         'solid_heating_model', 'energy_formulation',
                         'momentum_formulation', 'ignition_driver_temperature',
-                        'head_end_jet_h'}
+                        'head_end_jet_h', 'nozzle_bc_stagnation'}
     # IG3: the ignition-h closure is a choice field whose default is read from
     # run_simulation and whose choices are exactly srm_1d's validated modes.
     from srm_1d import simulation as _sim
@@ -58,6 +58,9 @@ def test_schema_defaults_equal_run_simulation_defaults(solver):
     assert got['ignition_driver_temperature'] == params['ignition_driver_temperature'].default == 'recovery'
     assert set(schema.props['ignition_driver_temperature'].values) == set(_sim._IGN_DRIVER_MODES)
     assert got['head_end_jet_h'] == params['head_end_jet_h'].default == 'max'
+    # NB1: the nozzle-boundary stagnation state is a choice field generated the same way.
+    assert got['nozzle_bc_stagnation'] == params['nozzle_bc_stagnation'].default == 'isentropic'
+    assert set(schema.props['nozzle_bc_stagnation'].values) == {'isentropic', 'static'}
     assert set(schema.props['head_end_jet_h'].values) == {'max', 'replace', 'off'}
     for v in schema.props['head_end_jet_h'].values:
         assert _sim._head_end_jet_code(v) in (0, 1, 2)
