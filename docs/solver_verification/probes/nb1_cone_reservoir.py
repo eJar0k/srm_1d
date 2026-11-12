@@ -9,6 +9,7 @@ overriding the cone-cut area ratio A_BC/A_throat that `nozzle_convergent_cells` 
     MODE  = static | isentropic          (nozzle_bc_stagnation)
     RATIO = default | <float>            (A_BC / A_throat used for the cut; default = G1's 1 % P0 value)
     MOTOR = chunc (default) | balls | haseg
+    AFT   = cone (default) | lump          (aft_end)
 
 Output: peak, plateau (median 0.4-0.9 s, chunc), n cells, cone cells, wall.
 """
@@ -39,6 +40,7 @@ WIN = {'chunc': (0.4, 0.9), 'balls': (1.0, 1.1), 'haseg': (2.0, 3.0)}
 def main():
     mode, ratio, out = sys.argv[1], sys.argv[2], sys.argv[3]
     motor = sys.argv[4] if len(sys.argv) > 4 else 'chunc'
+    aft = sys.argv[5] if len(sys.argv) > 5 else 'cone'
     orig = gg.bc_reservoir_area_ratio
     used = {}
     if ratio != 'default':
@@ -57,7 +59,7 @@ def main():
     ric = _probe._committed_ric_path(RIC[motor])
     print(f"[provenance] srm_1d from {Path(srm_1d.__file__).parent}")
     res = run_from_ric(str(ric), erosive_model='ma2020', erosive_mp_cap=0.0, t_max=T_MAX[motor],
-                       P_cutoff=0.01e6, nozzle_bc_stagnation=mode, aft_end='cone',
+                       P_cutoff=0.01e6, nozzle_bc_stagnation=mode, aft_end=aft, snapshot_interval=0.05,
                        **_probe.CANON)[0]
     t = np.asarray(res['time'])
     P = np.asarray(res['P_head']) / 1e6
@@ -66,6 +68,16 @@ def main():
     row = dict(motor=motor, mode=mode, ratio_arg=ratio, peak=float(P.max()),
                plateau=float(np.median(P[sel])), n_steps=int(res['summary']['steps']),
                cells=int(res['summary'].get('cells', -1)), **used)
+    # steady-state profile of the last cells (stagnation pressure along the aft end)
+    snap = min(res['snapshots'], key=lambda s_: abs(s_['t'] - 0.5 * (lo + hi)))
+    gam = float(res['gamma_mix_final'][-1])
+    k = slice(-8, None)
+    Pc, Mc = np.asarray(snap['P'])[k], np.asarray(snap['Mach'])[k]
+    row['tail'] = dict(
+        t=float(snap['t']), P_MPa=(Pc / 1e6).tolist(), Mach=Mc.tolist(),
+        D_port_mm=(np.asarray(snap['D_port'])[k] * 1e3).tolist(),
+        P0_MPa=(Pc * (1.0 + 0.5 * (gam - 1.0) * Mc ** 2) ** (gam / (gam - 1.0)) / 1e6).tolist(),
+        P_head_MPa=float(snap['P'][0]) / 1e6)
     Path(out).write_text(json.dumps(row, indent=1))
     print(json.dumps(row, indent=1))
 

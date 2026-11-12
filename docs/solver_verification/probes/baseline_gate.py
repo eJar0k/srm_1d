@@ -61,6 +61,23 @@ _spec = importlib.util.spec_from_file_location(
 _probe = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_probe)
 
+# RE-RECORDED 2026-11-11 by NB1 (user decision 2026-11-10 "Prefer a physical fix, so taking the isentropic relations to
+# find actual stagnation properties at that choked boundary"): run_simulation(nozzle_bc_stagnation='isentropic') is the
+# default. The last cell's (P, T) are the STATIC port-exit state and the throat flow is computed from the true stagnation
+# state P0 = P g(M_e) (area-Mach root for choked flow), so for a given gas generation the chamber static pressure settles
+# LOWER by about g(M_e) - 1 at the plateau (Chunc M_e 0.157: +1.5 % P0; BALLSstick 0.128: +1.0 %; Hasegawa A 0.113: +0.8 %)
+# and by more where the port Mach is higher (the startup). Moves: Chunc peak -6.5 % (9.826), plateau -1.5 % (7.917), peak/plateau
+# 1.308 -> 1.241; BALLSstick peak -4.2 %, trough -2.3 %, mid -1.8 %; Hasegawa A late peak -0.9 % (5.961 at 2.53 s). The auto
+# charges are unchanged (Chunc 0.815 g, BALLSstick 1.982 g, Hasegawa A 7.861 g). The 'static' boundary reproduces the AS1 values
+# below bit for bit (nozzle_bc_stagnation='static'). Recorded from a warm-cache run after a clean __pycache__; reproduced by a
+# second run of the A/B probe (docs/solver_verification/probes/nb1_motor_ab.py). The AS1 values (the previous BASELINE) were:
+#   chunc: peak 10.510377787816175, t_peak 0.25905381442784203,
+#          plateau 8.034819676399866, n_steps 543997
+#   balls: peak 8.43291738963611, trough 4.43144847227655,
+#          mid 4.925227950671004, n_steps 844368
+#   haseg: peak 6.017191292703041, t_peak 2.499738880086473,
+#          n_steps 2334673
+#
 # RE-RECORDED 2026-11-10 by AS1 (prompt-start auto charge; user decision): the auto-sized charge now has to meet
 # "at least 95 % of the grain cells ignited within 0.5 s of igniter firing" (attempts that miss it are failed at the
 # window end and retried at x1.25; the IG4 self-sustaining test alone had accepted hang-fires). The DeMar 300 psi
@@ -227,12 +244,12 @@ _spec.loader.exec_module(_probe)
 #          mid 4.8594671206858635, n_steps 844549
 #   haseg: peak 6.10855599581484, t_peak 2.6393309440372743, n_steps 2343883
 BASELINE = {
-    'chunc': dict(peak=10.510377787816175, t_peak=0.25905381442784203,
-                  plateau=8.034819676399866, n_steps=543997),
-    'balls': dict(peak=8.43291738963611, trough=4.43144847227655,
-                  mid=4.925227950671004, n_steps=844368),
-    'haseg': dict(peak=6.017191292703041, t_peak=2.499738880086473,
-                  n_steps=2334673),
+    'chunc': dict(peak=9.826276661918815, t_peak=0.25915098317205126,
+                  plateau=7.917330440691093, n_steps=545969),
+    'balls': dict(peak=8.081732502821485, trough=4.331017370696415,
+                  mid=4.838013889209436, n_steps=847603),
+    'haseg': dict(peak=5.960864370215009, t_peak=2.528567952802282,
+                  n_steps=2341103),
 }
 RIC_FILE = {'chunc': 'machbusterNew.ric', 'balls': 'BALLSstick.ric',
             'haseg': 'hasegawa_a.ric'}
