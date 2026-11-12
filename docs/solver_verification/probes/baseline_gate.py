@@ -100,7 +100,7 @@ _spec.loader.exec_module(_probe)
 #          n_steps 2334673
 #
 # RE-RECORDED 2026-11-10 by AS1 (prompt-start auto charge; user decision): the auto-sized charge now has to meet
-# "at least 95 % of the grain cells ignited within 0.5 s of igniter firing" (attempts that miss it are failed at the
+# "at least 95 % of the grain cells ignited within 0.5 s [0.1 s since AW1] of igniter firing" (attempts that miss it are failed at the
 # window end and retried at x1.25; the IG4 self-sustaining test alone had accepted hang-fires). The DeMar 300 psi
 # initial guess already meets it for Chunc (0.815 g, 99 % lit by 0.235 s) and Hasegawa A (7.86 g, 99 % by 0.11 s), so
 # those two rows are UNCHANGED. BALLSstick's 1.268 g (G1) lit its grain over ~1 s (t90 971 ms, a hang-fire); it now
@@ -264,13 +264,27 @@ _spec.loader.exec_module(_probe)
 #   balls: peak 7.56231250893722, trough 4.3417299619930585,
 #          mid 4.8594671206858635, n_steps 844549
 #   haseg: peak 6.10855599581484, t_peak 2.6393309440372743, n_steps 2343883
+#
+# RE-RECORDED 2026-11-11 by AW1 (user decision "Shorten to 0.05-0.1s"): ignition_prompt_window_s 0.5 -> 0.1 s
+# (docs/pyrogen_realism/results/aw1: 0.05 and 0.1 s pick the SAME charges on Chunc, BALLSstick, Hasegawa A and
+# pathfin54 -- ignition is all-or-nothing, 99-100 % lit by 9-17 ms or 0-7 % at the window). Chunc's 0.815 g (99 % lit
+# only by 0.235 s) now fails the window: 0.815 -> 1.019 -> 1.273 g (DeMar-equivalent 469 psi), t90 8.6 ms, peak
+# 11.816 MPa at 23 ms, plateau 8.223, pk/plateau 1.437. Hasegawa A 7.861 -> 9.826 g (375 psi), t90 12.5 ms, late
+# peak 6.014 MPa at 2.40 s. BALLSstick (1.982 g, t90 17 ms) unchanged. (Those numbers are on the AS1 base.)
+# Recorded on top of G2 (merge 53a8d52; BALLSstick row = G2's): Chunc peak 11.746 MPa at 23 ms, plateau 8.226,
+# Hasegawa A late peak 6.0137. The previous BASELINE (G2 on AS1, window 0.5 s) was:
+#   chunc: peak 10.50543183884138, t_peak 0.26895876003485647,
+#          plateau 8.042229974246869, n_steps 543930
+#   haseg: peak 6.017212393308495, t_peak 2.4997984460722247, n_steps 2334680
+# and AW1 on the pre-G2 (AS1) base was: chunc peak 11.815737622775412, t_peak 0.022934548464792655,
+#   plateau 8.223107545259793, n_steps 529855; haseg peak 6.013696207978471, t_peak 2.4003433296274164, n_steps 2332212
 BASELINE = {
-    'chunc': dict(peak=10.50543183884138, t_peak=0.26895876003485647,
-                  plateau=8.042229974246869, n_steps=543930),
+    'chunc': dict(peak=11.746371710235893, t_peak=0.023301322075933252,
+                  plateau=8.22645613610499, n_steps=529946),
     'balls': dict(peak=8.75891443393703, trough=4.433817839880108,
                   mid=4.931795163190824, n_steps=842924),
-    'haseg': dict(peak=6.017212393308495, t_peak=2.4997984460722247,
-                  n_steps=2334680),
+    'haseg': dict(peak=6.013705081415213, t_peak=2.4004083212637655,
+                  n_steps=2330324),
 }
 RIC_FILE = {'chunc': 'machbusterNew.ric', 'balls': 'BALLSstick.ric',
             'haseg': 'hasegawa_a.ric'}

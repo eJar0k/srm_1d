@@ -3295,13 +3295,13 @@ def _run_simulation_once(
     stop_if_unignitable=True,
     # AS1: the prompt-start criterion. The motor "starts promptly" if at least
     # ``ignition_prompt_fraction`` of the grain cells have ignited within
-    # ``ignition_prompt_window_s`` of igniter firing (t = 0). User-chosen values (0.95, 0.5 s),
-    # not tuned. ``summary['prompt_start']`` / ``['prompt_lit_fraction']`` report it for any
+    # ``ignition_prompt_window_s`` of igniter firing (t = 0). User-chosen values (0.95, 0.1 s;
+    # the window was 0.5 s until AW1, 2026-11-11, user: "Shorten to 0.05-0.1s"), not tuned. ``summary['prompt_start']`` / ``['prompt_lit_fraction']`` report it for any
     # run (a run shorter than the window is judged at its end). ``prompt_early_stop`` (set by
     # ``run_simulation`` for auto-sized charges) ends an attempt that has not met it by the
     # window end (termination_code 7).
     ignition_prompt_fraction=0.95,
-    ignition_prompt_window_s=0.5,
+    ignition_prompt_window_s=0.1,
     prompt_early_stop=False,
 ):
     """
@@ -4777,12 +4777,12 @@ def run_simulation(*args, ignition_retry_factor=1.25,
 
     SUCCESS = PROMPT START (AS1, user-chosen): at least
     ``ignition_prompt_fraction`` (0.95) of the grain cells ignited within
-    ``ignition_prompt_window_s`` (0.5 s) of igniter firing (t = 0). A run shorter
+    ``ignition_prompt_window_s`` (0.1 s) of igniter firing (t = 0). A run shorter
     than the window is judged at its end. The IG4 "self-sustaining" test (after
     the igniter is spent the grain's own gas generation exceeds the igniter's peak,
     ``_self_sustaining``) is kept as the ``summary['ignited']`` flag and for the
     plugin's no-ignition / hang-fire ERROR, but is NOT a separate retry condition:
-    a grain that is 95 % lit within 0.5 s while the igniter is still out-producing it
+    a grain that is 95 % lit within the window while the igniter is still out-producing it
     after burnout does not occur (checked on the canonical motors; it would be
     reported by a warning). The IG4 test alone accepted a hang-fire (BALLSstick lit
     over ~1 s, t90 971 ms).
@@ -4822,7 +4822,7 @@ def run_simulation(*args, ignition_retry_factor=1.25,
     if int(ignition_retry_max_attempts) < 1:
         raise ValueError("ignition_retry_max_attempts must be >= 1")
     pf = bound.arguments.get('ignition_prompt_fraction', 0.95)
-    pw = bound.arguments.get('ignition_prompt_window_s', 0.5)
+    pw = bound.arguments.get('ignition_prompt_window_s', 0.1)
     if not (0.0 < float(pf) <= 1.0):
         raise ValueError("ignition_prompt_fraction must be in (0, 1]")
     if not float(pw) > 0.0:

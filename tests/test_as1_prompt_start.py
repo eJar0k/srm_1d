@@ -1,7 +1,7 @@
 """
 test_as1_prompt_start.py -- AS1: the prompt-start success criterion of the auto igniter charge.
 
-Success = at least ``ignition_prompt_fraction`` (0.95) of the grain cells ignited within ``ignition_prompt_window_s`` (0.5 s) of
+Success = at least ``ignition_prompt_fraction`` (0.95) of the grain cells ignited within ``ignition_prompt_window_s`` (0.1 s; 0.5 s before AW1) of
 igniter firing. An attempt that has not met it at the window end is failed there (termination_code 7) and retried at x1.25;
 explicit charges are never resized (a warning reports the lit fraction at the window).
 """
@@ -39,7 +39,7 @@ class TestDefaults:
     def test_signature_defaults_are_the_users_numbers(self):
         p = inspect.signature(sim.run_simulation).parameters
         assert p["ignition_prompt_fraction"].default == 0.95
-        assert p["ignition_prompt_window_s"].default == 0.5
+        assert p["ignition_prompt_window_s"].default == 0.1
 
     def test_invalid_values_raise(self):
         with pytest.raises(ValueError, match="ignition_prompt_fraction"):
@@ -51,13 +51,13 @@ class TestDefaults:
 class TestSummaryKeys:
     @pytest.fixture(scope="class")
     def run(self):
-        return _run(pyrogen="bpnv", pyrogen_mass=4.5e-3, t_max=0.1)
+        return _run(pyrogen="bpnv", pyrogen_mass=4.5e-3, t_max=0.05)
 
     def test_prompt_keys(self, run):
         res, _ = run
         s = res["summary"]
-        assert s["prompt_fraction_required"] == 0.95 and s["prompt_window_s"] == 0.5
-        # the run ended at 0.1 s < the window: judged at its end
+        assert s["prompt_fraction_required"] == 0.95 and s["prompt_window_s"] == 0.1
+        # the run ended at 0.05 s < the window: judged at its end
         assert s["prompt_window_effective_s"] == pytest.approx(float(res["time"][-1]))
         ign = np.asarray(res["ignition_time_by_cell"])
         isg = np.asarray(res["snapshots"][0]["is_grain"])
