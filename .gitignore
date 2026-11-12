@@ -43,3 +43,6 @@ env/
 *.pyd
 *.so
 *.dylib
+
+# Reference papers: copyrighted, not distributed (see docs/references/README.md)
+docs/references/*.pdf
