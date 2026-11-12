@@ -331,6 +331,20 @@ in geometry/burn rate/ignition (called every step or every N steps).
 
 ## API Breaking Changes Log
 
+### AW1 (unreleased, 2026-11-11) -- prompt window default 0.5 -> 0.1 s
+
+- **DEFAULT CHANGE (user decision "Shorten to 0.05-0.1s"; the 300 psi DeMar initial guess stays, "an approximate floor
+  for most amateur motors"):** `run_simulation(ignition_prompt_window_s=0.1)` (was 0.5). It also sets when the
+  `P_cutoff` end-of-run is armed (see AS1 follow-up below).
+- 0.05 and 0.1 s pick identical charges on Chunc, BALLSstick, Hasegawa A and pathfin54: in this model a charge either
+  lights 99-100 % of the grain within 9-17 ms or only 0-7 % by the window. 0.1 s (the lenient end) was taken.
+- Effect (N = 100, auto charges):
+  - Chunc 0.815 -> 1.273 g (469 psi equiv.), t90 235 -> 8.6 ms, peak 10.51 -> 11.82 MPa at 23 ms, pk/plateau 1.31 -> 1.44;
+  - Hasegawa A 7.861 -> 9.826 g (375 psi), t90 110 -> 12.5 ms, late peak 6.017 -> 6.014 MPa;
+  - pathfin54 0.439 -> 0.857 g (586 psi), first light 404 -> 2.1 ms;
+  - BALLSstick unchanged (1.982 g).
+- B0 Chunc and Hasegawa A rows re-recorded. Results: `docs/pyrogen_realism/results/aw1/`.
+
 ### AS1 (unreleased, 2026-11-11) -- prompt-start success criterion for the auto igniter charge
 
 - **BEHAVIOUR CHANGE (auto charges only):** the fallback now succeeds when at least `ignition_prompt_fraction` = 0.95 of the grain cells ignited within `ignition_prompt_window_s` = 0.5 s of igniter

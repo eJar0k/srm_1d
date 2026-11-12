@@ -11,7 +11,8 @@ import srm_1d
 from srm_1d.openmotor_adapter import run_from_ric, load_pyrogen
 
 spec = json.loads(sys.argv[1]); out = Path(sys.argv[2])
-tag = f"as1_{spec['motor']}_{spec.get('pyrogen','bpnv')}" + (f"_cut{spec['cutoff']:g}" if spec.get('cutoff') else '')
+tag = (f"as1_{spec['motor']}_{spec.get('pyrogen','bpnv')}" + (f"_cut{spec['cutoff']:g}" if spec.get('cutoff') else '')
+       + (f"_win{spec['window']:g}" if spec.get('window') else ''))
 if out.exists() and any(json.loads(l).get('tag') == tag for l in out.read_text().splitlines() if l.strip()):
     print('skip', tag); sys.exit(0)
 M = dict(chunc=('machbusterNew.ric', 1.0, 0.01e6), balls=('BALLSstick.ric', 2.0, 0.01e6),
@@ -21,6 +22,8 @@ kw = dict(roughness=32e-6, kappa=0.44, pyrogen=pyro, pyrogen_mass=None, T_igniti
           verbose=False, erosive_model='ma2020', erosive_mp_cap=0.0, t_max=M[1], P_cutoff=M[2])
 if spec.get('cutoff'):
     kw['P_cutoff'] = float(spec['cutoff'])      # e.g. the GUI / run_from_ric default 5e5
+if spec.get('window'):
+    kw['ignition_prompt_window_s'] = float(spec['window'])   # AW1: prompt window (user range 0.05-0.1 s)
 kw['ignition_heat_transfer'] = spec.get('ign_h', 'peretz')
 if spec.get('ap_ref', 'local') != 'local':
     kw['peretz_ap_reference'] = spec['ap_ref']

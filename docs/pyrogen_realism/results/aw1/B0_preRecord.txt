@@ -1,0 +1,40 @@
+C:\tmp\sv\aw1\srm_1d\openmotor_adapter.py:1599: RuntimeWarning: auto-sized BPNV charge raised from 0.815 g to 1.27 g (3 attempts, factor 1.25, DeMar-equivalent 469 psi (initial guess 300 psi)) so that 95 % of the grain ignites within 0.1 s of igniter firing. Set the charge explicitly to fix it.
+  result = run_simulation(geo, prop, **args)
+C:\tmp\sv\aw1\srm_1d\openmotor_adapter.py:1599: RuntimeWarning: auto-sized BPNV charge raised from 1.27 g to 1.98 g (3 attempts, factor 1.25, DeMar-equivalent 469 psi (initial guess 300 psi)) so that 95 % of the grain ignites within 0.1 s of igniter firing. Set the charge explicitly to fix it.
+  result = run_simulation(geo, prop, **args)
+C:\tmp\sv\aw1\srm_1d\openmotor_adapter.py:1599: RuntimeWarning: auto-sized BPNV charge raised from 7.86 g to 9.83 g (2 attempts, factor 1.25, DeMar-equivalent 375 psi (initial guess 300 psi)) so that 95 % of the grain ignites within 0.1 s of igniter firing. Set the charge explicitly to fix it.
+  result = run_simulation(geo, prop, **args)
+C:\tmp\sv\aw1\srm_1d\openmotor_adapter.py:1599: RuntimeWarning: 1 of 100 grain cells never ignited (cells 0-0, x = 8-8 mm; 99 % of the grain lit). This is the convective-only ignition model (no igniter-jet impingement heating; burning-neighbour radiation is off by default), not an igniter-size problem: a larger charge would mostly inflate the startup spike. Their burning is missing from this trace.
+  result = run_simulation(geo, prop, **args)
+[provenance] srm_1d imported from C:\tmp\sv\aw1\srm_1d
+[provenance] git HEAD 7b56144903fcdb3bf4c91e5a0b733e88e2a8c5d9  dirty=True
+[provenance] numpy 2.2.6  numba 0.63.1  python 3.10.5
+[ric-source] motors/machbusterNew.ric: unmodified -> using working-tree copy
+[provenance] machbusterNew.ric sha256 a234a1dcf054dfb337e508360170e504228e9be85dfbd984940ea8326819df0e  (C:\tmp\sv\aw1\motors\machbusterNew.ric)
+[ric-source] motors/BALLSstick.ric: unmodified -> using working-tree copy
+[provenance] BALLSstick.ric sha256 7fd189d62aabcdc5a5a788611d7b2c3cd94b91fbcc3e111f15e89423074cbd73  (C:\tmp\sv\aw1\motors\BALLSstick.ric)
+[ric-source] motors/hasegawa_a.ric: unmodified -> using working-tree copy
+[provenance] hasegawa_a.ric sha256 ccb7fccc972fd6074beff0b0099d1fdd2f731549d4628ea0eccbef97ca69185d  (C:\tmp\sv\aw1\motors\hasegawa_a.ric)
+[ric-source] motors/machbusterNew.ric: unmodified -> using working-tree copy
+
+[chunc] wall 27.8 s, termination='t_max reached'
+  peak     got       11.815737622775412  ref       10.510377787816175  rel 1.242e-01  MISMATCH
+  t_peak   got     0.022934548464792655  ref      0.25905381442784203  rel 9.115e-01  MISMATCH
+  plateau  got        8.223107545259793  ref        8.034819676399866  rel 2.343e-02  MISMATCH
+  n_steps  got                   529855  ref                   543997  rel 2.600e-02  MISMATCH
+[ric-source] motors/BALLSstick.ric: unmodified -> using working-tree copy
+
+[balls] wall 46.8 s, termination='t_max reached'
+  peak     got         8.43291738963611  ref         8.43291738963611  rel 0.000e+00  OK
+  trough   got         4.43144847227655  ref         4.43144847227655  rel 0.000e+00  OK
+  mid      got        4.925227950671004  ref        4.925227950671004  rel 0.000e+00  OK
+  n_steps  got                   844368  ref                   844368  rel 0.000e+00  OK
+[ric-source] motors/hasegawa_a.ric: unmodified -> using working-tree copy
+
+[haseg] wall 74.5 s, termination='t_max reached'
+  peak     got        6.013696207978471  ref        6.017191292703041  rel 5.808e-04  MISMATCH
+  t_peak   got       2.4003433296274164  ref        2.499738880086473  rel 3.976e-02  MISMATCH
+  n_steps  got                  2332212  ref                  2334673  rel 1.054e-03  MISMATCH
+
+B0 RESULT: FAIL
+[guarded_run] exit=1 timed_out=False wall_s=151.4 peak_job_gb=2.5 mem_cap_gb=6.0 timeout_min=30.0

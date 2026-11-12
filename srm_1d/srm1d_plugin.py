@@ -745,7 +745,7 @@ def _result_to_om_simresult(motor, result, perf, geo=None, prop=None):
             "charge {:.3g} g). The motor does ignite, but the startup is not prompt: a larger "
             "igniter charge may be needed.".format(
                 100.0 * float(summary.get('prompt_lit_fraction', 0.0)),
-                float(summary.get('prompt_window_effective_s', 0.5)),
+                float(summary.get('prompt_window_effective_s', 0.1)),
                 100.0 * float(summary.get('prompt_fraction_required', 0.95)),
                 1.0e3 * float(summary.get('first_ignition_time_s', float('nan'))),
                 1.0e3 * float(summary.get('ignition_t90_s', float('nan'))),
