@@ -1,0 +1,63 @@
+{
+ "motor": "balls",
+ "n_steps": 846027,
+ "termination": "t_max reached",
+ "auto_charge_g": 2.0326495129151723,
+ "plateau_window": [
+  1.0,
+  1.1
+ ],
+ "c_star_prop": 1535.8180468440346,
+ "gamma_prop_rep": 1.198,
+ "D_throat_initial_mm": 24.60629921259843,
+ "D_throat_final_mm": 24.60629921259843,
+ "erosion_coeff": 0.0,
+ "slag_coeff": 0.0,
+ "P0_le_Phead_all": false,
+ "P0_over_Phead_min": 0.22172993005958494,
+ "Phead_over_P0_plateau": 1.0344744099233807,
+ "Phead_over_P0_first50ms_max": 4.509991049612799,
+ "Phead_over_P0_max_overall": 4.352858812669036,
+ "T0_plateau_K": 2977.7359229221984,
+ "T_flame_prop": 2977.0,
+ "peakP_head_MPa": 8.410209348265097,
+ "before": {
+  "total_impulse": 7169.149377502394,
+  "peak_thrust": 5898.547586208182,
+  "burn_time": 1.9884202848035304,
+  "average_thrust": 3605.4497292612136,
+  "average_Isp": 223.64546202017675,
+  "average_C_F": 1.4280420617709348
+ },
+ "after": {
+  "total_impulse": 6752.419989397241,
+  "peak_thrust": 4593.214620914105,
+  "burn_time": 1.997771547103195,
+  "average_thrust": 3379.9760534122997,
+  "average_Isp": 222.51246716160566,
+  "average_C_F": 1.4208075563211275
+ },
+ "cstar_sim_P0_plateau": 1536.177017571316,
+ "cstar_sim_Phead_plateau": 1589.1358205098575,
+ "cstar_sim_P0_avg_burn": 1535.6231591975597,
+ "cstar_mixture_exitcell_plateau": 1536.1769791085965,
+ "gamma_first50ms": {
+  "min": 1.1710949652570324,
+  "median": 1.1973655122335887,
+  "max": 1.3997262935672135
+ },
+ "gamma_plateau": {
+  "min": 1.1976330608189674,
+  "median": 1.1976330608189674,
+  "max": 1.1976330608189674
+ },
+ "F_over_Phead_At_plateau": {
+  "before": 1.421902067832926,
+  "after_over_Phead": 1.3703135431415705,
+  "after_over_P0": 1.4175543883880257
+ },
+ "F_over_Phead_plateau_N_per_MPa": {
+  "before": 676.1641931646644,
+  "after": 651.6320443172767
+ }
+}

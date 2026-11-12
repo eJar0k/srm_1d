@@ -1,0 +1,80 @@
+{
+ "motor": "pathfin",
+ "n_steps": 3906484,
+ "termination": "t_max reached",
+ "auto_charge_g": 0.8572535070946272,
+ "plateau_window": [
+  1.0,
+  2.0
+ ],
+ "c_star_prop": 1317.3819050678494,
+ "gamma_prop_rep": 1.239961,
+ "D_throat_initial_mm": 10.718821437642877,
+ "D_throat_final_mm": 10.718821437642877,
+ "erosion_coeff": 0.0,
+ "slag_coeff": 0.0,
+ "P0_le_Phead_all": false,
+ "P0_over_Phead_min": 0.27282648230186696,
+ "Phead_over_P0_plateau": 1.0020404231408184,
+ "Phead_over_P0_first50ms_max": 3.665333334076994,
+ "Phead_over_P0_max_overall": 1.3054196493232673,
+ "T0_plateau_K": 2202.1488859468514,
+ "T_flame_prop": 2202.0,
+ "peakP_head_MPa": 9.243761134214036,
+ "before": {
+  "total_impulse": 2542.3116379328776,
+  "peak_thrust": 1110.0747609655666,
+  "burn_time": 2.9371374290853534,
+  "average_thrust": 865.5746281251036,
+  "average_Isp": 174.3897008896246,
+  "average_C_F": 1.298164756666487
+ },
+ "after": {
+  "total_impulse": 2528.342863081446,
+  "peak_thrust": 1105.200441152905,
+  "burn_time": 2.936923095560335,
+  "average_thrust": 860.8815351356907,
+  "average_Isp": 174.3328609156925,
+  "average_C_F": 1.2977416373506554
+ },
+ "cstar_sim_P0_plateau": 1308.1783769548592,
+ "cstar_sim_Phead_plateau": 1310.8870375289987,
+ "cstar_sim_P0_avg_burn": 1307.3253215464722,
+ "cstar_mixture_exitcell_plateau": 1308.1779945563846,
+ "gamma_first50ms": {
+  "min": 1.1905532721700798,
+  "median": 1.262852155175764,
+  "max": 1.3991193228305314
+ },
+ "gamma_plateau": {
+  "min": 1.264777384018972,
+  "median": 1.264777384018972,
+  "max": 1.2647773840189724
+ },
+ "F_over_Phead_At_plateau": {
+  "before": 1.3205069433618215,
+  "after_over_Phead": 1.3176874630395745,
+  "after_over_P0": 1.320376111811019
+ },
+ "F_over_Phead_plateau_N_per_MPa": {
+  "before": 119.15839443911761,
+  "after": 118.90397340025784
+ },
+ "measured": {
+  "total_impulse": 2668.44740155,
+  "peak_thrust": 1175.6989,
+  "burn_time": 2.765,
+  "average_thrust": 965.080434556962,
+  "t_last": 2.765,
+  "peak_P_MPa": 10.1158925182,
+  "F_end": 82.4235,
+  "P_end_MPa": 1.0821837578,
+  "F_over_P_N_per_MPa_plateau": 117.37784834927095,
+  "P_first_Pa": 90148.5969
+ },
+ "sim_t_first_5pct": 0.011983967926102608,
+ "meas_t_first_5pct": 0.0,
+ "sim_F_over_Phead_N_per_MPa_plateau_after": 118.97989224956426,
+ "sim_F_over_Phead_N_per_MPa_plateau_before": 119.23540514996733,
+ "F_over_P_At_measured": 1.3007750269854257
+}
