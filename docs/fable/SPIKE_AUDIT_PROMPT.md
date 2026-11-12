@@ -106,8 +106,10 @@ spend the session rediscovering them:
     0.7-1 %.
   - The startup moves 4-10 %: Chunc peak -5.6 %, BALLSstick -4 %, Hasegawa A
     early peak -9.5 %.
-  - TP1 (in progress) moves thrust onto the nozzle-entrance P0. Until then
-    thrust uses P_head, which is 1-3.5 % high.
+  - TP1 (`worklog/TP1.md`) moved thrust onto the nozzle-entrance P0.
+    `P_head` stays the pressure trace. During the startup `P_head`/P0
+    reaches 4.4 (BALLSstick), a sign of how steep the startup port-pressure
+    gradient is.
 - **AS1 + AW1, auto charge** (`worklog/AS1.md`, `results/aw1/`). The charge
   must give a prompt start: at least 95 % of grain cells lit within 0.1 s.
   - It steps up ×1.25 from a DeMar 300 psi guess, which the user treats as

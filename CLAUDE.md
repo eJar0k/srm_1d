@@ -425,7 +425,15 @@ you're changing):**
        area-Mach relation. Plateau -0.7..-1 %, startup -4..-10 %.
        - B0 now: Chunc peak 11.09 MPa, pk/plateau 1.36; Hasegawa A late peak
          0.925×.
-       - Thrust still used P_head (1-3.5 % high); TP1 fixes that.
+     - **TP1 (2026-11-11, `worklog/TP1.md`):** thrust, CF, Isp and impulse use
+       the nozzle-entrance stagnation pressure `P0_nozzle`. `P_head` stays the
+       chamber-pressure trace (GUI pressure, CSV, plots).
+       - C*_sim now matches the propellant C* to 0.1 %; with `P_head` it was
+         1-3.5 % high.
+       - Impulse moves -2.8..-5.8 %; BALLSstick peak thrust -22 % (its
+         startup `P_head`/P0 reaches 4.4).
+       - pathfin54 (measured thrust + pressure): the sim is ~6-9 % low in both,
+         a burn-rate/grain-side gap that TP1 does not touch.
      - T_ignition/k_solid were fit under Goodman; the LHS re-fit is pending and
        user-triggered.
 2. **Core-loop performance (held).** `fastmath` shipped (+~30%,
