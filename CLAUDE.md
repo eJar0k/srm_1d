@@ -189,7 +189,15 @@ repo root (siblings, dev-only — NOT in the package/wheel):
   `<motor>.ric` to `motors/` (gas transport is embedded per-propellant-tab
   in the .ric — the `.transport.yaml` sidecars are retired), load via
   `run_from_ric`. Parametric geometry uses `build_snapped_geometry` directly.
-- **Repo: github.com/eJar0k/srm_1d** (private).
+- **Repo: github.com/eJar0k/srm_1d** (PUBLIC).
+  - Never commit copyrighted material: `docs/references/*.pdf` is
+    gitignored.
+  - Record user-facing changes in `CHANGELOG.md`.
+  - The 2026-11-11 history rewrite changed the hashes of commits made after
+    2026-10-05; `docs/HISTORY_REWRITE_2026-11.md` maps old to new.
+  - Local branches made before the rewrite (`mu1/muscl`, `en1/total-energy`,
+    `ig1/diagnosis`, `backup/pre-pdf-strip`) still carry the PDFs. Never push
+    them; cherry-pick their work onto the new history instead.
 - **Pytest before commit**; clear `__pycache__/` and `.nbi`/`.nbc`
   after edits to @njit functions (Numba cache persistence is the #1
   source of "the fix didn't work" bugs — see DEVNOTES gotchas).
