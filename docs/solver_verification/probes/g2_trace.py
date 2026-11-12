@@ -28,13 +28,15 @@ def main():
     ap.add_argument('out')
     ap.add_argument('--cells', type=int, default=100)
     ap.add_argument('--t-max', type=float, default=10.0)
+    ap.add_argument('--no-lump-gaps', action='store_true', help='legacy gap cells + dx clamp (A/B)')
     a = ap.parse_args()
     t0 = time.time()
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
         res, perf, nozzle, geo, prop = run_from_ric(
             str(ROOT / 'motors' / a.ric), t_max=a.t_max, verbose=False, print_interval=0.0,
-            target_propellant_cells=a.cells, snapshot_interval=a.t_max / 20.0)
+            target_propellant_cells=a.cells, snapshot_interval=a.t_max / 20.0,
+            **({'lump_gaps': False} if a.no_lump_gaps else {}))
     wall = time.time() - t0
     s = res['summary']
     t = np.asarray(res['time'])

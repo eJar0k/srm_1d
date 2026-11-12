@@ -373,9 +373,14 @@ User: "let's try it, can revert if not" (memo `docs/solver_verification/G1_NOTES
 - **API:** `update_cell_geometry(..., cell_burn_scale=None)`; `_run_time_loop(..., cell_burn_scale, x_offset, ...)`; `_goodman_ignition_sources_and_mass(..., cell_burn_scale=None)`;
   `convert_geometry` / `ric_to_sim_args(..., lump_gaps=True)`; `GrainSegment(length_true, burn_scale, gap_after)`; `MotorGeometry(gaps_lumped)`. Cell counts and `L_motor`
   change for gapped motors (`L_motor` = propellant length; physical length = `L_motor + sum(gap_after)`).
-- Behaviour: canonical motors (all grains bonded, no gaps) change only through step 1 (<= 0.1 %); gapped BATES motors: pressure traces agree with the clamped-cell runs to
+- **Lump spreading (found by the stability sweep):** every lumped volume (head gap, inter-grain gaps, nozzle convergent) is SPREAD over consecutive cells
+  so that no cell's added storage exceeds `MotorGeometry.lump_ratio_cap` (= 1.0, i.e. storage at most doubles; 0 disables) times its own volume. A concentrated
+  convergent (example_bates: 25x the last cell's volume at N=200, 50x at N=400) made the fill transient abort (Mach 120) when the front reached it; this was latent
+  in G1's single-cell lump (legacy gap cells at N=400 collapse too) and the gap lumping lowered the threshold to N>=200. cap 1 and cap 3 both survive N=400; the
+  canonical motors move by 2e-4 (only Chunc's 4.9x convergent is spread).
+- Behaviour: canonical motors (all grains bonded, no gaps) change only through step 1 (<= 0.1 %) and the lump spreading (2e-4); gapped BATES motors: pressure traces agree with the clamped-cell runs to
   0.2-0.3 % rms (Aeroblast_flight_2 1.9 % rms: a 1.7 % lower early plateau and a 0.5 % shorter burn), with 1.4-2.1x fewer steps.
-- Tests: `tests/test_g2_snap.py` (25); updated `test_adapter` (2), `test_geometry` (2), `test_station_viz` (1). B0 re-recorded (G1 values in the comment).
+- Tests: `tests/test_g2_snap.py` (27); updated `test_adapter` (2), `test_geometry` (2), `test_station_viz` (1). B0 re-recorded (G1 values in the comment).
 
 ### QF1 (unreleased, 2026-11-10) -- total-energy regression-fill debit carries kinetic energy; p dV audit channel
 
