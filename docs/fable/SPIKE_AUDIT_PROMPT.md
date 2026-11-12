@@ -98,17 +98,31 @@ Known facts to weigh:
 Ask whether the comparison itself is sound: sampling, the window, the igniter,
 transducer location, and what "the spike" even means in each data set.
 
-Known issues already queued or in progress. Account for them in your
-estimates, but don't spend the session rediscovering them:
-- **Nozzle boundary.** The outlet uses the last cell's STATIC P and T as the
-  stagnation state. At Chunc's grain-exit Mach of about 0.35, P0 is about 7 %
-  low. A physical fix (isentropic stagnation values at the boundary) is
-  queued.
-- **AS1, auto charge.** The auto-charge success test is being changed to
-  "prompt start": at least 95 % of grain cells lit within 0.5 s of igniter
-  firing. BALLSstick's default 1.27 g auto charge currently hang-fires.
-- **G2, snapping.** Grain-length snapping to the grid is being changed to
-  preserve mass, and inter-grain gap volumes are being lumped.
+Recent changes (2026-11-11), now the defaults. Account for them, but don't
+spend the session rediscovering them:
+- **NB1, nozzle boundary** (`worklog/NB1.md`). The outlet takes the true
+  isentropic stagnation state; it used to take the last cell's static P and T.
+  - The plateau grain-exit Mach is 0.11-0.13, so the plateau moves only
+    0.7-1 %.
+  - The startup moves 4-10 %: Chunc peak -5.6 %, BALLSstick -4 %, Hasegawa A
+    early peak -9.5 %.
+  - TP1 (in progress) moves thrust onto the nozzle-entrance P0. Until then
+    thrust uses P_head, which is 1-3.5 % high.
+- **AS1 + AW1, auto charge** (`worklog/AS1.md`, `results/aw1/`). The charge
+  must give a prompt start: at least 95 % of grain cells lit within 0.1 s.
+  - It steps up ×1.25 from a DeMar 300 psi guess, which the user treats as
+    the amateur floor.
+  - Ignition comes out all-or-nothing: 99-100 % lit by 9-17 ms, or 0-7 % lit.
+  - Auto charges: Chunc 1.27 g, BALLSstick 2.03 g, Hasegawa A 9.83 g.
+- **G2, grid** (`worklog/G2.md`). Grain snapping preserves mass, gap volumes
+  are lumped, and lumps are spread across cells. Open: Aeroblast is 2 % off,
+  unexplained.
+- **B0 at the current defaults** (N = 100):
+  - Chunc peak 11.09 MPa at 23 ms, plateau 8.16, pk/plateau **1.36**
+    (exp 1.027);
+  - BALLSstick peak 8.41, trough 4.33, mid 4.85: pk/trough 1.94,
+    pk/mid 1.74 (exp ~1.50 / ~1.35);
+  - Hasegawa A late peak 5.957 MPa (0.925× exp), early peak 5.33.
 - **MU1, tabled by the user.** A MUSCL reconstruction branch exists. The user
   judged it a symptomatic fix, so it is not on the default path.
 

@@ -419,6 +419,13 @@ you're changing):**
          (`lump_ratio_cap=1`). This fixes a fine-grid fill collapse.
        - Open: Aeroblast's early plateau is 2 % below the legacy gap cells,
          unexplained.
+     - **NB1 (2026-11-11, `worklog/NB1.md`):** the nozzle boundary takes the
+       true isentropic stagnation state (`nozzle_bc_stagnation='isentropic'`;
+       `'static'` = old behaviour). When choked, the exit Mach comes from the
+       area-Mach relation. Plateau -0.7..-1 %, startup -4..-10 %.
+       - B0 now: Chunc peak 11.09 MPa, pk/plateau 1.36; Hasegawa A late peak
+         0.925×.
+       - Thrust still used P_head (1-3.5 % high); TP1 fixes that.
      - T_ignition/k_solid were fit under Goodman; the LHS re-fit is pending and
        user-triggered.
 2. **Core-loop performance (held).** `fastmath` shipped (+~30%,
